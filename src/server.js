@@ -17,6 +17,7 @@ import {
   listFitnessWeeks,
   readTrackingData,
   rollupFoodLogFromEvents,
+  syncFoodEventsToFoodLog,
   updateCurrentWeekItem,
   updateCurrentWeekSummary,
 } from "./trackingData.js";
@@ -68,6 +69,18 @@ app.post("/api/food/rollup", async (req, res) => {
     if (!date) return res.status(400).json({ ok: false, error: "Missing field: date" });
     const overwrite = typeof req.body?.overwrite === "boolean" ? req.body.overwrite : false;
     const result = await rollupFoodLogFromEvents(date, { overwrite });
+    res.json({ ok: true, date, ...result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/food/sync", async (req, res) => {
+  try {
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    if (!date) return res.status(400).json({ ok: false, error: "Missing field: date" });
+    const onlyUnsynced = typeof req.body?.only_unsynced === "boolean" ? req.body.only_unsynced : true;
+    const result = await syncFoodEventsToFoodLog({ date, onlyUnsynced });
     res.json({ ok: true, date, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -212,7 +225,10 @@ async function start() {
 
   if (isProd) {
     app.use(express.static(distDir, { index: false }));
-    app.use("*", async (_req, res) => {
+    app.use(async (req, res) => {
+      if (req.originalUrl.startsWith("/api")) {
+        return res.status(404).json({ ok: false, error: "Not found" });
+      }
       res.sendFile(path.join(distDir, "index.html"));
     });
   } else {
@@ -224,9 +240,12 @@ async function start() {
     });
     app.use(vite.middlewares);
 
-    app.use("*", async (req, res, next) => {
+    app.use(async (req, res, next) => {
       try {
         const url = req.originalUrl;
+        if (url.startsWith("/api")) {
+          return res.status(404).json({ ok: false, error: "Not found" });
+        }
         const template = await fs.readFile(path.join(clientRoot, "index.html"), "utf8");
         const html = await vite.transformIndexHtml(url, template);
         res.status(200).set({ "Content-Type": "text/html" }).end(html);

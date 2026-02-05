@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-05T07:51:56-08:00",
+    "last_updated": "2026-02-05T08:12:18-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json",
@@ -370,16 +370,16 @@
       "date": "2026-02-05",
       "day_of_week": "Thu",
       "weight_lb": null,
-      "calories": 0,
-      "fat_g": 0,
-      "carbs_g": 0,
-      "protein_g": 0,
-      "fiber_g": 0,
-      "potassium_mg": 0,
-      "magnesium_mg": 0,
-      "omega3_mg": 0,
-      "calcium_mg": 0,
-      "iron_mg": 0,
+      "calories": 560,
+      "fat_g": 22,
+      "carbs_g": 64,
+      "protein_g": 24,
+      "fiber_g": 4,
+      "potassium_mg": 400,
+      "magnesium_mg": 50,
+      "omega3_mg": null,
+      "calcium_mg": 400,
+      "iron_mg": 4,
       "status": "⚪",
       "notes": "Auto-generated from food_events."
     }
@@ -491,6 +491,52 @@
           "notes": "Pastry nutrition varies widely; assumed a small buttery tart/puff pastry with a little fruit and/or cream."
         }
       ]
+    },
+    {
+      "id": "4381316f-77dd-40ed-9eba-c26b63e642a6",
+      "date": "2026-02-05",
+      "logged_at": "2026-02-05T08:11:48-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Two slices of Domino’s pizza",
+      "notes": "felt bad adter",
+      "nutrients": {
+        "calories": 560,
+        "fat_g": 22,
+        "carbs_g": 64,
+        "protein_g": 24,
+        "fiber_g": 4,
+        "potassium_mg": 400,
+        "magnesium_mg": 50,
+        "omega3_mg": null,
+        "calcium_mg": 400,
+        "iron_mg": 4
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.55,
+        "notes": "Moderate uncertainty because Domino’s nutrition depends strongly on pizza type (crust, size, toppings). Estimates use a common baseline for large hand-tossed cheese slices. Micronutrients are rough; omega-3 not estimated because it depends on cheese/meat type and is typically not reported reliably for pizza."
+      },
+      "items": [
+        {
+          "name": "Domino’s pizza, slice (assumed regular hand-tossed, cheese)",
+          "portion": "2 slices",
+          "nutrients": {
+            "calories": 560,
+            "fat_g": 22,
+            "carbs_g": 64,
+            "protein_g": 24,
+            "fiber_g": 4,
+            "potassium_mg": 400,
+            "magnesium_mg": 50,
+            "omega3_mg": null,
+            "calcium_mg": 400,
+            "iron_mg": 4
+          },
+          "notes": "Assumed 1 slice ≈ 280 kcal (typical large hand-tossed cheese). Actual varies a lot by crust (thin/handmade pan), size, and toppings."
+        }
+      ],
+      "applied_to_food_log": true
     }
   ],
   "fitness_weeks": [

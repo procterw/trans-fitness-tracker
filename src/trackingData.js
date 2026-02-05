@@ -258,9 +258,42 @@ export async function addFoodEvent({
     nutrients,
     defaultNotes: "Auto-updated from food_events.",
   });
+  event.applied_to_food_log = true;
 
   await writeTrackingData(data);
   return { event, food_log: foodLogRow };
+}
+
+export async function syncFoodEventsToFoodLog({ date, onlyUnsynced = true }) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+
+  const data = await readTrackingData();
+  const events = Array.isArray(data.food_events) ? data.food_events : [];
+  const eventsForDate = events.filter((e) => e && e.date === date && e.nutrients);
+
+  let syncedCount = 0;
+  for (const e of eventsForDate) {
+    const alreadySynced = e.applied_to_food_log === true;
+    if (onlyUnsynced && alreadySynced) continue;
+
+    applyFoodEventToFoodLogInData(data, {
+      date,
+      nutrients: e.nutrients,
+      defaultNotes: "Auto-updated from food_events.",
+    });
+    e.applied_to_food_log = true;
+    syncedCount += 1;
+  }
+
+  if (syncedCount > 0 && data.metadata && typeof data.metadata === "object") {
+    data.metadata.last_updated = formatSeattleIso(new Date());
+  }
+  if (syncedCount > 0) {
+    await writeTrackingData(data);
+  }
+
+  const foodLogRow = Array.isArray(data.food_log) ? data.food_log.find((r) => r && r.date === date) ?? null : null;
+  return { synced_count: syncedCount, food_log: foodLogRow };
 }
 
 export async function getDailyFoodEventTotals(date) {
