@@ -1,16 +1,8 @@
-import OpenAI from "openai";
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
+import { getOpenAIClient } from "./openaiClient.js";
 import { readTrackingData } from "./trackingData.js";
-
-let cachedClient = null;
-function getOpenAIClient() {
-  if (cachedClient) return cachedClient;
-  if (!process.env.OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY in environment.");
-  cachedClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return cachedClient;
-}
 
 const NutrientsSchema = z.object({
   calories: z.number().nonnegative(),

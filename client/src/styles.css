@@ -133,6 +133,43 @@ textarea {
   padding-top: 30px;
 }
 
+.buttonRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 18px 0;
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.notesCell {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkButton {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--accent);
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 button {
   border: 1px solid var(--border);
   background: var(--accent);
@@ -146,6 +183,13 @@ button {
 button.secondary {
   background: transparent;
   color: var(--text);
+}
+
+button.small {
+  padding: 6px 10px;
+  border-radius: 9px;
+  font-weight: 800;
+  font-size: 13px;
 }
 
 button.danger {
@@ -196,3 +240,51 @@ ul {
   display: none;
 }
 
+.chatBox {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.chatMessages {
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  background: color-mix(in srgb, var(--card) 82%, black 18%);
+}
+
+.chatMsg {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 10px 0;
+}
+
+.chatMsg.user {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.chatMsg.assistant {
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.chatRole {
+  font-weight: 900;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chatContent {
+  white-space: pre-wrap;
+}
+
+.chatInputRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+  background: var(--card);
+}

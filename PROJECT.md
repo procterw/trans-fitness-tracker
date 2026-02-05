@@ -37,10 +37,13 @@ Note: for photo-based inference, some micronutrients may be unknown; represent u
 
 ## App: local web UI + API
 This repo includes a minimal local web app that supports:
-- Meal photo upload + nutrition inference (OpenAI vision)
-- Manual meal description logging + nutrition inference (OpenAI text)
+- Unified meal logging (photo and/or manual description) + nutrition inference (OpenAI)
+- Asking questions in-app (OpenAI assistant, contextualized by `tracking-data.json`)
 - Weekly fitness checklist updates (`current_week`)
-- A basic dashboard for browsing food events + daily totals + optional “recalculate from events” rollups
+- A basic dashboard for browsing:
+  - food events + daily totals for a selected date
+  - a full `food_log` table across all days (including each day’s notes)
+  - optional “recalculate from events” rollups
 
 ### Run
 1. `npm install`
@@ -55,19 +58,21 @@ This repo includes a minimal local web app that supports:
 ### Environment variables
 - `OPENAI_API_KEY` (required)
 - `OPENAI_MODEL` (optional; defaults to `gpt-4.1-mini`)
+- `OPENAI_ASSISTANT_MODEL` (optional; defaults to `OPENAI_MODEL`)
 - `PORT` (optional; defaults to `3000`)
+- `TRACKING_DATA_FILE` (optional; defaults to repo `tracking-data.json`)
 
 ### Endpoints
-- `GET /` → React UI (Photo / Manual / Fitness / Dashboard)
+- `GET /` → React UI (Food / Fitness / Dashboard)
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
-- `POST /api/food/photo` → multipart upload (`image`) + optional `date` and `notes`
-  - Uses OpenAI vision to estimate nutrients
-  - Appends a `food_events` entry to `tracking-data.json` **and updates** the matching `food_log` row (adds the meal totals)
+- `POST /api/food/log` → multipart form:
+  - optional `image` (if present, uses vision)
+  - optional `description` (if no image, required; if image is present, used as additional context)
+  - optional `date` and `notes`
+  - Appends a `food_events` entry and updates the matching `food_log` row (adds the meal totals)
   - Returns the created event + the estimate + running totals for that date (from `food_events`) + updated `food_log` row
-- `POST /api/food/manual` → JSON body: `description` + optional `date` and `notes`
-  - Uses OpenAI text to estimate nutrients
-  - Appends a `food_events` entry to `tracking-data.json` **and updates** the matching `food_log` row (adds the meal totals)
-  - Returns the created event + the estimate + running totals for that date (from `food_events`) + updated `food_log` row
+- `POST /api/food/photo` → multipart upload (`image`) + optional `date`, `notes`, and `description` (legacy; still supported)
+- `POST /api/food/manual` → JSON body: `description` + optional `date` and `notes` (legacy; still supported)
 - `GET /api/food/events?date=YYYY-MM-DD` → events for that date + running totals + existing `food_log` row (if present)
 - `POST /api/food/rollup` → JSON body: `date` + optional `overwrite`
   - Recalculates a `food_log` row *from `food_events`* (useful if you want the daily totals to equal the sum of events)
@@ -78,6 +83,8 @@ This repo includes a minimal local web app that supports:
 - `GET /api/fitness/current` → current week checklist (rollover-aware)
 - `POST /api/fitness/current/item` → JSON body: `category` (`cardio|strength|mobility|other`), `index`, `checked`, `details`
 - `POST /api/fitness/current/summary` → JSON body: `summary`
+- `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
+  - Answers questions using OpenAI, contextualized by `tracking-data.json` (diet/fitness philosophy + recent logs)
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format
@@ -88,6 +95,7 @@ Photo + manual logs append to `tracking-data.json.food_events` with:
 - `rollover_applied` (true if effective date differs from “today” in Seattle time)
 - `source` (e.g. `"photo"` or `"manual"`)
 - `description` (short meal title)
+- `input_text` (user-provided description text, if any)
 - `notes` (user-supplied)
 - `nutrients` (macros + micros; some may be `null`)
 - `items` (itemized breakdown)
@@ -121,4 +129,3 @@ Project intent includes a workflow where:
 - Add edit/delete for `food_events` (and recompute totals).
 - Expand dashboards: weekly adherence, cardio volume, glute sessions, calorie/macro averages, weight trend.
 - Add safety rails: warn on sustained under-eating, high systemic training stress, or accidental upper-body training stimulus.
-

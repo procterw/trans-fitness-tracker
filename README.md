@@ -1,11 +1,12 @@
 # Health & Fitness Tracker
 
 Minimal local web app that:
-- Logs meals (photo + manual description) into `tracking-data.json.food_events`
+- Logs meals (photo and/or manual description) into `tracking-data.json.food_events`
 - Uses the OpenAI API to estimate macros + key micronutrients
 - Updates `tracking-data.json.food_log` when meals are logged
 - Lets you update the weekly fitness checklist (`current_week`)
 - Includes a basic dashboard for daily totals + optional “recalculate from events” rollups
+- Includes a simple Q&A assistant (contextualized by `tracking-data.json`)
 
 ## Setup
 1. Install deps: `npm install`

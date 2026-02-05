@@ -1,8 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
 
-const TRACKING_FILE = path.resolve(process.cwd(), "tracking-data.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DEFAULT_TRACKING_FILE = path.resolve(__dirname, "..", "tracking-data.json");
+const TRACKING_FILE = process.env.TRACKING_DATA_FILE ? path.resolve(process.env.TRACKING_DATA_FILE) : DEFAULT_TRACKING_FILE;
 const TIME_ZONE = "America/Los_Angeles";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -220,6 +224,7 @@ export async function addFoodEvent({
   date,
   source,
   description,
+  input_text = null,
   notes,
   nutrients,
   model,
@@ -240,6 +245,7 @@ export async function addFoodEvent({
     rollover_applied: date !== seattleDate,
     source,
     description,
+    input_text,
     notes,
     nutrients,
     model,
@@ -368,6 +374,24 @@ export async function listFitnessWeeks({ limit = 12 } = {}) {
   const weeks = Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [];
   const safeLimit = Math.max(0, Number(limit) || 0);
   return weeks.slice(-safeLimit);
+}
+
+export async function listFoodLog({ limit = 0, from = null, to = null } = {}) {
+  const safeLimit = Math.max(0, Number(limit) || 0);
+  if (from !== null && !isIsoDateString(from)) throw new Error(`Invalid from date: ${from}`);
+  if (to !== null && !isIsoDateString(to)) throw new Error(`Invalid to date: ${to}`);
+
+  const data = await readTrackingData();
+  const log = Array.isArray(data.food_log) ? data.food_log : [];
+
+  let rows = log.filter((row) => row && typeof row === "object" && isIsoDateString(row.date));
+  if (from) rows = rows.filter((row) => row.date >= from);
+  if (to) rows = rows.filter((row) => row.date <= to);
+
+  rows = rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  if (safeLimit > 0) rows = rows.slice(0, safeLimit);
+
+  return rows;
 }
 
 export async function getFoodLogForDate(date) {

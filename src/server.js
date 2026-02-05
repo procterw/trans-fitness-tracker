@@ -6,6 +6,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import { askAssistant } from "./assistant.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
@@ -15,6 +16,7 @@ import {
   getDailyFoodEventTotals,
   getSuggestedLogDate,
   listFitnessWeeks,
+  listFoodLog,
   readTrackingData,
   rollupFoodLogFromEvents,
   syncFoodEventsToFoodLog,
@@ -35,6 +37,54 @@ const __dirname = path.dirname(__filename);
 const clientRoot = path.resolve(__dirname, "..", "client");
 const distDir = path.resolve(__dirname, "..", "dist");
 
+async function logFoodFromInputs({ file, descriptionText, notes, date }) {
+  const trimmedDescription = typeof descriptionText === "string" ? descriptionText.trim() : "";
+  const trimmedNotes = typeof notes === "string" ? notes.trim() : "";
+
+  if (!file && !trimmedDescription) {
+    throw new Error("Provide either an image or a meal description.");
+  }
+
+  const effectiveDate = date ?? getSuggestedLogDate();
+
+  const userNotesForModel = [trimmedDescription, trimmedNotes].filter(Boolean).join("\n");
+
+  const source = file ? "photo" : "manual";
+  const estimate = file
+    ? await estimateNutritionFromImage({
+        imageBuffer: file.buffer,
+        imageMimeType: file.mimetype,
+        userNotes: userNotesForModel,
+      })
+    : await estimateNutritionFromText({
+        mealText: trimmedDescription,
+        userNotes: trimmedNotes,
+      });
+
+  const { event, food_log } = await addFoodEvent({
+    date: effectiveDate,
+    source,
+    description: estimate.meal_title,
+    input_text: trimmedDescription || null,
+    notes: trimmedNotes,
+    nutrients: estimate.totals,
+    model: estimate.model,
+    confidence: estimate.confidence,
+    raw_items: estimate.items,
+  });
+
+  const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
+
+  return {
+    ok: true,
+    date: effectiveDate,
+    event,
+    estimate,
+    day_totals_from_events: totalsForDay,
+    food_log,
+  };
+}
+
 app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
@@ -50,6 +100,21 @@ app.get("/api/context", async (_req, res) => {
   }
 });
 
+app.post("/api/assistant/ask", async (req, res) => {
+  try {
+    const question = typeof req.body?.question === "string" && req.body.question.trim() ? req.body.question.trim() : null;
+    if (!question) return res.status(400).json({ ok: false, error: "Missing field: question" });
+
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const answer = await askAssistant({ question, date, messages });
+    res.json({ ok: true, answer });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.get("/api/food/events", async (req, res) => {
   try {
     const date = typeof req.query?.date === "string" && req.query.date.trim() ? req.query.date.trim() : null;
@@ -58,6 +123,19 @@ app.get("/api/food/events", async (req, res) => {
     const totalsForDay = await getDailyFoodEventTotals(date);
     const logRow = await getFoodLogForDate(date);
     res.json({ ok: true, date, events, day_totals_from_events: totalsForDay, food_log: logRow });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/food/log", async (req, res) => {
+  try {
+    const limitRaw = typeof req.query?.limit === "string" ? req.query.limit.trim() : null;
+    const from = typeof req.query?.from === "string" && req.query.from.trim() ? req.query.from.trim() : null;
+    const to = typeof req.query?.to === "string" && req.query.to.trim() ? req.query.to.trim() : null;
+    const limit = limitRaw ? Number(limitRaw) : 0;
+    const rows = await listFoodLog({ limit, from, to });
+    res.json({ ok: true, rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -87,6 +165,26 @@ app.post("/api/food/sync", async (req, res) => {
   }
 });
 
+app.post("/api/food/log", upload.single("image"), async (req, res) => {
+  try {
+    const file = req.file ?? null;
+    if (file && !file.mimetype?.startsWith("image/")) {
+      return res.status(400).json({ ok: false, error: `Unsupported mimetype: ${file.mimetype}` });
+    }
+
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+    const descriptionText = typeof req.body?.description === "string" ? req.body.description : "";
+
+    const payload = await logFoodFromInputs({ file, descriptionText, notes, date });
+    res.json(payload);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isInputError = msg === "Provide either an image or a meal description.";
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
+  }
+});
+
 app.post("/api/food/photo", upload.single("image"), async (req, res) => {
   try {
     const file = req.file;
@@ -97,18 +195,20 @@ app.post("/api/food/photo", upload.single("image"), async (req, res) => {
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
     const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
+    const descriptionText = typeof req.body?.description === "string" ? req.body.description.trim() : "";
     const effectiveDate = date ?? getSuggestedLogDate();
 
     const estimate = await estimateNutritionFromImage({
       imageBuffer: file.buffer,
       imageMimeType: file.mimetype,
-      userNotes: notes,
+      userNotes: [descriptionText, notes].filter(Boolean).join("\n"),
     });
 
     const { event, food_log } = await addFoodEvent({
       date: effectiveDate,
       source: "photo",
       description: estimate.meal_title,
+      input_text: descriptionText || null,
       notes,
       nutrients: estimate.totals,
       model: estimate.model,
@@ -150,6 +250,7 @@ app.post("/api/food/manual", async (req, res) => {
       date: effectiveDate,
       source: "manual",
       description: estimate.meal_title,
+      input_text: description,
       notes,
       nutrients: estimate.totals,
       model: estimate.model,

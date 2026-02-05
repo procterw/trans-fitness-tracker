@@ -30,8 +30,36 @@ export async function logFoodManual({ description, date, notes }) {
   });
 }
 
+export async function logFood({ file = null, description = "", date = "", notes = "" }) {
+  const fd = new FormData();
+  if (file) fd.append("image", file);
+  if (date) fd.append("date", date);
+  fd.append("description", description ?? "");
+  fd.append("notes", notes ?? "");
+  return fetchJson("/api/food/log", { method: "POST", body: fd });
+}
+
+export async function askAssistant({ question, date = "", messages = [] }) {
+  const body = { question, messages };
+  if (date) body.date = date;
+  return fetchJson("/api/assistant/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function getFoodForDate(date) {
   return fetchJson(`/api/food/events?date=${encodeURIComponent(date)}`);
+}
+
+export async function getFoodLog({ limit = 0, from = null, to = null } = {}) {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const qs = params.toString();
+  return fetchJson(`/api/food/log${qs ? `?${qs}` : ""}`);
 }
 
 export async function rollupFoodForDate({ date, overwrite = false }) {
