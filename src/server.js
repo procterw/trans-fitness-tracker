@@ -3,6 +3,7 @@ import "dotenv/config";
 import express from "express";
 import multer from "multer";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
@@ -30,8 +31,8 @@ const upload = multer({
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const publicDir = path.resolve(__dirname, "..", "public");
-app.use(express.static(publicDir));
+const clientRoot = path.resolve(__dirname, "..", "client");
+const distDir = path.resolve(__dirname, "..", "dist");
 
 app.get("/api/context", async (_req, res) => {
   try {
@@ -91,7 +92,7 @@ app.post("/api/food/photo", upload.single("image"), async (req, res) => {
       userNotes: notes,
     });
 
-    const event = await addFoodEvent({
+    const { event, food_log } = await addFoodEvent({
       date: effectiveDate,
       source: "photo",
       description: estimate.meal_title,
@@ -110,6 +111,7 @@ app.post("/api/food/photo", upload.single("image"), async (req, res) => {
       event,
       estimate,
       day_totals_from_events: totalsForDay,
+      food_log,
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -131,7 +133,7 @@ app.post("/api/food/manual", async (req, res) => {
       userNotes: notes,
     });
 
-    const event = await addFoodEvent({
+    const { event, food_log } = await addFoodEvent({
       date: effectiveDate,
       source: "manual",
       description: estimate.meal_title,
@@ -150,6 +152,7 @@ app.post("/api/food/manual", async (req, res) => {
       event,
       estimate,
       day_totals_from_events: totalsForDay,
+      food_log,
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -204,8 +207,45 @@ app.get("/api/fitness/history", async (req, res) => {
   }
 });
 
-const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
+async function start() {
+  const isProd = process.env.NODE_ENV === "production";
+
+  if (isProd) {
+    app.use(express.static(distDir, { index: false }));
+    app.use("*", async (_req, res) => {
+      res.sendFile(path.join(distDir, "index.html"));
+    });
+  } else {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      root: clientRoot,
+      server: { middlewareMode: true },
+      appType: "custom",
+    });
+    app.use(vite.middlewares);
+
+    app.use("*", async (req, res, next) => {
+      try {
+        const url = req.originalUrl;
+        const template = await fs.readFile(path.join(clientRoot, "index.html"), "utf8");
+        const html = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(html);
+      } catch (err) {
+        vite.ssrFixStacktrace(err);
+        next(err);
+      }
+    });
+  }
+
+  const port = Number(process.env.PORT ?? 3000);
+  app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Tracker listening on http://localhost:${port}`);
+  });
+}
+
+start().catch((err) => {
   // eslint-disable-next-line no-console
-  console.log(`Tracker listening on http://localhost:${port}`);
+  console.error(err);
+  process.exit(1);
 });

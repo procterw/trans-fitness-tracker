@@ -169,6 +169,53 @@ function sumNullable(values) {
   return sum(values);
 }
 
+function dayOfWeekFromDateString(dateStr) {
+  const d = parseIsoDateAsUtcNoon(dateStr);
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d);
+}
+
+function mergeNutrient(currentValue, deltaValue) {
+  if (typeof deltaValue === "number" && Number.isFinite(deltaValue)) {
+    if (typeof currentValue === "number" && Number.isFinite(currentValue)) return currentValue + deltaValue;
+    return deltaValue;
+  }
+  return currentValue ?? null;
+}
+
+function applyFoodEventToFoodLogInData(data, { date, nutrients, defaultNotes = "" }) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+  if (!nutrients || typeof nutrients !== "object") throw new Error("Missing nutrients");
+
+  if (!Array.isArray(data.food_log)) data.food_log = [];
+  const idx = data.food_log.findIndex((row) => row && row.date === date);
+  const prev = idx >= 0 ? data.food_log[idx] : null;
+
+  const next = {
+    date,
+    day_of_week: prev?.day_of_week ?? dayOfWeekFromDateString(date),
+    weight_lb: prev?.weight_lb ?? null,
+
+    calories: mergeNutrient(prev?.calories, nutrients.calories),
+    fat_g: mergeNutrient(prev?.fat_g, nutrients.fat_g),
+    carbs_g: mergeNutrient(prev?.carbs_g, nutrients.carbs_g),
+    protein_g: mergeNutrient(prev?.protein_g, nutrients.protein_g),
+
+    fiber_g: mergeNutrient(prev?.fiber_g, nutrients.fiber_g),
+    potassium_mg: mergeNutrient(prev?.potassium_mg, nutrients.potassium_mg),
+    magnesium_mg: mergeNutrient(prev?.magnesium_mg, nutrients.magnesium_mg),
+    omega3_mg: mergeNutrient(prev?.omega3_mg, nutrients.omega3_mg),
+    calcium_mg: mergeNutrient(prev?.calcium_mg, nutrients.calcium_mg),
+    iron_mg: mergeNutrient(prev?.iron_mg, nutrients.iron_mg),
+
+    status: prev?.status ?? "⚪",
+    notes: typeof prev?.notes === "string" ? prev.notes : defaultNotes,
+  };
+
+  if (idx >= 0) data.food_log[idx] = next;
+  else data.food_log.push(next);
+  return next;
+}
+
 export async function addFoodEvent({
   date,
   source,
@@ -206,8 +253,14 @@ export async function addFoodEvent({
     data.metadata.last_updated = loggedAt;
   }
 
+  const foodLogRow = applyFoodEventToFoodLogInData(data, {
+    date,
+    nutrients,
+    defaultNotes: "Auto-updated from food_events.",
+  });
+
   await writeTrackingData(data);
-  return event;
+  return { event, food_log: foodLogRow };
 }
 
 export async function getDailyFoodEventTotals(date) {

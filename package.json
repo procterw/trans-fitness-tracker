@@ -4,7 +4,8 @@
   "description": "Diet and fitness tracker with photo-based nutrition estimates.",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "build": "vite build --config client/vite.config.js",
+    "start": "NODE_ENV=production node src/server.js"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +16,12 @@
     "express": "^5.2.1",
     "multer": "^2.0.2",
     "openai": "^6.17.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "vite": "^7.1.2"
   }
 }

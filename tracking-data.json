@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-05T07:42:45-08:00",
+    "last_updated": "2026-02-05T07:51:56-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json",
@@ -353,16 +353,16 @@
       "date": "2026-02-04",
       "day_of_week": "Wed",
       "weight_lb": null,
-      "calories": 3115,
-      "fat_g": 143,
-      "carbs_g": 286,
-      "protein_g": 143,
-      "fiber_g": 21,
-      "potassium_mg": 2350,
-      "magnesium_mg": 350,
+      "calories": 3645,
+      "fat_g": 171,
+      "carbs_g": 347,
+      "protein_g": 154,
+      "fiber_g": 34,
+      "potassium_mg": 3140,
+      "magnesium_mg": 445,
       "omega3_mg": 1280,
-      "calcium_mg": 1050,
-      "iron_mg": 17,
+      "calcium_mg": 1150,
+      "iron_mg": 20.8,
       "status": "🟡",
       "notes": "Lunch: 2 soft boiled eggs, 2 slices Dave's Killer Bread (toast), standard smoothie. Snack: 2 servings Tim's chips. Dinner: Large Korean BBQ (substantial beef portion, banchan, rice). Late: 1 serving dark chocolate (3 pieces) and soy milk. Protein elevated at 143g but diffuse and fat-paired with BBQ."
     },
@@ -427,6 +427,68 @@
             "iron_mg": 4
           },
           "notes": "Estimated using typical nutrition for standard cheese pizza slices. User note says pizza; photo does not clearly match pizza, so this is based on the note rather than the image."
+        }
+      ]
+    },
+    {
+      "id": "7ef832e3-e438-4dda-9f1c-4d0cb14ea60d",
+      "date": "2026-02-04",
+      "logged_at": "2026-02-05T07:51:46-08:00",
+      "rollover_applied": true,
+      "source": "photo",
+      "description": "Avocado toast with arugula/tomatoes + small fruit pastry/tart",
+      "notes": "",
+      "nutrients": {
+        "calories": 530,
+        "fat_g": 28,
+        "carbs_g": 61,
+        "protein_g": 11,
+        "fiber_g": 13,
+        "potassium_mg": 790,
+        "magnesium_mg": 95,
+        "omega3_mg": null,
+        "calcium_mg": 100,
+        "iron_mg": 3.8
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.55,
+        "notes": "Moderate uncertainty: exact bread type/thickness, amount of avocado, and whether any olive oil/cheese is present can shift calories/fat notably. Pastry type and filling are unclear, so that item is the biggest source of error. Micronutrients are rough estimates from typical ingredients."
+      },
+      "items": [
+        {
+          "name": "Avocado toast (dark bread) with avocado, arugula, cherry tomatoes, balsamic glaze",
+          "portion": "1 open-faced toast (~1 thick slice bread) with ~1/2 medium avocado, small handful arugula, ~4–6 cherry tomatoes, light drizzle glaze",
+          "nutrients": {
+            "calories": 360,
+            "fat_g": 19,
+            "carbs_g": 41,
+            "protein_g": 9,
+            "fiber_g": 12,
+            "potassium_mg": 700,
+            "magnesium_mg": 85,
+            "omega3_mg": 120,
+            "calcium_mg": 80,
+            "iron_mg": 3
+          },
+          "notes": "Assumed whole-grain/rye-style bread and ~1/2 avocado based on coverage. Minimal added oil; balsamic glaze assumed small."
+        },
+        {
+          "name": "Small fruit pastry/tart (with sliced fruit)",
+          "portion": "1 small piece (~2.5–3 in across)",
+          "nutrients": {
+            "calories": 170,
+            "fat_g": 9,
+            "carbs_g": 20,
+            "protein_g": 2,
+            "fiber_g": 1,
+            "potassium_mg": 90,
+            "magnesium_mg": 10,
+            "omega3_mg": null,
+            "calcium_mg": 20,
+            "iron_mg": 0.8
+          },
+          "notes": "Pastry nutrition varies widely; assumed a small buttery tart/puff pastry with a little fruit and/or cream."
         }
       ]
     }
