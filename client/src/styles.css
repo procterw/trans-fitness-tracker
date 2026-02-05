@@ -326,7 +326,7 @@ ul {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #ffffff;
+  background: var(--card);
 }
 
 .chatBoxFull {
@@ -339,8 +339,8 @@ ul {
   max-height: none;
   overflow: auto;
   padding: 12px;
-  background: #ffffff;
-  color: #111111;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .chatMsg {
@@ -363,7 +363,7 @@ ul {
   border-radius: 0;
   padding: 12px;
   margin: 16px 0 8px;
-  background: #f6f7fb;
+  background: var(--card);
 }
 
 .chatPanel {
@@ -466,9 +466,9 @@ ul {
   gap: 10px;
   padding: 10px 12px;
   border: none;
-  border-top: 1px solid #777;
+  border-top: 1px solid var(--border);
   border-radius: 0;
-  background: #ffffff;
+  background: var(--card);
 }
 
 .composerInput {
@@ -478,12 +478,16 @@ ul {
   padding: 8px 6px;
   border: none;
   border-radius: 0;
-  background: #ffffff;
-  color: #111111;
+  background: transparent;
+  color: var(--text);
   resize: none;
   overflow: auto;
   min-height: 22px;
   line-height: 1.35;
+}
+
+.composerInput::placeholder {
+  color: var(--muted);
 }
 
 .composerInput:focus {
