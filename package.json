@@ -1,0 +1,20 @@
+{
+  "name": "new-project",
+  "version": "1.0.0",
+  "description": "Diet and fitness tracker with photo-based nutrition estimates.",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "multer": "^2.0.2",
+    "openai": "^6.17.0",
+    "zod": "^4.3.6"
+  }
+}

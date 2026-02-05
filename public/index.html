@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tracker</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Health & Fitness Tracker</h1>
+      <p class="muted">Upload a meal photo to estimate nutrition and log it to <code>tracking-data.json</code>.</p>
+
+      <form id="photoForm" class="card">
+        <label>
+          Meal photo
+          <input type="file" name="image" accept="image/*" required />
+        </label>
+
+        <div class="row">
+          <label>
+            Log date
+            <input id="dateInput" type="date" name="date" />
+          </label>
+          <label>
+            Notes (optional)
+            <input type="text" name="notes" placeholder="e.g., standard smoothie; big portion; extra rice" />
+          </label>
+        </div>
+
+        <button id="submitBtn" type="submit">Analyze & Log</button>
+        <div id="status" class="status" aria-live="polite"></div>
+      </form>
+
+      <section id="result" class="card hidden"></section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
