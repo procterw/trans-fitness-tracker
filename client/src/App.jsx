@@ -104,6 +104,8 @@ export default function App() {
   const [tab, setTab] = useState("food");
 
   const [suggestedDate, setSuggestedDate] = useState("");
+  const foodFormRef = useRef(null);
+  const foodFileInputRef = useRef(null);
 
   // Food tab state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
@@ -260,7 +262,7 @@ export default function App() {
         date: foodDate,
       });
       setFoodResult(json);
-      setFoodStatus("Logged.");
+      setFoodStatus("");
       if (json?.date) setDashDate(json.date);
     } catch (e2) {
       setFoodError(e2 instanceof Error ? e2.message : String(e2));
@@ -268,6 +270,22 @@ export default function App() {
     } finally {
       setFoodLoading(false);
     }
+  };
+
+  const onPickFoodFile = (file) => {
+    setFoodFile(file ?? null);
+  };
+
+  const clearFoodFile = () => {
+    setFoodFile(null);
+    const input = foodFileInputRef.current;
+    if (input) input.value = "";
+  };
+
+  const autosizeComposerTextarea = (el) => {
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
   const onAsk = async (questionText) => {
@@ -598,48 +616,96 @@ export default function App() {
       {tab === "food" ? (
         <section className="card">
           <h2>Food (photo + manual)</h2>
-          <p className="muted">
-            Upload a meal photo and/or describe what you ate. (Suggested date: <code>{suggestedDate || "—"}</code>)
-          </p>
 
-          <form onSubmit={onSubmitFood}>
-            <label>
-              Meal photo (optional)
-              <input type="file" accept="image/*" onChange={(e) => setFoodFile(e.target.files?.[0] ?? null)} />
-            </label>
+          <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm">
+            <input
+              ref={foodFileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden composerFileInput"
+              hidden
+              onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
+            />
 
-            <label>
-              Meal description / context (optional if photo is provided)
+            <div className="composerBar" aria-label="Meal log input">
+              <button
+                type="button"
+                className="iconButton"
+                aria-label={foodFile ? "Change photo" : "Add photo"}
+                onClick={() => foodFileInputRef.current?.click()}
+                disabled={foodLoading}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M12 5v14M5 12h14"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
               <textarea
-                rows={3}
+                rows={1}
+                className="composerInput"
                 value={foodDesc}
                 onChange={(e) => setFoodDesc(e.target.value)}
-                placeholder="e.g., standard smoothie; 2 slices toast with vegan mayo; handful of chips (include any extra context)"
+                onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!foodLoading) foodFormRef.current?.requestSubmit();
+                  }
+                }}
+                placeholder="Add your workout or describe what you ate"
+                aria-label="Meal description"
               />
-            </label>
 
-            <label>
-              Log date
-              <input type="date" value={foodDate} onChange={(e) => setFoodDate(e.target.value)} />
-            </label>
-
-            <div className="buttonRow">
-              <button type="submit" disabled={foodLoading}>
-                Estimate &amp; Log
+              <button type="submit" className="sendButton" disabled={foodLoading} aria-label="Estimate and log">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </button>
-              {foodResult?.date ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => {
-                    setDashDate(foodResult.date);
-                    setTab("dashboard");
-                  }}
-                >
-                  View in dashboard
-                </button>
-              ) : null}
             </div>
+
+            <div className="composerMetaRow">
+              <div className="composerMetaLeft">
+                {foodFile ? (
+                  <span className="filePill" title={foodFile.name}>
+                    <span className="filePillLabel">Photo:</span> {foodFile.name}
+                    <button
+                      type="button"
+                      className="filePillRemove"
+                      aria-label="Remove photo"
+                      onClick={clearFoodFile}
+                      disabled={foodLoading}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="composerMetaRight">
+                <label className="metaLabel">
+                  Date
+                  <input
+                    type="date"
+                    className="datePillInput"
+                    value={foodDate}
+                    onChange={(e) => setFoodDate(e.target.value)}
+                    disabled={foodLoading}
+                  />
+                </label>
+              </div>
+            </div>
+
             <div className="status">{foodError ? <span className="error">{foodError}</span> : foodStatus}</div>
           </form>
 
@@ -823,11 +889,6 @@ export default function App() {
                     <li key={idx}>
                       <strong>{e.description ?? "(no description)"}</strong>
                       {typeof e?.nutrients?.calories === "number" ? <> — {e.nutrients.calories} kcal</> : null}
-                      {e.input_text ? (
-                        <div className="muted">
-                          Input: <code>{e.input_text}</code>
-                        </div>
-                      ) : null}
                       {e.notes ? <div className="muted">Notes: {e.notes}</div> : null}
                       <br />
                       <span className="muted">

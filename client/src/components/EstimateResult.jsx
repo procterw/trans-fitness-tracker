@@ -16,11 +16,6 @@ export default function EstimateResult({ payload, onAsk }) {
         Event: <code>{escapeText(event?.id)}</code> • Date: <code>{escapeText(event?.date)}</code> • Source:{" "}
         <code>{escapeText(event?.source)}</code>
       </p>
-      {event?.input_text ? (
-        <p className="muted">
-          Input: <code>{escapeText(event.input_text)}</code>
-        </p>
-      ) : null}
       {event?.notes ? <p className="muted">Notes: {escapeText(event.notes)}</p> : null}
 
       <h3>Estimate: {escapeText(estimate?.meal_title)}</h3>
