@@ -240,7 +240,7 @@ export default function App() {
         date: foodDate,
       });
       setFoodResult(json);
-      setFoodStatus("Logged.");
+      setFoodStatus("");
       if (json?.date) setDashDate(json.date);
     } catch (e2) {
       setFoodError(e2 instanceof Error ? e2.message : String(e2));
@@ -548,9 +548,6 @@ export default function App() {
       {tab === "food" ? (
         <section className="card">
           <h2>Food (photo + manual)</h2>
-          <p className="muted">
-            Upload a meal photo and/or describe what you ate. (Suggested date: <code>{suggestedDate || "—"}</code>)
-          </p>
 
           <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm">
             <input
@@ -623,9 +620,7 @@ export default function App() {
                       ×
                     </button>
                   </span>
-                ) : (
-                  <span className="muted composerHint">No photo selected</span>
-                )}
+                ) : null}
               </div>
 
               <div className="composerMetaRight">
@@ -639,19 +634,6 @@ export default function App() {
                     disabled={foodLoading}
                   />
                 </label>
-
-                {foodResult?.date ? (
-                  <button
-                    type="button"
-                    className="secondary small"
-                    onClick={() => {
-                      setDashDate(foodResult.date);
-                      setTab("dashboard");
-                    }}
-                  >
-                    View in dashboard
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -844,11 +826,6 @@ export default function App() {
                     <li key={idx}>
                       <strong>{e.description ?? "(no description)"}</strong>
                       {typeof e?.nutrients?.calories === "number" ? <> — {e.nutrients.calories} kcal</> : null}
-                      {e.input_text ? (
-                        <div className="muted">
-                          Input: <code>{e.input_text}</code>
-                        </div>
-                      ) : null}
                       {e.notes ? <div className="muted">Notes: {e.notes}</div> : null}
                       <br />
                       <span className="muted">
