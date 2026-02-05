@@ -356,6 +356,38 @@ export async function updateCurrentWeekItem({ category, index, checked, details 
   return current_week;
 }
 
+export async function updateCurrentWeekItems(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) throw new Error("Missing updates");
+
+  const allowed = new Set(["cardio", "strength", "mobility", "other"]);
+  for (const update of updates) {
+    if (!allowed.has(update?.category)) throw new Error(`Invalid category: ${update?.category}`);
+    if (!Number.isInteger(update?.index) || update.index < 0) throw new Error(`Invalid index: ${update?.index}`);
+    if (typeof update?.checked !== "boolean") throw new Error("Invalid checked value");
+    if (typeof update?.details !== "string") throw new Error("Invalid details value");
+  }
+
+  const data = await readTrackingData();
+  const { current_week } = ensureCurrentWeekInData(data, new Date());
+
+  for (const update of updates) {
+    const list = Array.isArray(current_week[update.category]) ? current_week[update.category] : [];
+    if (!list[update.index]) throw new Error("Item not found");
+    list[update.index] = {
+      ...list[update.index],
+      checked: update.checked,
+      details: update.details,
+    };
+    current_week[update.category] = list;
+  }
+
+  if (data.metadata && typeof data.metadata === "object") {
+    data.metadata.last_updated = formatSeattleIso(new Date());
+  }
+  await writeTrackingData(data);
+  return current_week;
+}
+
 export async function updateCurrentWeekSummary(summary) {
   if (typeof summary !== "string") throw new Error("Invalid summary");
   const data = await readTrackingData();

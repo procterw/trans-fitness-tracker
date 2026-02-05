@@ -50,6 +50,15 @@ export async function askAssistant({ question, date = "", messages = [] }) {
   });
 }
 
+export async function ingestAssistant({ message = "", file = null, date = "", messages = [] }) {
+  const fd = new FormData();
+  if (file) fd.append("image", file);
+  if (date) fd.append("date", date);
+  fd.append("message", message ?? "");
+  if (messages?.length) fd.append("messages", JSON.stringify(messages));
+  return fetchJson("/api/assistant/ingest", { method: "POST", body: fd });
+}
+
 export async function getFoodForDate(date) {
   return fetchJson(`/api/food/events?date=${encodeURIComponent(date)}`);
 }

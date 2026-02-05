@@ -2,13 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import "./styles.css";
 import {
-  askAssistant,
   getContext,
   getFitnessCurrent,
   getFitnessHistory,
   getFoodForDate,
   getFoodLog,
-  logFood,
+  ingestAssistant,
   rollupFoodForDate,
   syncFoodForDate,
   updateFitnessItem,
@@ -87,19 +86,13 @@ export default function App() {
 
   // Food tab state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
-  const [foodDesc, setFoodDesc] = useState("");
+  const [composerInput, setComposerInput] = useState("");
   const [foodFile, setFoodFile] = useState(null);
-  const [foodStatus, setFoodStatus] = useState("");
-  const [foodError, setFoodError] = useState("");
+  const [composerStatus, setComposerStatus] = useState("");
+  const [composerError, setComposerError] = useState("");
   const [foodResult, setFoodResult] = useState(null);
-  const [foodLoading, setFoodLoading] = useState(false);
-
-  // Assistant chat state
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatStatus, setChatStatus] = useState("");
-  const [chatError, setChatError] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
+  const [composerLoading, setComposerLoading] = useState(false);
+  const [composerMessages, setComposerMessages] = useState([]);
 
   // Fitness tab state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -222,31 +215,47 @@ export default function App() {
 
   const onSubmitFood = async (e) => {
     e.preventDefault();
-    setFoodError("");
-    setFoodStatus("");
-    setFoodResult(null);
+    setComposerError("");
+    setComposerStatus("");
 
-    if (!foodFile && !foodDesc.trim()) {
-      setFoodError("Add a photo or type a description.");
+    const messageText = composerInput.trim();
+    if (!foodFile && !messageText) {
+      setComposerError("Type a message or add a photo.");
       return;
     }
 
-    setFoodLoading(true);
-    setFoodStatus(foodFile ? "Analyzing… " : "Estimating… ");
+    setComposerLoading(true);
+    setComposerStatus("Thinking…");
+    const previous = composerMessages;
+    const userMessage = {
+      role: "user",
+      content: messageText || (foodFile ? "📷 Photo attached." : ""),
+    };
+    const nextLocal = [...previous, userMessage];
+    setComposerMessages(nextLocal);
     try {
-      const json = await logFood({
+      const json = await ingestAssistant({
+        message: messageText,
         file: foodFile,
-        description: foodDesc.trim(),
         date: foodDate,
+        messages: previous,
       });
-      setFoodResult(json);
-      setFoodStatus("");
-      if (json?.date) setDashDate(json.date);
+      if (json?.food_result) {
+        setFoodResult(json.food_result);
+        if (json.food_result?.date) setDashDate(json.food_result.date);
+      }
+      const assistantMessages = [];
+      if (json?.assistant_message) assistantMessages.push({ role: "assistant", content: json.assistant_message });
+      if (json?.followup_question) assistantMessages.push({ role: "assistant", content: json.followup_question });
+      setComposerMessages([...nextLocal, ...assistantMessages]);
+      setComposerStatus("");
+      setComposerInput("");
+      clearFoodFile();
     } catch (e2) {
-      setFoodError(e2 instanceof Error ? e2.message : String(e2));
-      setFoodStatus("");
+      setComposerError(e2 instanceof Error ? e2.message : String(e2));
+      setComposerStatus("");
     } finally {
-      setFoodLoading(false);
+      setComposerLoading(false);
     }
   };
 
@@ -264,31 +273,6 @@ export default function App() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  };
-
-  const onAsk = async (questionText) => {
-    const q = questionText.trim();
-    if (!q) return;
-
-    setChatError("");
-    setChatStatus("Thinking…");
-    setChatLoading(true);
-
-    const previous = chatMessages;
-    const nextLocal = [...previous, { role: "user", content: q }];
-    setChatMessages(nextLocal);
-    setChatInput("");
-
-    try {
-      const json = await askAssistant({ question: q, date: foodDate, messages: previous });
-      setChatMessages([...nextLocal, { role: "assistant", content: json.answer ?? "" }]);
-      setChatStatus("Done.");
-    } catch (e) {
-      setChatError(e instanceof Error ? e.message : String(e));
-      setChatStatus("");
-    } finally {
-      setChatLoading(false);
-    }
   };
 
   const enqueueFitnessSave = useSerialQueue();
@@ -549,143 +533,118 @@ export default function App() {
         <section className="card">
           <h2>Food (photo + manual)</h2>
 
-          <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm">
-            <input
-              ref={foodFileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
-            />
+          <div className="chatBox">
+            <div className="chatMessages" aria-label="Conversation">
+              {composerMessages.length ? (
+                composerMessages.map((m, idx) => (
+                  <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
+                    <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
+                    <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
+                      {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="muted">No messages yet.</div>
+              )}
+            </div>
 
-            <div className="composerBar" aria-label="Meal log input">
-              <button
-                type="button"
-                className="iconButton"
-                aria-label={foodFile ? "Change photo" : "Add photo"}
-                onClick={() => foodFileInputRef.current?.click()}
-                disabled={foodLoading}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M12 5v14M5 12h14"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-
-              <textarea
-                rows={1}
-                className="composerInput"
-                value={foodDesc}
-                onChange={(e) => setFoodDesc(e.target.value)}
-                onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!foodLoading) foodFormRef.current?.requestSubmit();
-                  }
-                }}
-                placeholder="Describe your meal… (Shift+Enter for newline)"
-                aria-label="Meal description"
+            <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm chatComposer">
+              <input
+                ref={foodFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden composerFileInput"
+                hidden
+                onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
               />
 
-              <button type="submit" className="sendButton" disabled={foodLoading} aria-label="Estimate and log">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-            </div>
+              <div className="composerBar" aria-label="Unified input">
+                <button
+                  type="button"
+                  className="iconButton"
+                  aria-label={foodFile ? "Change photo" : "Add photo"}
+                  onClick={() => foodFileInputRef.current?.click()}
+                  disabled={composerLoading}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M12 5v14M5 12h14"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
 
-            <div className="composerMetaRow">
-              <div className="composerMetaLeft">
-                {foodFile ? (
-                  <span className="filePill" title={foodFile.name}>
-                    <span className="filePillLabel">Photo:</span> {foodFile.name}
-                    <button
-                      type="button"
-                      className="filePillRemove"
-                      aria-label="Remove photo"
-                      onClick={clearFoodFile}
-                      disabled={foodLoading}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="composerMetaRight">
-                <label className="metaLabel">
-                  Date
-                  <input
-                    type="date"
-                    className="datePillInput"
-                    value={foodDate}
-                    onChange={(e) => setFoodDate(e.target.value)}
-                    disabled={foodLoading}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="status">{foodError ? <span className="error">{foodError}</span> : foodStatus}</div>
-          </form>
-
-          {foodResult ? <EstimateResult payload={foodResult} onAsk={onAsk} /> : null}
-
-          <hr className="divider" />
-
-          <h3>Ask a question</h3>
-          <p className="muted">
-            Uses your tracker context (selected date: <code>{foodDate || "—"}</code>).
-          </p>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              onAsk(chatInput);
-            }}
-          >
-            <div className="chatBox">
-              <div className="chatMessages" aria-label="Conversation">
-                {chatMessages.length ? (
-                  chatMessages.map((m, idx) => (
-                    <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
-                      <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
-                      <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
-                        {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="muted">No questions yet.</div>
-                )}
-              </div>
-
-              <div className="chatInputRow">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask about trends, today's plan, macros, training load, etc…"
+                <textarea
+                  rows={1}
+                  className="composerInput"
+                  value={composerInput}
+                  onChange={(e) => setComposerInput(e.target.value)}
+                  onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!composerLoading) foodFormRef.current?.requestSubmit();
+                    }
+                  }}
+                  placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
+                  aria-label="Unified input"
                 />
-                <button type="submit" disabled={chatLoading}>
-                  Ask
+
+                <button type="submit" className="sendButton" disabled={composerLoading} aria-label="Send">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
               </div>
-            </div>
 
-            <div className="status">{chatError ? <span className="error">{chatError}</span> : chatStatus}</div>
-          </form>
+              <div className="composerMetaRow">
+                <div className="composerMetaLeft">
+                  {foodFile ? (
+                    <span className="filePill" title={foodFile.name}>
+                      <span className="filePillLabel">Photo:</span> {foodFile.name}
+                      <button
+                        type="button"
+                        className="filePillRemove"
+                        aria-label="Remove photo"
+                        onClick={clearFoodFile}
+                        disabled={composerLoading}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="composerMetaRight">
+                  <label className="metaLabel">
+                    Date
+                    <input
+                      type="date"
+                      className="datePillInput"
+                      value={foodDate}
+                      onChange={(e) => setFoodDate(e.target.value)}
+                      disabled={composerLoading}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="status">
+                {composerError ? <span className="error">{composerError}</span> : composerStatus}
+              </div>
+            </form>
+          </div>
+
+          {foodResult ? <EstimateResult payload={foodResult} /> : null}
         </section>
       ) : null}
 

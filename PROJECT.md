@@ -39,6 +39,7 @@ Note: for photo-based inference, some micronutrients may be unknown; represent u
 This repo includes a minimal local web app that supports:
 - Unified meal logging (photo and/or manual description) + nutrition inference (OpenAI)
 - Asking questions in-app (OpenAI assistant, contextualized by `tracking-data.json`)
+- A unified chat-style input that routes food/activity/questions via GPT‑5
 - Weekly fitness checklist updates (`current_week`)
 - A basic dashboard for browsing:
   - food events + daily totals for a selected date
@@ -59,6 +60,7 @@ This repo includes a minimal local web app that supports:
 - `OPENAI_API_KEY` (required)
 - `OPENAI_MODEL` (optional; defaults to `gpt-4.1-mini`)
 - `OPENAI_ASSISTANT_MODEL` (optional; defaults to `OPENAI_MODEL`)
+- `OPENAI_INGEST_MODEL` (optional; defaults to `gpt-5`)
 - `PORT` (optional; defaults to `3000`)
 - `TRACKING_DATA_FILE` (optional; defaults to repo `tracking-data.json`)
 
@@ -85,6 +87,8 @@ This repo includes a minimal local web app that supports:
 - `POST /api/fitness/current/summary` → JSON body: `summary`
 - `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
   - Answers questions using OpenAI, contextualized by `tracking-data.json` (diet/fitness philosophy + recent logs)
+- `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
+  - GPT‑5 decides if the input is food, activity, or a question; logs the result or answers/clarifies
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format
@@ -122,7 +126,7 @@ Project intent includes a workflow where:
 - When you mention eating food or doing activities, the tracker should **immediately** update `tracking-data.json`.
 - Advice should be contextualized by reading recent patterns from `tracking-data.json` first.
 
-(Current code implements photo + manual meal logging → `food_events` + auto-updated `food_log`, current-week fitness checklist updates, and optional “recalculate from events” rollups.)
+(Current code implements a unified chat-style input with GPT‑5 routing, photo + manual meal logging → `food_events` + auto-updated `food_log`, current-week fitness checklist updates, and optional “recalculate from events” rollups.)
 
 ## Next steps (likely)
 - Add “quick add” without OpenAI for foods with numeric definitions (e.g., soy milk / fish oil / chili per-serving).

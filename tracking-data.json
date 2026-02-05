@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-05T08:12:18-08:00",
+    "last_updated": "2026-02-05T12:30:27-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json",
@@ -370,16 +370,16 @@
       "date": "2026-02-05",
       "day_of_week": "Thu",
       "weight_lb": null,
-      "calories": 560,
-      "fat_g": 22,
-      "carbs_g": 64,
-      "protein_g": 24,
-      "fiber_g": 4,
-      "potassium_mg": 400,
-      "magnesium_mg": 50,
+      "calories": 910,
+      "fat_g": 36,
+      "carbs_g": 119,
+      "protein_g": 28,
+      "fiber_g": 6,
+      "potassium_mg": 550,
+      "magnesium_mg": 70,
       "omega3_mg": null,
-      "calcium_mg": 400,
-      "iron_mg": 4,
+      "calcium_mg": 420,
+      "iron_mg": 5.5,
       "status": "⚪",
       "notes": "Auto-generated from food_events."
     }
@@ -534,6 +534,53 @@
             "iron_mg": 4
           },
           "notes": "Assumed 1 slice ≈ 280 kcal (typical large hand-tossed cheese). Actual varies a lot by crust (thin/handmade pan), size, and toppings."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "2b3b5078-9518-411b-9988-21813f3ceff3",
+      "date": "2026-02-05",
+      "logged_at": "2026-02-05T12:29:49-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Piece of cherry pie",
+      "input_text": "I had a piece of cherry pie",
+      "notes": "",
+      "nutrients": {
+        "calories": 350,
+        "fat_g": 14,
+        "carbs_g": 55,
+        "protein_g": 4,
+        "fiber_g": 2,
+        "potassium_mg": 150,
+        "magnesium_mg": 20,
+        "omega3_mg": null,
+        "calcium_mg": 20,
+        "iron_mg": 1.5
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.5,
+        "notes": "Moderate uncertainty because 'a piece' could range from a small sliver to a large restaurant slice; nutrition varies a lot with crust fat/sugar and whether it was homemade vs store-bought. Micronutrients are rough estimates; omega-3 not estimated due to highly variable/typically negligible amounts."
+      },
+      "items": [
+        {
+          "name": "Cherry pie",
+          "portion": "1 piece (assumed ~1/8 of a 9-inch pie; ~125 g)",
+          "nutrients": {
+            "calories": 350,
+            "fat_g": 14,
+            "carbs_g": 55,
+            "protein_g": 4,
+            "fiber_g": 2,
+            "potassium_mg": 150,
+            "magnesium_mg": 20,
+            "omega3_mg": null,
+            "calcium_mg": 20,
+            "iron_mg": 1.5
+          },
+          "notes": "Assumed a typical commercially prepared/home-style slice with top & bottom crust and sweetened cherry filling. Values can vary widely with slice size, crust type (butter vs shortening), and added ice cream/whipped cream (not included)."
         }
       ],
       "applied_to_food_log": true
@@ -723,8 +770,8 @@
     "cardio": [
       {
         "item": "Quality run",
-        "checked": false,
-        "details": ""
+        "checked": true,
+        "details": "76 min • Half marathon (13.1 mi) race, time 1:16:00"
       },
       {
         "item": "Long aerobic",

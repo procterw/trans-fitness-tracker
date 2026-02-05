@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { zodTextFormat } from "openai/helpers/zod";
+
 import { getOpenAIClient } from "./openaiClient.js";
 import {
   ensureCurrentWeek,
@@ -32,6 +35,97 @@ function sanitizeMessages(messages) {
     safe.push({ role, content });
   }
   return safe.slice(-12);
+}
+
+const ActivitySelectionSchema = z.object({
+  category: z.enum(["cardio", "strength", "mobility", "other"]),
+  index: z.number().int().nonnegative(),
+  label: z.string(),
+  duration_min: z.number().int().positive().nullable(),
+  intensity: z.enum(["easy", "moderate", "hard"]).nullable(),
+  notes: z.string().nullable(),
+});
+
+const IngestDecisionSchema = z.object({
+  intent: z.enum(["food", "activity", "question", "clarify"]),
+  confidence: z.number().min(0).max(1),
+  question: z.string().nullable(),
+  clarifying_question: z.string().nullable(),
+  activity: z
+    .object({
+      selections: z.array(ActivitySelectionSchema),
+      followup_question: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+const IngestDecisionFormat = zodTextFormat(IngestDecisionSchema, "ingest_decision");
+
+function buildChecklistSnapshot(currentWeek) {
+  const categories = ["cardio", "strength", "mobility", "other"];
+  const snapshot = {};
+  for (const category of categories) {
+    const list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
+    snapshot[category] = list.map((item, index) => ({
+      index,
+      label: typeof item?.item === "string" ? item.item : "",
+    }));
+  }
+  return snapshot;
+}
+
+export async function decideIngestAction({ message, hasImage = false, date = null, messages = [] }) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_INGEST_MODEL || "gpt-5";
+
+  await ensureCurrentWeek();
+  const tracking = await readTrackingData();
+
+  const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
+  const checklist = buildChecklistSnapshot(tracking.current_week ?? null);
+
+  const system = [
+    "You classify a user's message for a health & fitness tracker.",
+    "The user has a single input box that can be used to log food, log an activity, or ask a question.",
+    "Choose exactly one intent: food, activity, question, or clarify.",
+    "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
+    "If there is an attached image and no clear question, prefer intent=food.",
+    "For activity intent, select one or more checklist items using the provided category + index.",
+    "If multiple activities are mentioned, return multiple selections.",
+    "For activity details, standardize to minutes and optional intensity.",
+    "If duration is unknown, set duration_min to null. If intensity is not mentioned, set it to null.",
+    "Put any remaining specifics (distance, location, modifiers) into notes.",
+    "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
+    "Return only the JSON that matches the provided schema.",
+  ].join(" ");
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    selected_date: selectedDate,
+    has_image: hasImage,
+    checklist,
+  };
+
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `Context JSON:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+
+  const safeMessage = typeof message === "string" ? message.trim() : "";
+  input.push({ role: "user", content: safeMessage || (hasImage ? "[Image attached]" : "(empty)") });
+
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format: IngestDecisionFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed output.");
+  return parsed;
 }
 
 export async function askAssistant({ question, date = null, messages = [] }) {
@@ -84,4 +178,3 @@ export async function askAssistant({ question, date = null, messages = [] }) {
   const response = await client.responses.create({ model, input });
   return (response.output_text || "").trim();
 }
-

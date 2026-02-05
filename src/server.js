@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { askAssistant } from "./assistant.js";
+import { askAssistant, decideIngestAction } from "./assistant.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
@@ -20,6 +20,7 @@ import {
   readTrackingData,
   rollupFoodLogFromEvents,
   syncFoodEventsToFoodLog,
+  updateCurrentWeekItems,
   updateCurrentWeekItem,
   updateCurrentWeekSummary,
 } from "./trackingData.js";
@@ -85,6 +86,81 @@ async function logFoodFromInputs({ file, descriptionText, notes, date }) {
   };
 }
 
+function normalizeLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatActivityDetails(selection) {
+  const parts = [];
+  if (typeof selection?.duration_min === "number" && Number.isFinite(selection.duration_min)) {
+    parts.push(`${Math.round(selection.duration_min)} min`);
+  }
+  if (selection?.intensity) parts.push(selection.intensity);
+  if (typeof selection?.notes === "string" && selection.notes.trim()) {
+    parts.push(selection.notes.trim());
+  }
+  return parts.join(" • ") || "Logged";
+}
+
+function resolveActivitySelections(selections, currentWeek) {
+  const resolved = [];
+  const errors = [];
+  const dedupe = new Map();
+
+  if (!Array.isArray(selections) || selections.length === 0) {
+    return { resolved, errors: ["No activity selections."] };
+  }
+
+  for (const sel of selections) {
+    const category = sel?.category;
+    const list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
+    if (!list.length) {
+      errors.push(`No items found for category: ${category}`);
+      continue;
+    }
+
+    let index = Number.isInteger(sel?.index) ? sel.index : -1;
+    if (!list[index]) {
+      const target = normalizeLabel(sel?.label);
+      if (target) {
+        const foundIndex = list.findIndex((it) => normalizeLabel(it?.item) === target);
+        if (foundIndex >= 0) index = foundIndex;
+      }
+    }
+
+    if (!list[index]) {
+      errors.push(`Could not map activity to category ${category}.`);
+      continue;
+    }
+
+    const label = typeof list[index]?.item === "string" ? list[index].item : sel?.label || "Activity";
+    const details = formatActivityDetails(sel);
+    const key = `${category}:${index}`;
+    dedupe.set(key, { category, index, label, details });
+  }
+
+  for (const value of dedupe.values()) resolved.push(value);
+  return { resolved, errors };
+}
+
+function summarizeFoodResult(payload) {
+  const title = payload?.estimate?.meal_title ?? "Meal logged";
+  const totals = payload?.estimate?.totals ?? {};
+  const calories = typeof totals.calories === "number" ? `${Math.round(totals.calories)} kcal` : null;
+  const protein = typeof totals.protein_g === "number" ? `${totals.protein_g} g protein` : null;
+  const parts = [calories, protein].filter(Boolean);
+  return parts.length ? `Logged meal: ${title}. ${parts.join(" • ")}.` : `Logged meal: ${title}.`;
+}
+
+function summarizeActivityUpdates(updates) {
+  if (!updates.length) return "Logged activity.";
+  const parts = updates.map((u) => (u.details ? `${u.label} (${u.details})` : u.label));
+  return `Logged activity: ${parts.join("; ")}.`;
+}
+
 app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
@@ -110,6 +186,126 @@ app.post("/api/assistant/ask", async (req, res) => {
 
     const answer = await askAssistant({ question, date, messages });
     res.json({ ok: true, answer });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
+  try {
+    const file = req.file ?? null;
+    if (file && !file.mimetype?.startsWith("image/")) {
+      return res.status(400).json({ ok: false, error: `Unsupported mimetype: ${file.mimetype}` });
+    }
+
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message && !file) return res.status(400).json({ ok: false, error: "Provide a message or an image." });
+
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    let messages = [];
+    if (typeof req.body?.messages === "string" && req.body.messages.trim()) {
+      try {
+        const parsed = JSON.parse(req.body.messages);
+        if (Array.isArray(parsed)) messages = parsed;
+      } catch {
+        messages = [];
+      }
+    }
+
+    const decision = await decideIngestAction({ message, hasImage: Boolean(file), date, messages });
+    const confidence = typeof decision?.confidence === "number" ? decision.confidence : 0;
+    const intent = decision?.intent ?? "clarify";
+
+    if (confidence < 0.55 && intent !== "clarify") {
+      return res.json({
+        ok: true,
+        action: "clarify",
+        assistant_message:
+          decision?.clarifying_question ??
+          "Do you want to log food, log an activity, or ask a question?",
+        followup_question: null,
+        food_result: null,
+        activity_updates: null,
+        answer: null,
+      });
+    }
+
+    if (intent === "question") {
+      const questionText = decision?.question?.trim() || message;
+      const answer = await askAssistant({ question: questionText, date, messages });
+      return res.json({
+        ok: true,
+        action: "question",
+        assistant_message: answer,
+        followup_question: null,
+        food_result: null,
+        activity_updates: null,
+        answer,
+      });
+    }
+
+    if (intent === "food") {
+      const payload = await logFoodFromInputs({ file, descriptionText: message, notes: "", date });
+      return res.json({
+        ok: true,
+        action: "food",
+        assistant_message: summarizeFoodResult(payload),
+        followup_question: null,
+        food_result: payload,
+        activity_updates: null,
+        answer: null,
+        date: payload?.date ?? null,
+      });
+    }
+
+    if (intent === "activity") {
+      const currentWeek = await ensureCurrentWeek();
+      const { resolved, errors } = resolveActivitySelections(decision?.activity?.selections, currentWeek);
+      if (!resolved.length || errors.length) {
+        return res.json({
+          ok: true,
+          action: "clarify",
+          assistant_message:
+            decision?.activity?.followup_question ??
+            decision?.clarifying_question ??
+            "Which checklist item should I log this under?",
+          followup_question: null,
+          food_result: null,
+          activity_updates: null,
+          answer: null,
+        });
+      }
+
+      const updates = resolved.map((u) => ({
+        category: u.category,
+        index: u.index,
+        checked: true,
+        details: u.details,
+      }));
+
+      await updateCurrentWeekItems(updates);
+
+      return res.json({
+        ok: true,
+        action: "activity",
+        assistant_message: summarizeActivityUpdates(resolved),
+        followup_question: decision?.activity?.followup_question ?? null,
+        food_result: null,
+        activity_updates: resolved,
+        answer: null,
+      });
+    }
+
+    return res.json({
+      ok: true,
+      action: "clarify",
+      assistant_message:
+        decision?.clarifying_question ?? "Do you want to log food, log an activity, or ask a question?",
+      followup_question: null,
+      food_result: null,
+      activity_updates: null,
+      answer: null,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
