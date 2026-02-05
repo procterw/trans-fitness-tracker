@@ -205,3 +205,71 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
     followup_questions: parsed.followup_questions,
   };
 }
+
+export async function estimateNutritionFromText({ mealText, userNotes }) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const tracking = await readTrackingData();
+  const foodDefs = tracking?.metadata?.food_definitions ?? {};
+
+  const system = [
+    "You estimate nutrition from a meal description.",
+    "Return a best-effort estimate for: calories, fat_g, carbs_g, protein_g, fiber_g, potassium_mg, magnesium_mg, omega3_mg, calcium_mg, iron_mg.",
+    "If you truly cannot estimate a micronutrient from the description/context, set it to null (do not guess wildly).",
+    "Give itemized estimates + a totals object that equals the sum of items (within rounding).",
+    'Always include: item.notes (empty string if none), warnings (empty array if none), followup_questions (empty array if none).',
+    "Be explicit about assumptions and uncertainty in confidence.notes and any warnings.",
+  ].join(" ");
+
+  const userText = [
+    mealText?.trim() ? `Meal description: ${mealText.trim()}` : "Meal description: (none)",
+    userNotes?.trim() ? `User notes: ${userNotes.trim()}` : "User notes: (none)",
+    "If the description/notes refer to any of these defined foods, prefer those definitions:",
+    JSON.stringify(
+      {
+        chocolate: foodDefs.chocolate ?? null,
+        smoothie: foodDefs.smoothie ?? null,
+        oatmeal: foodDefs.oatmeal ?? null,
+        chili: foodDefs.chili ?? null,
+        fish_oil: foodDefs.fish_oil ?? null,
+        soy_milk: foodDefs.soy_milk ?? null,
+        daily_supplements: foodDefs.daily_supplements ?? null,
+      },
+      null,
+      2,
+    ),
+  ].join("\n");
+
+  const response = await client.responses.parse({
+    model,
+    input: [
+      { role: "system", content: system },
+      { role: "user", content: userText },
+    ],
+    text: { format: NutritionEstimateFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed output.");
+
+  const normalizedItems = parsed.items.map((it) => ({
+    ...it,
+    nutrients: normalizeNutrients(it.nutrients),
+  }));
+  const normalizedTotalsFromModel = normalizeNutrients(parsed.totals);
+  const normalizedTotals = sumItemNutrients(normalizedItems);
+  const warnings = [...parsed.warnings];
+  if (Math.abs(normalizedTotalsFromModel.calories - normalizedTotals.calories) >= 75) {
+    warnings.push("Totals were adjusted to match the sum of the itemized estimates.");
+  }
+
+  return {
+    model,
+    meal_title: parsed.meal_title,
+    items: normalizedItems,
+    totals: normalizedTotals,
+    confidence: parsed.confidence,
+    warnings,
+    followup_questions: parsed.followup_questions,
+  };
+}

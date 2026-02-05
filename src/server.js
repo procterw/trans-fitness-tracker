@@ -5,12 +5,19 @@ import multer from "multer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { estimateNutritionFromImage } from "./visionNutrition.js";
+import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
+  ensureCurrentWeek,
+  getFoodEventsForDate,
+  getFoodLogForDate,
   getDailyFoodEventTotals,
   getSuggestedLogDate,
+  listFitnessWeeks,
   readTrackingData,
+  rollupFoodLogFromEvents,
+  updateCurrentWeekItem,
+  updateCurrentWeekSummary,
 } from "./trackingData.js";
 
 const app = express();
@@ -28,6 +35,7 @@ app.use(express.static(publicDir));
 
 app.get("/api/context", async (_req, res) => {
   try {
+    await ensureCurrentWeek();
     const data = await readTrackingData();
     res.json({
       ok: true,
@@ -35,6 +43,31 @@ app.get("/api/context", async (_req, res) => {
       diet_philosophy: data.diet_philosophy ?? null,
       fitness_philosophy: data.fitness_philosophy ?? null,
     });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/food/events", async (req, res) => {
+  try {
+    const date = typeof req.query?.date === "string" && req.query.date.trim() ? req.query.date.trim() : null;
+    if (!date) return res.status(400).json({ ok: false, error: "Missing query param: date" });
+    const events = await getFoodEventsForDate(date);
+    const totalsForDay = await getDailyFoodEventTotals(date);
+    const logRow = await getFoodLogForDate(date);
+    res.json({ ok: true, date, events, day_totals_from_events: totalsForDay, food_log: logRow });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/food/rollup", async (req, res) => {
+  try {
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    if (!date) return res.status(400).json({ ok: false, error: "Missing field: date" });
+    const overwrite = typeof req.body?.overwrite === "boolean" ? req.body.overwrite : false;
+    const result = await rollupFoodLogFromEvents(date, { overwrite });
+    res.json({ ok: true, date, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -78,6 +111,94 @@ app.post("/api/food/photo", upload.single("image"), async (req, res) => {
       estimate,
       day_totals_from_events: totalsForDay,
     });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/food/manual", async (req, res) => {
+  try {
+    const description =
+      typeof req.body?.description === "string" && req.body.description.trim() ? req.body.description.trim() : null;
+    if (!description) return res.status(400).json({ ok: false, error: "Missing field: description" });
+
+    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
+    const effectiveDate = date ?? getSuggestedLogDate();
+
+    const estimate = await estimateNutritionFromText({
+      mealText: description,
+      userNotes: notes,
+    });
+
+    const event = await addFoodEvent({
+      date: effectiveDate,
+      source: "manual",
+      description: estimate.meal_title,
+      notes,
+      nutrients: estimate.totals,
+      model: estimate.model,
+      confidence: estimate.confidence,
+      raw_items: estimate.items,
+    });
+
+    const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
+
+    res.json({
+      ok: true,
+      date: effectiveDate,
+      event,
+      estimate,
+      day_totals_from_events: totalsForDay,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/fitness/current", async (_req, res) => {
+  try {
+    const current = await ensureCurrentWeek();
+    res.json({ ok: true, current_week: current });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/fitness/current/item", async (req, res) => {
+  try {
+    const category = typeof req.body?.category === "string" ? req.body.category : null;
+    const index = typeof req.body?.index === "number" ? req.body.index : Number(req.body?.index);
+    const checked = typeof req.body?.checked === "boolean" ? req.body.checked : null;
+    const details = typeof req.body?.details === "string" ? req.body.details : "";
+
+    if (!category) return res.status(400).json({ ok: false, error: "Missing field: category" });
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ ok: false, error: "Invalid field: index" });
+    if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
+
+    const current = await updateCurrentWeekItem({ category, index, checked, details });
+    res.json({ ok: true, current_week: current });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/fitness/current/summary", async (req, res) => {
+  try {
+    const summary = typeof req.body?.summary === "string" ? req.body.summary : "";
+    const current = await updateCurrentWeekSummary(summary);
+    res.json({ ok: true, current_week: current });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get("/api/fitness/history", async (req, res) => {
+  try {
+    const limitRaw = typeof req.query?.limit === "string" ? req.query.limit : null;
+    const limit = limitRaw ? Number(limitRaw) : 12;
+    const weeks = await listFitnessWeeks({ limit });
+    res.json({ ok: true, weeks });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }

@@ -9,9 +9,20 @@
   <body>
     <main class="container">
       <h1>Health & Fitness Tracker</h1>
-      <p class="muted">Upload a meal photo to estimate nutrition and log it to <code>tracking-data.json</code>.</p>
+      <p class="muted">Log meals and fitness to <code>tracking-data.json</code>.</p>
 
-      <form id="photoForm" class="card">
+      <nav class="tabs" aria-label="Sections">
+        <button type="button" class="tab active" data-tab="photo">Photo</button>
+        <button type="button" class="tab" data-tab="manual">Manual</button>
+        <button type="button" class="tab" data-tab="fitness">Fitness</button>
+        <button type="button" class="tab" data-tab="dashboard">Dashboard</button>
+      </nav>
+
+      <section id="tab-photo" class="card">
+        <h2>Photo meal log</h2>
+        <p class="muted">Upload a meal photo to estimate nutrition and log it.</p>
+
+        <form id="photoForm">
         <label>
           Meal photo
           <input type="file" name="image" accept="image/*" required />
@@ -20,7 +31,7 @@
         <div class="row">
           <label>
             Log date
-            <input id="dateInput" type="date" name="date" />
+            <input id="photoDateInput" type="date" name="date" />
           </label>
           <label>
             Notes (optional)
@@ -29,10 +40,61 @@
         </div>
 
         <button id="submitBtn" type="submit">Analyze & Log</button>
-        <div id="status" class="status" aria-live="polite"></div>
-      </form>
+        <div id="photoStatus" class="status" aria-live="polite"></div>
+        </form>
 
-      <section id="result" class="card hidden"></section>
+        <section id="photoResult" class="hidden"></section>
+      </section>
+
+      <section id="tab-manual" class="card hidden">
+        <h2>Manual meal log</h2>
+        <p class="muted">Describe what you ate; the app will estimate nutrients and log an event.</p>
+
+        <form id="manualForm">
+          <label>
+            Meal description
+            <textarea name="description" rows="3" placeholder="e.g., standard smoothie; 2 slices Dave's toast with vegan mayo; handful of chips" required></textarea>
+          </label>
+
+          <div class="row">
+            <label>
+              Log date
+              <input id="manualDateInput" type="date" name="date" />
+            </label>
+            <label>
+              Notes (optional)
+              <input type="text" name="notes" placeholder="Anything about portion/brands/extra oil/sauces" />
+            </label>
+          </div>
+
+          <button id="manualSubmitBtn" type="submit">Estimate & Log</button>
+          <div id="manualStatus" class="status" aria-live="polite"></div>
+        </form>
+
+        <section id="manualResult" class="hidden"></section>
+      </section>
+
+      <section id="tab-fitness" class="card hidden">
+        <h2>Fitness (current week)</h2>
+        <div id="fitnessStatus" class="status" aria-live="polite"></div>
+        <div id="fitnessContent" class="hidden"></div>
+      </section>
+
+      <section id="tab-dashboard" class="card hidden">
+        <h2>Dashboard</h2>
+        <div class="row">
+          <label>
+            Date
+            <input id="dashboardDateInput" type="date" />
+          </label>
+          <div class="inline-actions">
+            <button id="dashboardRefreshBtn" type="button">Refresh</button>
+            <button id="dashboardRollupBtn" type="button">Roll up to daily log</button>
+          </div>
+        </div>
+        <div id="dashboardStatus" class="status" aria-live="polite"></div>
+        <section id="dashboardResult" class="hidden"></section>
+      </section>
     </main>
 
     <script type="module" src="/app.js"></script>

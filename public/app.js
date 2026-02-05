@@ -1,11 +1,45 @@
-const statusEl = document.querySelector("#status");
-const resultEl = document.querySelector("#result");
-const dateInput = document.querySelector("#dateInput");
-const form = document.querySelector("#photoForm");
-const submitBtn = document.querySelector("#submitBtn");
+const tabs = Array.from(document.querySelectorAll(".tab"));
+const tabSections = {
+  photo: document.querySelector("#tab-photo"),
+  manual: document.querySelector("#tab-manual"),
+  fitness: document.querySelector("#tab-fitness"),
+  dashboard: document.querySelector("#tab-dashboard"),
+};
 
-function setStatus(msg) {
-  statusEl.textContent = msg;
+const photoForm = document.querySelector("#photoForm");
+const photoSubmitBtn = document.querySelector("#submitBtn");
+const photoStatusEl = document.querySelector("#photoStatus");
+const photoResultEl = document.querySelector("#photoResult");
+const photoDateInput = document.querySelector("#photoDateInput");
+
+const manualForm = document.querySelector("#manualForm");
+const manualSubmitBtn = document.querySelector("#manualSubmitBtn");
+const manualStatusEl = document.querySelector("#manualStatus");
+const manualResultEl = document.querySelector("#manualResult");
+const manualDateInput = document.querySelector("#manualDateInput");
+
+const dashboardDateInput = document.querySelector("#dashboardDateInput");
+const dashboardRefreshBtn = document.querySelector("#dashboardRefreshBtn");
+const dashboardRollupBtn = document.querySelector("#dashboardRollupBtn");
+const dashboardStatusEl = document.querySelector("#dashboardStatus");
+const dashboardResultEl = document.querySelector("#dashboardResult");
+
+const fitnessStatusEl = document.querySelector("#fitnessStatus");
+const fitnessContentEl = document.querySelector("#fitnessContent");
+
+function setStatus(el, msg) {
+  if (!el) return;
+  el.textContent = msg;
+}
+
+function showSection(name) {
+  for (const [key, section] of Object.entries(tabSections)) {
+    if (!section) continue;
+    section.classList.toggle("hidden", key !== name);
+  }
+  for (const btn of tabs) {
+    btn.classList.toggle("active", btn.dataset.tab === name);
+  }
 }
 
 function escapeHtml(str) {
@@ -42,15 +76,7 @@ function nutrientsTable(n) {
   `;
 }
 
-async function loadContext() {
-  const res = await fetch("/api/context");
-  const json = await res.json();
-  if (json?.ok && json?.suggested_date && !dateInput.value) {
-    dateInput.value = json.suggested_date;
-  }
-}
-
-function renderResult(payload) {
+function renderEstimateResult(containerEl, payload) {
   const { estimate, day_totals_from_events: dayTotals, event } = payload;
 
   const itemsHtml =
@@ -59,12 +85,12 @@ function renderResult(payload) {
         <h3>Items</h3>
         <ul>
           ${estimate.items
-            .map(
-              (it) =>
-                `<li><strong>${escapeHtml(it.name)}</strong> — ${escapeHtml(it.portion)}<br/>${nutrientsTable(
-                  it.nutrients,
-                )}</li>`,
-            )
+            .map((it) => {
+              const notes = it.notes ? `<div class="muted">${escapeHtml(it.notes)}</div>` : "";
+              return `<li><strong>${escapeHtml(it.name)}</strong> — ${escapeHtml(it.portion)}${notes}<br/>${nutrientsTable(
+                it.nutrients,
+              )}</li>`;
+            })
             .join("")}
         </ul>
       `
@@ -78,9 +104,9 @@ function renderResult(payload) {
     ? `<h3>Follow‑ups</h3><ul>${estimate.followup_questions.map((q) => `<li>${escapeHtml(q)}</li>`).join("")}</ul>`
     : "";
 
-  resultEl.innerHTML = `
+  containerEl.innerHTML = `
     <h2>Logged</h2>
-    <p class="muted">Event: <code>${escapeHtml(event.id)}</code> • Date: <code>${escapeHtml(event.date)}</code></p>
+    <p class="muted">Event: <code>${escapeHtml(event.id)}</code> • Date: <code>${escapeHtml(event.date)}</code> • Source: <code>${escapeHtml(event.source)}</code></p>
 
     <h3>Estimate: ${escapeHtml(estimate.meal_title)}</h3>
     <p class="muted">Confidence: ${(estimate.confidence?.overall ?? 0).toFixed(2)} — ${escapeHtml(
@@ -98,31 +124,268 @@ function renderResult(payload) {
     ${warnings}
     ${followups}
   `;
-  resultEl.classList.remove("hidden");
+  containerEl.classList.remove("hidden");
 }
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  setStatus("");
-  resultEl.classList.add("hidden");
+async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json?.ok) {
+    const msg = json?.error || `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
+  return json;
+}
 
-  const fd = new FormData(form);
+async function loadContext() {
+  const json = await fetchJson("/api/context");
+  if (json?.suggested_date) {
+    if (photoDateInput && !photoDateInput.value) photoDateInput.value = json.suggested_date;
+    if (manualDateInput && !manualDateInput.value) manualDateInput.value = json.suggested_date;
+    if (dashboardDateInput && !dashboardDateInput.value) dashboardDateInput.value = json.suggested_date;
+  }
+}
+
+photoForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setStatus(photoStatusEl, "");
+  photoResultEl.classList.add("hidden");
+
+  const fd = new FormData(photoForm);
   if (!fd.get("date")) fd.delete("date");
 
-  submitBtn.disabled = true;
-  setStatus("Analyzing…");
+  photoSubmitBtn.disabled = true;
+  setStatus(photoStatusEl, "Analyzing…");
 
   try {
-    const res = await fetch("/api/food/photo", { method: "POST", body: fd });
-    const json = await res.json();
-    if (!json?.ok) throw new Error(json?.error || "Request failed.");
-    renderResult(json);
-    setStatus("Done.");
+    const json = await fetchJson("/api/food/photo", { method: "POST", body: fd });
+    renderEstimateResult(photoResultEl, json);
+    setStatus(photoStatusEl, "Done.");
   } catch (err) {
-    setStatus(err instanceof Error ? err.message : String(err));
+    setStatus(photoStatusEl, err instanceof Error ? err.message : String(err));
   } finally {
-    submitBtn.disabled = false;
+    photoSubmitBtn.disabled = false;
   }
 });
 
-loadContext().catch(() => {});
+manualForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setStatus(manualStatusEl, "");
+  manualResultEl.classList.add("hidden");
+
+  const fd = new FormData(manualForm);
+  const description = String(fd.get("description") ?? "").trim();
+  const date = String(fd.get("date") ?? "").trim();
+  const notes = String(fd.get("notes") ?? "").trim();
+
+  manualSubmitBtn.disabled = true;
+  setStatus(manualStatusEl, "Estimating…");
+
+  try {
+    const body = { description, notes };
+    if (date) body.date = date;
+    const json = await fetchJson("/api/food/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    renderEstimateResult(manualResultEl, json);
+    setStatus(manualStatusEl, "Done.");
+  } catch (err) {
+    setStatus(manualStatusEl, err instanceof Error ? err.message : String(err));
+  } finally {
+    manualSubmitBtn.disabled = false;
+  }
+});
+
+function renderEventList(events) {
+  if (!events?.length) return `<p class="muted">No food events for this date yet.</p>`;
+  return `
+    <ul>
+      ${events
+        .map((e) => {
+          const calories = e?.nutrients?.calories ?? null;
+          const label = calories === null ? "" : ` — ${escapeHtml(String(calories))} kcal`;
+          return `<li><strong>${escapeHtml(e.description ?? "(no description)")}</strong>${label}<br/>
+            <span class="muted"><code>${escapeHtml(e.source ?? "")}</code> • <code>${escapeHtml(
+            e.logged_at ?? "",
+          )}</code></span></li>`;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
+async function loadDashboard() {
+  const date = dashboardDateInput?.value?.trim();
+  if (!date) return;
+
+  setStatus(dashboardStatusEl, "Loading…");
+  dashboardResultEl.classList.add("hidden");
+  try {
+    const json = await fetchJson(`/api/food/events?date=${encodeURIComponent(date)}`);
+    const eventsHtml = renderEventList(json.events);
+    const foodLogHtml = json.food_log
+      ? `
+        <h3>Daily log row</h3>
+        <p class="muted">Status: <code>${escapeHtml(json.food_log.status ?? "")}</code></p>
+        ${nutrientsTable(json.food_log)}
+        <p class="muted">${escapeHtml(json.food_log.notes ?? "")}</p>
+      `
+      : `<p class="muted">No <code>food_log</code> row for this date yet.</p>`;
+
+    dashboardResultEl.innerHTML = `
+      <h3>Totals (from food_events)</h3>
+      ${nutrientsTable(json.day_totals_from_events)}
+
+      <h3>Events</h3>
+      ${eventsHtml}
+
+      ${foodLogHtml}
+    `;
+    dashboardResultEl.classList.remove("hidden");
+    setStatus(dashboardStatusEl, "Loaded.");
+  } catch (err) {
+    setStatus(dashboardStatusEl, err instanceof Error ? err.message : String(err));
+  }
+}
+
+dashboardRefreshBtn?.addEventListener("click", () => {
+  loadDashboard().catch(() => {});
+});
+
+dashboardRollupBtn?.addEventListener("click", async () => {
+  const date = dashboardDateInput?.value?.trim();
+  if (!date) return;
+  setStatus(dashboardStatusEl, "Rolling up…");
+  try {
+    const result = await fetchJson("/api/food/rollup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    });
+    await loadDashboard();
+    setStatus(dashboardStatusEl, result.applied ? "Rolled up." : "Skipped: daily log row already exists.");
+  } catch (err) {
+    setStatus(dashboardStatusEl, err instanceof Error ? err.message : String(err));
+  }
+});
+
+function debounce(fn, ms) {
+  let t = null;
+  return (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function renderFitnessCategory(title, key, items) {
+  const rows =
+    items?.length > 0
+      ? items
+          .map(
+            (it, i) => `
+            <tr data-category="${escapeHtml(key)}" data-index="${i}">
+              <td><input type="checkbox" class="fit-check" ${it.checked ? "checked" : ""} /></td>
+              <td>${escapeHtml(it.item ?? "")}</td>
+              <td><input type="text" class="fit-details" value="${escapeHtml(it.details ?? "")}" placeholder="Details…" /></td>
+            </tr>
+          `,
+          )
+          .join("")
+      : `<tr><td colspan="3" class="muted">No items.</td></tr>`;
+
+  return `
+    <h3>${escapeHtml(title)}</h3>
+    <table>
+      <thead><tr><th>Done</th><th>Item</th><th>Details</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+async function loadFitness() {
+  setStatus(fitnessStatusEl, "Loading…");
+  fitnessContentEl.classList.add("hidden");
+  try {
+    const json = await fetchJson("/api/fitness/current");
+    const w = json.current_week;
+    fitnessContentEl.innerHTML = `
+      <p class="muted">Week: <code>${escapeHtml(w.week_label ?? "")}</code> • Starts: <code>${escapeHtml(
+      w.week_start ?? "",
+    )}</code></p>
+
+      ${renderFitnessCategory("Cardio", "cardio", w.cardio)}
+      ${renderFitnessCategory("Strength", "strength", w.strength)}
+      ${renderFitnessCategory("Mobility", "mobility", w.mobility)}
+      ${renderFitnessCategory("Other", "other", w.other)}
+
+      <h3>Summary</h3>
+      <textarea id="fitnessSummary" rows="3" placeholder="Weekly summary…">${escapeHtml(w.summary ?? "")}</textarea>
+      <button id="fitnessSaveSummaryBtn" type="button">Save summary</button>
+    `;
+
+    const saveItem = async (row) => {
+      const category = row.dataset.category;
+      const index = Number(row.dataset.index);
+      const checked = row.querySelector(".fit-check")?.checked ?? false;
+      const details = row.querySelector(".fit-details")?.value ?? "";
+
+      await fetchJson("/api/fitness/current/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, index, checked, details }),
+      });
+    };
+
+    const debouncedSave = debounce(async (row) => {
+      try {
+        await saveItem(row);
+        setStatus(fitnessStatusEl, "Saved.");
+      } catch (err) {
+        setStatus(fitnessStatusEl, err instanceof Error ? err.message : String(err));
+      }
+    }, 500);
+
+    for (const row of fitnessContentEl.querySelectorAll("tr[data-category]")) {
+      const check = row.querySelector(".fit-check");
+      const details = row.querySelector(".fit-details");
+      check?.addEventListener("change", () => debouncedSave(row));
+      details?.addEventListener("input", () => debouncedSave(row));
+    }
+
+    fitnessContentEl.querySelector("#fitnessSaveSummaryBtn")?.addEventListener("click", async () => {
+      const summary = fitnessContentEl.querySelector("#fitnessSummary")?.value ?? "";
+      setStatus(fitnessStatusEl, "Saving…");
+      try {
+        await fetchJson("/api/fitness/current/summary", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary }),
+        });
+        setStatus(fitnessStatusEl, "Saved.");
+      } catch (err) {
+        setStatus(fitnessStatusEl, err instanceof Error ? err.message : String(err));
+      }
+    });
+
+    fitnessContentEl.classList.remove("hidden");
+    setStatus(fitnessStatusEl, "Loaded.");
+  } catch (err) {
+    setStatus(fitnessStatusEl, err instanceof Error ? err.message : String(err));
+  }
+}
+
+for (const btn of tabs) {
+  btn.addEventListener("click", () => {
+    const name = btn.dataset.tab;
+    showSection(name);
+    if (name === "fitness") loadFitness().catch(() => {});
+    if (name === "dashboard") loadDashboard().catch(() => {});
+  });
+}
+
+showSection("photo");
+loadContext()
+  .then(() => Promise.all([loadFitness(), loadDashboard()]))
+  .catch(() => {});

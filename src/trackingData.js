@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 
 const TRACKING_FILE = path.resolve(process.cwd(), "tracking-data.json");
 const TIME_ZONE = "America/Los_Angeles";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function seattleParts(date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -58,6 +59,34 @@ export function getSuggestedLogDate(now = new Date()) {
   return getSeattleDateString(effective);
 }
 
+function isIsoDateString(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function parseIsoDateAsUtcNoon(dateStr) {
+  if (!isIsoDateString(dateStr)) throw new Error(`Invalid date string: ${dateStr}`);
+  return new Date(`${dateStr}T12:00:00Z`);
+}
+
+function formatIsoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getWeekStartMonday(dateStr) {
+  const d = parseIsoDateAsUtcNoon(dateStr);
+  const day = d.getUTCDay(); // 0=Sun,1=Mon,...6=Sat
+  const daysSinceMonday = (day + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - daysSinceMonday);
+  return formatIsoDate(d);
+}
+
+function weekLabelFromStart(weekStart) {
+  const start = parseIsoDateAsUtcNoon(weekStart);
+  const end = new Date(start.getTime() + 6 * DAY_MS);
+  const fmt = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+  return `${fmt(start)}-${fmt(end)}`;
+}
+
 async function atomicWriteJson(filePath, data) {
   const dir = path.dirname(filePath);
   const tmpPath = path.join(dir, `.tmp.${path.basename(filePath)}.${crypto.randomUUID()}`);
@@ -72,6 +101,59 @@ export async function readTrackingData() {
 
 export async function writeTrackingData(data) {
   await atomicWriteJson(TRACKING_FILE, data);
+}
+
+function ensureCurrentWeekInData(data, now = new Date()) {
+  const seattleDate = getSeattleDateString(now);
+  const weekStart = getWeekStartMonday(seattleDate);
+
+  const hasCurrent = data.current_week && typeof data.current_week === "object";
+  if (hasCurrent && data.current_week.week_start === weekStart) {
+    return { current_week: data.current_week, changed: false };
+  }
+
+  if (!Array.isArray(data.fitness_weeks)) data.fitness_weeks = [];
+
+  const prevCurrent = hasCurrent ? data.current_week : null;
+  if (prevCurrent?.week_start && !data.fitness_weeks.some((w) => w && w.week_start === prevCurrent.week_start)) {
+    data.fitness_weeks.push(prevCurrent);
+  }
+
+  const template = prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {};
+  const resetCategory = (key) => {
+    const arr = Array.isArray(template[key]) ? template[key] : [];
+    return arr
+      .map((it) => ({
+        item: typeof it?.item === "string" ? it.item : "",
+        checked: false,
+        details: "",
+      }))
+      .filter((it) => it.item);
+  };
+
+  data.current_week = {
+    week_start: weekStart,
+    week_label: weekLabelFromStart(weekStart),
+    cardio: resetCategory("cardio"),
+    strength: resetCategory("strength"),
+    mobility: resetCategory("mobility"),
+    other: resetCategory("other"),
+    summary: "",
+  };
+
+  return { current_week: data.current_week, changed: true };
+}
+
+export async function ensureCurrentWeek(now = new Date()) {
+  const data = await readTrackingData();
+  const { current_week, changed } = ensureCurrentWeekInData(data, now);
+  if (changed) {
+    if (data.metadata && typeof data.metadata === "object") {
+      data.metadata.last_updated = formatSeattleIso(now);
+    }
+    await writeTrackingData(data);
+  }
+  return current_week;
 }
 
 function toNumber(value) {
@@ -147,4 +229,117 @@ export async function getDailyFoodEventTotals(date) {
     calcium_mg: sumNullable(nutrients.map((n) => n.calcium_mg)),
     iron_mg: sumNullable(nutrients.map((n) => n.iron_mg)),
   };
+}
+
+export async function getFoodEventsForDate(date) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+  const data = await readTrackingData();
+  const events = Array.isArray(data.food_events) ? data.food_events : [];
+  return events.filter((e) => e && e.date === date);
+}
+
+export async function updateCurrentWeekItem({ category, index, checked, details }) {
+  const allowed = new Set(["cardio", "strength", "mobility", "other"]);
+  if (!allowed.has(category)) throw new Error(`Invalid category: ${category}`);
+  if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid index: ${index}`);
+  if (typeof checked !== "boolean") throw new Error("Invalid checked value");
+  if (typeof details !== "string") throw new Error("Invalid details value");
+
+  const data = await readTrackingData();
+  const { current_week } = ensureCurrentWeekInData(data, new Date());
+  const list = Array.isArray(current_week[category]) ? current_week[category] : [];
+  if (!list[index]) throw new Error("Item not found");
+
+  list[index] = {
+    ...list[index],
+    checked,
+    details,
+  };
+  current_week[category] = list;
+
+  if (data.metadata && typeof data.metadata === "object") {
+    data.metadata.last_updated = formatSeattleIso(new Date());
+  }
+  await writeTrackingData(data);
+  return current_week;
+}
+
+export async function updateCurrentWeekSummary(summary) {
+  if (typeof summary !== "string") throw new Error("Invalid summary");
+  const data = await readTrackingData();
+  const { current_week } = ensureCurrentWeekInData(data, new Date());
+  current_week.summary = summary;
+
+  if (data.metadata && typeof data.metadata === "object") {
+    data.metadata.last_updated = formatSeattleIso(new Date());
+  }
+  await writeTrackingData(data);
+  return current_week;
+}
+
+export async function listFitnessWeeks({ limit = 12 } = {}) {
+  const data = await readTrackingData();
+  const weeks = Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [];
+  const safeLimit = Math.max(0, Number(limit) || 0);
+  return weeks.slice(-safeLimit);
+}
+
+export async function getFoodLogForDate(date) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+  const data = await readTrackingData();
+  const log = Array.isArray(data.food_log) ? data.food_log : [];
+  return log.find((d) => d && d.date === date) ?? null;
+}
+
+export async function rollupFoodLogFromEvents(date, { overwrite = false } = {}) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+  const data = await readTrackingData();
+  const events = Array.isArray(data.food_events) ? data.food_events : [];
+  const nutrients = events.filter((e) => e && e.date === date && e.nutrients).map((e) => e.nutrients);
+
+  const totals = {
+    calories: sum(nutrients.map((n) => n.calories)),
+    fat_g: sum(nutrients.map((n) => n.fat_g)),
+    carbs_g: sum(nutrients.map((n) => n.carbs_g)),
+    protein_g: sum(nutrients.map((n) => n.protein_g)),
+    fiber_g: sumNullable(nutrients.map((n) => n.fiber_g)),
+    potassium_mg: sumNullable(nutrients.map((n) => n.potassium_mg)),
+    magnesium_mg: sumNullable(nutrients.map((n) => n.magnesium_mg)),
+    omega3_mg: sumNullable(nutrients.map((n) => n.omega3_mg)),
+    calcium_mg: sumNullable(nutrients.map((n) => n.calcium_mg)),
+    iron_mg: sumNullable(nutrients.map((n) => n.iron_mg)),
+  };
+
+  if (!Array.isArray(data.food_log)) data.food_log = [];
+
+  const d = parseIsoDateAsUtcNoon(date);
+  const dayOfWeek = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d);
+
+  const idx = data.food_log.findIndex((row) => row && row.date === date);
+  const prev = idx >= 0 ? data.food_log[idx] : null;
+
+  const autoGeneratedNotes = "Auto-generated from food_events.";
+  const isAutoGenerated = prev?.notes === autoGeneratedNotes || (typeof prev?.notes === "string" && prev.notes.startsWith(autoGeneratedNotes));
+  const canApply = overwrite || !prev || isAutoGenerated;
+  if (!canApply) {
+    return { applied: false, food_log: prev, totals_from_events: totals };
+  }
+
+  const next = {
+    date,
+    day_of_week: prev?.day_of_week ?? dayOfWeek,
+    weight_lb: prev?.weight_lb ?? null,
+    ...totals,
+    status: prev?.status ?? "⚪",
+    notes: prev?.notes ?? autoGeneratedNotes,
+  };
+
+  if (idx >= 0) data.food_log[idx] = next;
+  else data.food_log.push(next);
+
+  if (data.metadata && typeof data.metadata === "object") {
+    data.metadata.last_updated = formatSeattleIso(new Date());
+  }
+  await writeTrackingData(data);
+  return { applied: true, food_log: next, totals_from_events: totals };
 }

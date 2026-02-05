@@ -1,9 +1,10 @@
-# Health & Fitness Tracker (photo nutrition logging)
+# Health & Fitness Tracker
 
 Minimal local web app that:
-- Lets you upload a meal photo
-- Uses the OpenAI API (vision) to estimate macros + key micronutrients
-- Appends a `food_events` entry into `tracking-data.json`
+- Logs meals (photo + manual description) into `tracking-data.json.food_events`
+- Uses the OpenAI API to estimate macros + key micronutrients
+- Lets you update the weekly fitness checklist (`current_week`)
+- Includes a basic dashboard for daily totals + optional rollups to `food_log`
 
 ## Setup
 1. Install deps: `npm install`
@@ -13,4 +14,4 @@ Minimal local web app that:
 
 ## Data
 - All tracking data lives in `tracking-data.json`
-- Photo logs are appended to `food_events` (created automatically if missing)
+- Meal logs are appended to `food_events` (created automatically if missing)

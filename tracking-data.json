@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-03T00:00:00-08:00",
+    "last_updated": "2026-02-05T07:42:45-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json",
@@ -108,7 +108,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 950,
       "iron_mg": 18,
-      "status": "\ud83d\udfe1",
+      "status": "🟡",
       "notes": "Protein-heavy relative to goal due to carnitas and bars. Endurance work, heat exposure, and high calories softened muscle-retention signaling; less ideal quality but still permissive."
     },
     {
@@ -125,7 +125,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 17,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Very high-energy endurance and glute day. Carbohydrates dominated intake; protein spread across meals and fat-paired, supporting performance without aggressive hypertrophy signaling."
     },
     {
@@ -142,7 +142,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 16,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Maintenance-to-surplus intake with high carbs supporting endurance. Protein near upper edge but evenly distributed and paired with fat, remaining compatible with slow atrophy goals."
     },
     {
@@ -159,7 +159,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 850,
       "iron_mg": 15,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "High-volume, fiber-forward soups and vegetables created strong satiety. Moderate calories and protein allowed energy sufficiency without muscle-retention signaling."
     },
     {
@@ -176,7 +176,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 14,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Restaurant-heavy, oily, fat-forward surplus day. Episodic indulgence that supports metabolic safety and does not interfere with gradual upper-body atrophy."
     },
     {
@@ -193,7 +193,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 950,
       "iron_mg": 16,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Home and restaurant meals including lamb. Protein elevated but spread throughout the day; overall pattern supportive and low-stress."
     },
     {
@@ -210,7 +210,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 15,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Mixed flexible day with oatmeal, soup, snacks, and fast food. Calories near maintenance; fat carried intake; protein evenly distributed."
     },
     {
@@ -227,7 +227,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 850,
       "iron_mg": 13,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Fuel-heavy day with pizza, candy, chews, and bread-based snacks. Carbs and fats dominated; protein moderate and diffuse."
     },
     {
@@ -244,7 +244,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 1000,
       "iron_mg": 17,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Light carb-forward intake earlier, followed by a rich Canlis dinner. Protein high but spread across courses and paired with very high fat; celebratory surplus day."
     },
     {
@@ -261,7 +261,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 14,
-      "status": "\ud83d\udfe1",
+      "status": "🟡",
       "notes": "Very refined, sodium-dense, fuel-heavy day with pizza, bars, and chews. Energy availability high; micronutrient density low. Protein high but fat-paired and spread out; episodic and not ideal quality, but unlikely to disrupt atrophy."
     },
     {
@@ -278,7 +278,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 850,
       "iron_mg": 13,
-      "status": "\u274c",
+      "status": "❌",
       "notes": "Calories were ample for fat gain, but food quality was low and protein crept higher than ideal. No restriction or rebound behavior, which aligns with long-term redistribution goals."
     },
     {
@@ -295,7 +295,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 950,
       "iron_mg": 16,
-      "status": "\ud83d\udfe1",
+      "status": "🟡",
       "notes": "Full day including turkey-and-cheddar sandwich, smoothie, energy chews, Cheez-Its, dark chocolate, soy milk, tofu stir-fry with rice, extra tofu, more soy milk, and gummy candy. Large carb-forward surplus with high but very diffuse, fat-paired protein; permissive overall, though protein crept above ideal."
     },
     {
@@ -312,7 +312,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 900,
       "iron_mg": 15,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Earlier intake plus Mediterranean dinner and additional dark chocolate. Ran two 5Ks; clear calorie sufficiency with carb-forward fueling. Protein elevated but diffuse and fat-paired, well buffered by endurance volume."
     },
     {
@@ -329,7 +329,7 @@
       "omega3_mg": 1280,
       "calcium_mg": 1700,
       "iron_mg": 21,
-      "status": "\ud83d\udfe2",
+      "status": "🟢",
       "notes": "Cheese sandwich, standard smoothie, vegan dinner (mashed cauliflower; tortillas with vegan cheese; sweet potato; greens with tofu and eggplant), plus a flourless peanut butter chocolate chip cookie and a glazed donut. Late night: 2 servings dark chocolate (6 pieces) and 2 cups soy milk. Solid surplus with well-distributed protein."
     },
     {
@@ -365,9 +365,72 @@
       "iron_mg": 17,
       "status": "🟡",
       "notes": "Lunch: 2 soft boiled eggs, 2 slices Dave's Killer Bread (toast), standard smoothie. Snack: 2 servings Tim's chips. Dinner: Large Korean BBQ (substantial beef portion, banchan, rice). Late: 1 serving dark chocolate (3 pieces) and soy milk. Protein elevated at 143g but diffuse and fat-paired with BBQ."
+    },
+    {
+      "date": "2026-02-05",
+      "day_of_week": "Thu",
+      "weight_lb": null,
+      "calories": 0,
+      "fat_g": 0,
+      "carbs_g": 0,
+      "protein_g": 0,
+      "fiber_g": 0,
+      "potassium_mg": 0,
+      "magnesium_mg": 0,
+      "omega3_mg": 0,
+      "calcium_mg": 0,
+      "iron_mg": 0,
+      "status": "⚪",
+      "notes": "Auto-generated from food_events."
     }
   ],
-  "food_events": [],
+  "food_events": [
+    {
+      "id": "f2f28327-0aab-4e66-8d8b-85063b75502a",
+      "date": "2026-02-04",
+      "logged_at": "2026-02-05T07:41:20-08:00",
+      "rollover_applied": true,
+      "source": "photo",
+      "description": "Two pieces of pizza (user-reported; photo appears to show avocado toast + side)",
+      "notes": "two pieces of pizza",
+      "nutrients": {
+        "calories": 570,
+        "fat_g": 22,
+        "carbs_g": 72,
+        "protein_g": 24,
+        "fiber_g": 4,
+        "potassium_mg": 360,
+        "magnesium_mg": 60,
+        "omega3_mg": 200,
+        "calcium_mg": 440,
+        "iron_mg": 4
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.45,
+        "notes": "Low-moderate confidence: user note specifies 'two pieces of pizza' but the photo appears to show something more like avocado toast with greens and a small side (not clearly pizza). If it was pepperoni, thick crust, stuffed crust, or larger/smaller slices, calories and fat can vary substantially (±30–50%). Micronutrients are rough estimates from typical pizza ingredients (flour, cheese, tomato sauce)."
+      },
+      "items": [
+        {
+          "name": "Pizza, slice (assume regular crust cheese pizza)",
+          "portion": "2 slices (about 1/8 of a 14-in pizza each)",
+          "nutrients": {
+            "calories": 570,
+            "fat_g": 22,
+            "carbs_g": 72,
+            "protein_g": 24,
+            "fiber_g": 4,
+            "potassium_mg": 360,
+            "magnesium_mg": 60,
+            "omega3_mg": 200,
+            "calcium_mg": 440,
+            "iron_mg": 4
+          },
+          "notes": "Estimated using typical nutrition for standard cheese pizza slices. User note says pizza; photo does not clearly match pizza, so this is based on the note rather than the image."
+        }
+      ]
+    }
+  ],
   "fitness_weeks": [
     {
       "week_start": "2026-01-19",
@@ -411,12 +474,12 @@
       ],
       "strength": [
         {
-          "item": "Glutes \u2014 hard",
+          "item": "Glutes — hard",
           "checked": true,
           "details": "Hip abduction, leg press, kickbacks; controlled hypertrophy"
         },
         {
-          "item": "Glutes \u2014 easy",
+          "item": "Glutes — easy",
           "checked": true,
           "details": "Light pump-focused glute work"
         },
@@ -499,14 +562,14 @@
       ],
       "strength": [
         {
-          "item": "Glutes \u2014 hard",
+          "item": "Glutes — hard",
           "checked": true,
           "details": "Cable kickbacks, squats up to ~205 lb, glute med raises; clear hypertrophy stimulus, no failure"
         },
         {
-          "item": "Glutes \u2014 easy",
+          "item": "Glutes — easy",
           "checked": true,
-          "details": "Belt squats (90\u2013180 lb), hip abduction, light thrusts; pump-focused, low fatigue"
+          "details": "Belt squats (90–180 lb), hip abduction, light thrusts; pump-focused, low fatigue"
         },
         {
           "item": "Extra glutes (outlier)",
@@ -588,12 +651,12 @@
     ],
     "strength": [
       {
-        "item": "Glutes \u2014 hard",
+        "item": "Glutes — hard",
         "checked": true,
         "details": "Hip abduction 3x15 200lb, belt squats 3x12 four plates; controlled hypertrophy stimulus"
       },
       {
-        "item": "Glutes \u2014 easy",
+        "item": "Glutes — easy",
         "checked": false,
         "details": ""
       },
@@ -708,7 +771,7 @@
   },
   "transition_context": {
     "hrt_timeline": {
-      "early_hrt": "Oral estradiol (2\u21926 mg) + spironolactone (50 mg) with limited response",
+      "early_hrt": "Oral estradiol (2→6 mg) + spironolactone (50 mg) with limited response",
       "switched_mid_2024": "Estradiol valerate injection monotherapy, 5-6 mg weekly IM",
       "current_levels": {
         "testosterone_ng_dl": "15-20",
