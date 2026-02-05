@@ -29,7 +29,7 @@ const ItemSchema = z.object({
   name: z.string(),
   portion: z.string(),
   nutrients: NutrientsSchema,
-  notes: z.string().optional(),
+  notes: z.string(),
 });
 
 const EstimateSchema = z.object({
@@ -40,9 +40,11 @@ const EstimateSchema = z.object({
     overall: z.number().min(0).max(1),
     notes: z.string(),
   }),
-  warnings: z.array(z.string()).optional(),
-  followup_questions: z.array(z.string()).optional(),
+  warnings: z.array(z.string()),
+  followup_questions: z.array(z.string()),
 });
+
+const NutritionEstimateFormat = zodTextFormat(EstimateSchema, "nutrition_estimate");
 
 function roundTo(number, digits) {
   const m = 10 ** digits;
@@ -143,6 +145,7 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
     "Return a best-effort estimate for: calories, fat_g, carbs_g, protein_g, fiber_g, potassium_mg, magnesium_mg, omega3_mg, calcium_mg, iron_mg.",
     "If you truly cannot estimate a micronutrient from the image/context, set it to null (do not guess wildly).",
     "Give itemized estimates + a totals object that equals the sum of items (within rounding).",
+    'Always include: item.notes (empty string if none), warnings (empty array if none), followup_questions (empty array if none).',
     "Be explicit about assumptions and uncertainty in confidence.notes and any warnings.",
   ].join(" ");
 
@@ -175,7 +178,7 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
         ],
       },
     ],
-    text: { format: zodTextFormat(EstimateSchema, "nutrition_estimate") },
+    text: { format: NutritionEstimateFormat },
   });
 
   const parsed = response.output_parsed;
@@ -187,7 +190,7 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
   }));
   const normalizedTotalsFromModel = normalizeNutrients(parsed.totals);
   const normalizedTotals = sumItemNutrients(normalizedItems);
-  const warnings = [...(parsed.warnings ?? [])];
+  const warnings = [...parsed.warnings];
   if (Math.abs(normalizedTotalsFromModel.calories - normalizedTotals.calories) >= 75) {
     warnings.push("Totals were adjusted to match the sum of the itemized estimates.");
   }
@@ -199,6 +202,6 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
     totals: normalizedTotals,
     confidence: parsed.confidence,
     warnings,
-    followup_questions: parsed.followup_questions ?? [],
+    followup_questions: parsed.followup_questions,
   };
 }
