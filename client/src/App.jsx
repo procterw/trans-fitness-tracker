@@ -77,6 +77,28 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
+function AutoGrowTextarea({ value, onChange, className = "", maxHeight = 220, ...props }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${next}px`;
+  }, [value, maxHeight]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      className={className}
+      {...props}
+    />
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("food");
 
@@ -418,34 +440,35 @@ export default function App() {
             <span className="muted">{pct}%</span>
           </div>
         </div>
-        <div className="progressBar" role="img" aria-label={`${title} progress`}>
-          <div className="progressBarFill" style={{ width: `${pct}%` }} />
-        </div>
-
-        <div className="fitnessItems">
+        <div className="fitnessChecklist" aria-label={`${title} checklist`}>
           {entries.length ? (
-            entries.map(({ it, idx }) => (
-              <div key={idx} className={`fitnessItem ${it.checked ? "checked" : ""}`}>
-                <label className="fitnessItemMain">
+            entries.map(({ it, idx }) => {
+              const checkboxId = `fit_${category}_${idx}`;
+              return (
+                <div key={idx} className={`fitnessChecklistItem ${it.checked ? "checked" : ""}`}>
                   <input
+                    id={checkboxId}
+                    className="fitnessChecklistCheckbox"
                     type="checkbox"
                     checked={Boolean(it.checked)}
                     disabled={fitnessLoading}
                     onChange={(e) => onToggleFitness(category, idx, e.target.checked)}
                   />
-                  <span className="fitnessItemLabel">{it.item}</span>
-                </label>
-                <textarea
-                  rows={2}
-                  className="fitnessItemDetails"
-                  value={it.details ?? ""}
-                  disabled={fitnessLoading}
-                  placeholder="Details (optional)…"
-                  onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
-                  aria-label={`${it.item} details`}
-                />
-              </div>
-            ))
+                  <label htmlFor={checkboxId} className="fitnessChecklistLabel">
+                    {it.item}
+                  </label>
+                  <AutoGrowTextarea
+                    rows={1}
+                    className="fitnessChecklistDetails"
+                    value={it.details ?? ""}
+                    disabled={fitnessLoading}
+                    placeholder="Details…"
+                    onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
+                    aria-label={`${it.item} details`}
+                  />
+                </div>
+              );
+            })
           ) : (
             <p className="muted">{fitnessShowRemainingOnly ? "No remaining items." : "No items."}</p>
           )}
@@ -466,49 +489,94 @@ export default function App() {
     countTotal(fitnessWeek?.other);
   const totalFitnessPct = totalFitnessItems ? Math.round((totalFitnessDone / totalFitnessItems) * 100) : 0;
 
-  const renderHistoryWeek = (week, idx) => {
-    const done =
-      countDone(week?.cardio) + countDone(week?.strength) + countDone(week?.mobility) + countDone(week?.other);
-    const total =
-      countTotal(week?.cardio) + countTotal(week?.strength) + countTotal(week?.mobility) + countTotal(week?.other);
-    const pct = total ? Math.round((done / total) * 100) : 0;
-
-    const categoryPills = [
-      ["Cardio", week?.cardio],
-      ["Strength", week?.strength],
-      ["Mobility", week?.mobility],
-      ["Other", week?.other],
+  const historyColumns = (() => {
+    const template = fitnessWeek;
+    if (!template) return [];
+    const cols = [];
+    const cats = [
+      ["cardio", "Cardio"],
+      ["strength", "Strength"],
+      ["mobility", "Mobility"],
+      ["other", "Other"],
     ];
+    for (const [catKey, catLabel] of cats) {
+      const items = Array.isArray(template[catKey]) ? template[catKey] : [];
+      for (let i = 0; i < items.length; i++) {
+        cols.push({
+          key: `${catKey}:${i}`,
+          category: catKey,
+          index: i,
+          label: items[i]?.item ? String(items[i].item) : `${catLabel} ${i + 1}`,
+        });
+      }
+    }
+    return cols;
+  })();
+
+  const renderFitnessHistoryTable = () => {
+    const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
+    if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
 
     return (
-      <details key={week?.week_start ?? `week_${idx}`} className="fitnessHistoryWeek">
-        <summary className="fitnessHistoryWeekSummary">
-          <span className="fitnessHistoryWeekLeft">
-            <strong>{week?.week_label ?? "—"}</strong>{" "}
-            <span className="muted">
-              (<code>{week?.week_start ?? "—"}</code>)
-            </span>
-          </span>
-          <span className="fitnessHistoryWeekRight">
-            <span className="pill">
-              {done}/{total}
-            </span>
-            <span className="muted">{pct}%</span>
-          </span>
-        </summary>
+      <div className="tableScroll fitnessHistoryTableScroll" role="region" aria-label="Fitness history table">
+        <table className="fitnessHistoryTable">
+          <thead>
+            <tr>
+              <th className="fitnessHistoryWeekCol">Week</th>
+              {historyColumns.map((c) => (
+                <th key={c.key} title={c.label}>
+                  {c.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {weeks.map((week, idx) => {
+              const done =
+                countDone(week?.cardio) + countDone(week?.strength) + countDone(week?.mobility) + countDone(week?.other);
+              const total =
+                countTotal(week?.cardio) +
+                countTotal(week?.strength) +
+                countTotal(week?.mobility) +
+                countTotal(week?.other);
+              const pct = total ? Math.round((done / total) * 100) : 0;
+              const key = week?.week_start ?? `week_${idx}`;
 
-        <div className="fitnessHistoryWeekBody">
-          <div className="pillRow">
-            {categoryPills.map(([label, items]) => (
-              <span key={label} className="pill subtle">
-                {label}: {countDone(items)}/{countTotal(items)}
-              </span>
-            ))}
-          </div>
-
-          {week?.summary ? <p className="muted">{week.summary}</p> : <p className="muted">No summary.</p>}
-        </div>
-      </details>
+              return (
+                <tr key={key}>
+                  <td className="fitnessHistoryWeekCell">
+                    <div className="fitnessHistoryWeekTitle">{week?.week_label ?? "—"}</div>
+                    <div className="fitnessHistoryWeekMeta muted">
+                      <code>{week?.week_start ?? "—"}</code> • {done}/{total} • {pct}%
+                    </div>
+                    {week?.summary ? (
+                      <div className="fitnessHistoryWeekSummaryText muted" title={week.summary}>
+                        {week.summary}
+                      </div>
+                    ) : null}
+                  </td>
+                  {historyColumns.map((c) => {
+                    const list = Array.isArray(week?.[c.category]) ? week[c.category] : [];
+                    const it = list[c.index];
+                    const checked = Boolean(it?.checked);
+                    const details = (it?.details ?? "").trim();
+                    return (
+                      <td key={c.key} className={`fitnessHistoryCell ${checked ? "checked" : "unchecked"}`}>
+                        <div className="fitnessHistoryCellInner">
+                          <span className={`fitnessHistoryMark ${checked ? "ok" : "error"}`}>
+                            {checked ? "✓" : "×"}
+                          </span>
+                          {details ? <div className="fitnessHistoryText">{details}</div> : null}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     );
   };
 
@@ -716,14 +784,8 @@ export default function App() {
                 <div className="fitnessHistoryBody">
                   {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
                   {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
-                  {!fitnessHistoryLoading && !fitnessHistory?.length ? (
-                    <p className="muted">No past weeks yet.</p>
-                  ) : (
-                    <>
-                      {[...fitnessHistory].reverse().map((w, idx) => renderHistoryWeek(w, idx))}
-                      <p className="muted">Most recent week first.</p>
-                    </>
-                  )}
+                  {!fitnessHistoryLoading ? renderFitnessHistoryTable() : null}
+                  {!fitnessHistoryLoading && fitnessHistory?.length ? <p className="muted">Most recent week first.</p> : null}
                 </div>
               </details>
             </>
