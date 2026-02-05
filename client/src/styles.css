@@ -1,7 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap");
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --bg: #f2f4f9;
   --card: #ffffff;
   --text: #1b1e27;
@@ -12,20 +12,34 @@
   --ok: #1a9f4b;
   --sidebar: #f7f9fc;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --chat-bg: #ffffff;
+  --chat-text: #111111;
+  --chat-bubble: #fde7ef;
+  --chat-bubble-border: #f8c7d9;
+  --composer-border: #777;
+  --inline-card: #f9fafc;
+  --pill-border: var(--border);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #f2f4f9;
-    --card: #ffffff;
-    --text: #1b1e27;
-    --muted: #667085;
-    --border: #e4e8f0;
-    --accent: #2f6fe4;
-    --danger: #d04a5c;
-    --ok: #1a9f4b;
-    --sidebar: #f7f9fc;
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+    --bg: #0f1218;
+    --card: #151a23;
+    --text: #eef1f6;
+    --muted: #9aa4b2;
+    --border: #2a3240;
+    --accent: #7aa2ff;
+    --danger: #ff6b7a;
+    --ok: #4ad586;
+    --sidebar: #0f141d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --chat-bg: #0f141d;
+    --chat-text: #eef1f6;
+    --chat-bubble: #2b1d28;
+    --chat-bubble-border: #4a2c3a;
+    --composer-border: #3b4454;
+    --inline-card: #161c26;
+    --pill-border: #3b4454;
   }
 }
 
@@ -37,7 +51,7 @@ body {
   margin: 0;
   font-family: "Sora", ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, "Apple Color Emoji",
     "Segoe UI Emoji";
-  background: linear-gradient(180deg, #ffffff 0%, var(--bg) 100%);
+  background: linear-gradient(180deg, var(--card) 0%, var(--bg) 100%);
   color: var(--text);
 }
 
@@ -333,7 +347,7 @@ ul {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--card);
+  background: var(--chat-bg);
 }
 
 .chatBoxFull {
@@ -346,8 +360,8 @@ ul {
   max-height: none;
   overflow: auto;
   padding: 22px 24px 18px;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--chat-bg);
+  color: var(--chat-text);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -368,8 +382,8 @@ ul {
   align-self: flex-end;
   width: auto;
   max-width: min(72%, 620px);
-  background: #fde7ef;
-  border: 1px solid #f8c7d9;
+  background: var(--chat-bubble);
+  border: 1px solid var(--chat-bubble-border);
   border-radius: 18px;
   padding: 12px 14px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
@@ -386,7 +400,7 @@ ul {
   border-radius: 0;
   padding: 12px;
   margin: 16px 0 8px;
-  background: var(--card);
+  background: var(--inline-card);
   box-shadow: var(--shadow);
 }
 
@@ -495,9 +509,9 @@ ul {
   gap: 10px;
   padding: 10px 12px;
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--composer-border);
   border-radius: 0;
-  background: var(--card);
+  background: var(--chat-bg);
   flex-wrap: wrap;
   row-gap: 8px;
 }
@@ -509,8 +523,8 @@ ul {
   padding: 8px 6px;
   border: none;
   border-radius: 0;
-  background: transparent;
-  color: var(--text);
+  background: var(--chat-bg);
+  color: var(--chat-text);
   font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   resize: none;
@@ -540,7 +554,7 @@ ul {
 
 .iconButton {
   background: transparent;
-  color: var(--text);
+  color: var(--chat-text);
 }
 
 .iconButton:hover:not(:disabled) {
@@ -589,7 +603,7 @@ ul {
   gap: 8px;
   padding: 4px 10px;
   border-radius: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--pill-border);
   background: transparent;
   font-weight: 800;
   font-size: 12px;
@@ -610,7 +624,7 @@ ul {
   height: 22px;
   padding: 0;
   border-radius: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--pill-border);
   background: transparent;
   color: var(--muted);
   font-weight: 900;
@@ -639,6 +653,9 @@ ul {
   border-radius: 0;
   font-weight: 900;
   font-size: 12px;
+  background: transparent;
+  color: var(--chat-text);
+  border: 1px solid var(--pill-border);
 }
 
 .composerDateInput {
@@ -666,7 +683,7 @@ ul {
   justify-content: center;
   padding: 4px 10px;
   border-radius: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--pill-border);
   background: color-mix(in srgb, var(--card) 78%, black 22%);
   font-weight: 900;
   font-size: 12px;
@@ -708,10 +725,10 @@ ul {
 }
 
 .sidebarCard {
-  border: 1px solid #eef1f6;
+  border: 1px solid var(--border);
   border-radius: 0;
   padding: 14px 14px 16px;
-  background: #ffffff;
+  background: var(--card);
   box-shadow: var(--shadow);
 }
 
