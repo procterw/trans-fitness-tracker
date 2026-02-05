@@ -55,6 +55,12 @@ h2 {
   font-size: 20px;
 }
 
+h2:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 10px;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -228,6 +234,14 @@ td {
   vertical-align: top;
 }
 
+tr.selectedRow td {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+tr.selectedRow .linkButton {
+  text-decoration-thickness: 3px;
+}
+
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
@@ -276,7 +290,59 @@ ul {
 }
 
 .chatContent {
+  line-height: 1.35;
+}
+
+.chatContent.plain {
   white-space: pre-wrap;
+}
+
+.chatContent.markdown {
+  white-space: normal;
+}
+
+.chatContent.markdown p {
+  margin: 0 0 10px;
+}
+
+.chatContent.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chatContent.markdown ul,
+.chatContent.markdown ol {
+  margin: 0 0 10px;
+}
+
+.chatContent.markdown li {
+  margin: 2px 0;
+}
+
+.chatContent.markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.chatContent.markdown pre {
+  margin: 8px 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  overflow: auto;
+  background: color-mix(in srgb, var(--card) 70%, black 30%);
+}
+
+.chatContent.markdown pre code {
+  white-space: pre;
+  display: block;
+}
+
+.chatContent.markdown blockquote {
+  margin: 8px 0 10px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
 }
 
 .chatInputRow {
@@ -287,4 +353,173 @@ ul {
   padding: 12px;
   border-top: 1px solid var(--border);
   background: var(--card);
+}
+
+.pillRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 78%, black 22%);
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.pill.subtle {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.progressBar {
+  width: 100%;
+  height: 10px;
+  margin-top: 10px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressBarFill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+
+.fitnessTopRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.fitnessCategory {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.fitnessCategoryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fitnessCategoryTitle {
+  margin: 0;
+  font-size: 18px;
+}
+
+.fitnessCategoryMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fitnessItems {
+  margin-top: 10px;
+}
+
+.fitnessItem {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  background: transparent;
+}
+
+.fitnessItem.checked {
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
+}
+
+.fitnessItemMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 900;
+}
+
+.fitnessItemMain input {
+  width: 18px;
+  height: 18px;
+}
+
+.fitnessItemLabel {
+  flex: 1;
+}
+
+.fitnessItemDetails {
+  margin-top: 8px;
+}
+
+.fitnessHistory {
+  margin-top: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.fitnessHistory summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 900;
+  background: color-mix(in srgb, var(--card) 78%, black 22%);
+}
+
+.fitnessHistoryBody {
+  padding: 12px 14px;
+}
+
+.fitnessHistoryWeek {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+
+.fitnessHistoryWeekSummary {
+  cursor: pointer;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+}
+
+.fitnessHistoryWeekRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fitnessHistoryWeekBody {
+  padding: 10px 12px 12px;
 }

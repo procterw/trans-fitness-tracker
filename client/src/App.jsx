@@ -5,6 +5,7 @@ import {
   askAssistant,
   getContext,
   getFitnessCurrent,
+  getFitnessHistory,
   getFoodForDate,
   getFoodLog,
   logFood,
@@ -14,6 +15,7 @@ import {
   updateFitnessSummary,
 } from "./api.js";
 import EstimateResult from "./components/EstimateResult.jsx";
+import MarkdownContent from "./components/MarkdownContent.jsx";
 import NutrientsTable from "./components/NutrientsTable.jsx";
 
 function useDebouncedCallback(fn, ms) {
@@ -24,6 +26,48 @@ function useDebouncedCallback(fn, ms) {
       timeoutRef.current = setTimeout(() => fn(...args), ms);
     };
   }, [fn, ms]);
+}
+
+function useDebouncedKeyedCallback(fn, ms) {
+  const fnRef = useRef(fn);
+  const timeoutMapRef = useRef(new Map());
+
+  useEffect(() => {
+    fnRef.current = fn;
+  }, [fn]);
+
+  useEffect(() => {
+    return () => {
+      for (const t of timeoutMapRef.current.values()) clearTimeout(t);
+      timeoutMapRef.current.clear();
+    };
+  }, []);
+
+  return useMemo(() => {
+    return (key, ...args) => {
+      const map = timeoutMapRef.current;
+      const prev = map.get(key);
+      if (prev) clearTimeout(prev);
+      map.set(
+        key,
+        setTimeout(() => {
+          map.delete(key);
+          fnRef.current(...args);
+        }, ms),
+      );
+    };
+  }, [ms]);
+}
+
+function useSerialQueue() {
+  const chainRef = useRef(Promise.resolve());
+  return useMemo(() => {
+    return (fn) => {
+      const next = chainRef.current.catch(() => {}).then(fn);
+      chainRef.current = next;
+      return next;
+    };
+  }, []);
 }
 
 function TabButton({ active, onClick, children }) {
@@ -41,7 +85,6 @@ export default function App() {
 
   // Food tab state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
-  const [foodNotes, setFoodNotes] = useState("");
   const [foodDesc, setFoodDesc] = useState("");
   const [foodFile, setFoodFile] = useState(null);
   const [foodStatus, setFoodStatus] = useState("");
@@ -61,6 +104,10 @@ export default function App() {
   const [fitnessError, setFitnessError] = useState("");
   const [fitnessWeek, setFitnessWeek] = useState(null);
   const [fitnessLoading, setFitnessLoading] = useState(false);
+  const [fitnessShowRemainingOnly, setFitnessShowRemainingOnly] = useState(false);
+  const [fitnessHistory, setFitnessHistory] = useState([]);
+  const [fitnessHistoryError, setFitnessHistoryError] = useState("");
+  const [fitnessHistoryLoading, setFitnessHistoryLoading] = useState(false);
 
   // Dashboard tab state
   const [dashDate, setDashDate] = useState("");
@@ -69,6 +116,9 @@ export default function App() {
   const [dashPayload, setDashPayload] = useState(null);
   const [dashFoodLogRows, setDashFoodLogRows] = useState([]);
   const [dashLoading, setDashLoading] = useState(false);
+  const dashHeadingRef = useRef(null);
+  const dashSkipNextAutoLoadRef = useRef(false);
+  const dashLoadSeqRef = useRef(0);
 
   const fmt = (n) => {
     if (n === null || n === undefined) return "—";
@@ -103,20 +153,36 @@ export default function App() {
     }
   };
 
+  const loadFitnessHistory = async () => {
+    setFitnessHistoryLoading(true);
+    setFitnessHistoryError("");
+    try {
+      const json = await getFitnessHistory({ limit: 8 });
+      setFitnessHistory(Array.isArray(json.weeks) ? json.weeks : []);
+    } catch (e) {
+      setFitnessHistoryError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setFitnessHistoryLoading(false);
+    }
+  };
+
   const loadDashboard = async (date) => {
     if (!date) return;
+    const seq = ++dashLoadSeqRef.current;
     setDashLoading(true);
     setDashError("");
     setDashStatus("Loading…");
     try {
       const json = await getFoodForDate(date);
+      if (seq !== dashLoadSeqRef.current) return;
       setDashPayload(json);
       setDashStatus("Loaded.");
     } catch (e) {
+      if (seq !== dashLoadSeqRef.current) return;
       setDashError(e instanceof Error ? e.message : String(e));
       setDashStatus("");
     } finally {
-      setDashLoading(false);
+      if (seq === dashLoadSeqRef.current) setDashLoading(false);
     }
   };
 
@@ -131,9 +197,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (tab === "fitness") loadFitness();
+    if (tab === "fitness") {
+      loadFitness();
+      loadFitnessHistory();
+    }
     if (tab === "dashboard") {
-      loadDashboard(dashDate);
       loadDashboardFoodLog();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,6 +210,10 @@ export default function App() {
   useEffect(() => {
     if (tab !== "dashboard") return;
     if (!dashDate) return;
+    if (dashSkipNextAutoLoadRef.current) {
+      dashSkipNextAutoLoadRef.current = false;
+      return;
+    }
     loadDashboard(dashDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashDate, tab]);
@@ -164,7 +236,6 @@ export default function App() {
         file: foodFile,
         description: foodDesc.trim(),
         date: foodDate,
-        notes: foodNotes,
       });
       setFoodResult(json);
       setFoodStatus("Logged.");
@@ -202,25 +273,44 @@ export default function App() {
     }
   };
 
-  const debouncedSaveFitnessItem = useDebouncedCallback(async ({ category, index, checked, details }) => {
+  const enqueueFitnessSave = useSerialQueue();
+
+  const saveFitnessItem = ({ category, index, checked, details }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
-    try {
+    enqueueFitnessSave(async () => {
       const json = await updateFitnessItem({ category, index, checked, details });
       setFitnessWeek(json.current_week);
       setFitnessStatus("Saved.");
-    } catch (e) {
+    }).catch((e) => {
       setFitnessError(e instanceof Error ? e.message : String(e));
       setFitnessStatus("");
-    }
-  }, 450);
+    });
+  };
+
+  const debouncedSaveFitnessItem = useDebouncedKeyedCallback(saveFitnessItem, 450);
+
+  const saveFitnessSummary = (summaryText) => {
+    setFitnessError("");
+    setFitnessStatus("Saving…");
+    enqueueFitnessSave(async () => {
+      const json = await updateFitnessSummary(summaryText ?? "");
+      setFitnessWeek(json.current_week);
+      setFitnessStatus("Saved.");
+    }).catch((e) => {
+      setFitnessError(e instanceof Error ? e.message : String(e));
+      setFitnessStatus("");
+    });
+  };
+
+  const debouncedSaveFitnessSummary = useDebouncedCallback(saveFitnessSummary, 650);
 
   const onToggleFitness = (category, index, checked) => {
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next[category][index].checked = checked;
-      debouncedSaveFitnessItem({
+      debouncedSaveFitnessItem(`${category}:${index}`, {
         category,
         index,
         checked,
@@ -235,7 +325,7 @@ export default function App() {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next[category][index].details = details;
-      debouncedSaveFitnessItem({
+      debouncedSaveFitnessItem(`${category}:${index}`, {
         category,
         index,
         checked: Boolean(next[category][index].checked),
@@ -245,17 +335,8 @@ export default function App() {
     });
   };
 
-  const onSaveFitnessSummary = async () => {
-    setFitnessError("");
-    setFitnessStatus("Saving…");
-    try {
-      const json = await updateFitnessSummary(fitnessWeek?.summary ?? "");
-      setFitnessWeek(json.current_week);
-      setFitnessStatus("Saved.");
-    } catch (e) {
-      setFitnessError(e instanceof Error ? e.message : String(e));
-      setFitnessStatus("");
-    }
+  const onSaveFitnessSummary = () => {
+    saveFitnessSummary(fitnessWeek?.summary ?? "");
   };
 
   const onRollupDash = async () => {
@@ -292,51 +373,141 @@ export default function App() {
     }
   };
 
+<<<<<<< ours
+  const focusDashboardHeading = () => {
+    const el = dashHeadingRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      el.focus();
+    }
+  };
+
+  const onPickDashDateFromAllDays = (date) => {
+    if (!date) return;
+    dashSkipNextAutoLoadRef.current = true;
+    setDashDate(date);
+    loadDashboard(date);
+    focusDashboardHeading();
+  };
+=======
+  const countDone = (items) => (Array.isArray(items) ? items.filter((it) => Boolean(it?.checked)).length : 0);
+  const countTotal = (items) => (Array.isArray(items) ? items.length : 0);
+>>>>>>> theirs
+
   const renderFitnessCategory = (title, category) => {
-    const list = fitnessWeek?.[category] ?? [];
+    const list = Array.isArray(fitnessWeek?.[category]) ? fitnessWeek[category] : [];
+    const done = countDone(list);
+    const total = countTotal(list);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    const entries = list
+      .map((it, idx) => ({ it, idx }))
+      .filter(({ it }) => (!fitnessShowRemainingOnly ? true : !it.checked));
+
     return (
-      <div key={category}>
-        <h3>{title}</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Done</th>
-              <th>Item</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.length ? (
-              list.map((it, idx) => (
-                <tr key={idx}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(it.checked)}
-                      onChange={(e) => onToggleFitness(category, idx, e.target.checked)}
-                    />
-                  </td>
-                  <td>{it.item}</td>
-                  <td>
-                    <input
-                      type="text"
-                      value={it.details ?? ""}
-                      placeholder="Details…"
-                      onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
-                    />
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={3} className="muted">
-                  No items.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <section key={category} className="fitnessCategory">
+        <div className="fitnessCategoryHeader">
+          <h3 className="fitnessCategoryTitle">{title}</h3>
+          <div className="fitnessCategoryMeta">
+            <span className="pill">
+              {done}/{total}
+            </span>
+            <span className="muted">{pct}%</span>
+          </div>
+        </div>
+        <div className="progressBar" role="img" aria-label={`${title} progress`}>
+          <div className="progressBarFill" style={{ width: `${pct}%` }} />
+        </div>
+
+        <div className="fitnessItems">
+          {entries.length ? (
+            entries.map(({ it, idx }) => (
+              <div key={idx} className={`fitnessItem ${it.checked ? "checked" : ""}`}>
+                <label className="fitnessItemMain">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(it.checked)}
+                    disabled={fitnessLoading}
+                    onChange={(e) => onToggleFitness(category, idx, e.target.checked)}
+                  />
+                  <span className="fitnessItemLabel">{it.item}</span>
+                </label>
+                <textarea
+                  rows={2}
+                  className="fitnessItemDetails"
+                  value={it.details ?? ""}
+                  disabled={fitnessLoading}
+                  placeholder="Details (optional)…"
+                  onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
+                  aria-label={`${it.item} details`}
+                />
+              </div>
+            ))
+          ) : (
+            <p className="muted">{fitnessShowRemainingOnly ? "No remaining items." : "No items."}</p>
+          )}
+        </div>
+      </section>
+    );
+  };
+
+  const totalFitnessDone =
+    countDone(fitnessWeek?.cardio) +
+    countDone(fitnessWeek?.strength) +
+    countDone(fitnessWeek?.mobility) +
+    countDone(fitnessWeek?.other);
+  const totalFitnessItems =
+    countTotal(fitnessWeek?.cardio) +
+    countTotal(fitnessWeek?.strength) +
+    countTotal(fitnessWeek?.mobility) +
+    countTotal(fitnessWeek?.other);
+  const totalFitnessPct = totalFitnessItems ? Math.round((totalFitnessDone / totalFitnessItems) * 100) : 0;
+
+  const renderHistoryWeek = (week, idx) => {
+    const done =
+      countDone(week?.cardio) + countDone(week?.strength) + countDone(week?.mobility) + countDone(week?.other);
+    const total =
+      countTotal(week?.cardio) + countTotal(week?.strength) + countTotal(week?.mobility) + countTotal(week?.other);
+    const pct = total ? Math.round((done / total) * 100) : 0;
+
+    const categoryPills = [
+      ["Cardio", week?.cardio],
+      ["Strength", week?.strength],
+      ["Mobility", week?.mobility],
+      ["Other", week?.other],
+    ];
+
+    return (
+      <details key={week?.week_start ?? `week_${idx}`} className="fitnessHistoryWeek">
+        <summary className="fitnessHistoryWeekSummary">
+          <span className="fitnessHistoryWeekLeft">
+            <strong>{week?.week_label ?? "—"}</strong>{" "}
+            <span className="muted">
+              (<code>{week?.week_start ?? "—"}</code>)
+            </span>
+          </span>
+          <span className="fitnessHistoryWeekRight">
+            <span className="pill">
+              {done}/{total}
+            </span>
+            <span className="muted">{pct}%</span>
+          </span>
+        </summary>
+
+        <div className="fitnessHistoryWeekBody">
+          <div className="pillRow">
+            {categoryPills.map(([label, items]) => (
+              <span key={label} className="pill subtle">
+                {label}: {countDone(items)}/{countTotal(items)}
+              </span>
+            ))}
+          </div>
+
+          {week?.summary ? <p className="muted">{week.summary}</p> : <p className="muted">No summary.</p>}
+        </div>
+      </details>
     );
   };
 
@@ -371,25 +542,19 @@ export default function App() {
             </label>
 
             <label>
-              Meal description (optional if photo is provided)
+              Meal description / context (optional if photo is provided)
               <textarea
                 rows={3}
                 value={foodDesc}
                 onChange={(e) => setFoodDesc(e.target.value)}
-                placeholder="e.g., standard smoothie; 2 slices toast with vegan mayo; handful of chips"
+                placeholder="e.g., standard smoothie; 2 slices toast with vegan mayo; handful of chips (include any extra context)"
               />
             </label>
 
-            <div className="row">
-              <label>
-                Log date
-                <input type="date" value={foodDate} onChange={(e) => setFoodDate(e.target.value)} />
-              </label>
-              <label>
-                Notes (optional)
-                <input type="text" value={foodNotes} onChange={(e) => setFoodNotes(e.target.value)} />
-              </label>
-            </div>
+            <label>
+              Log date
+              <input type="date" value={foodDate} onChange={(e) => setFoodDate(e.target.value)} />
+            </label>
 
             <div className="buttonRow">
               <button type="submit" disabled={foodLoading}>
@@ -432,7 +597,9 @@ export default function App() {
                   chatMessages.map((m, idx) => (
                     <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
                       <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
-                      <div className="chatContent">{m.content}</div>
+                      <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
+                        {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -460,7 +627,7 @@ export default function App() {
 
       {tab === "fitness" ? (
         <section className="card">
-          <h2>Fitness (current week)</h2>
+          <h2>Fitness</h2>
 
           <div className="status">
             {fitnessError ? <span className="error">{fitnessError}</span> : fitnessStatus}
@@ -468,9 +635,35 @@ export default function App() {
 
           {fitnessWeek ? (
             <>
-              <p className="muted">
-                Week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
-              </p>
+              <div className="fitnessTop">
+                <div className="fitnessTopRow">
+                  <div>
+                    <div className="muted">
+                      Current week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
+                    </div>
+                    <div className="pillRow">
+                      <span className="pill">
+                        Overall: {totalFitnessDone}/{totalFitnessItems}
+                      </span>
+                      <span className="pill subtle">{totalFitnessPct}%</span>
+                    </div>
+                  </div>
+
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={fitnessShowRemainingOnly}
+                      disabled={fitnessLoading}
+                      onChange={(e) => setFitnessShowRemainingOnly(e.target.checked)}
+                    />
+                    Show remaining only
+                  </label>
+                </div>
+
+                <div className="progressBar" role="img" aria-label="Overall weekly progress">
+                  <div className="progressBarFill" style={{ width: `${totalFitnessPct}%` }} />
+                </div>
+              </div>
 
               {renderFitnessCategory("Cardio", "cardio")}
               {renderFitnessCategory("Strength", "strength")}
@@ -481,12 +674,35 @@ export default function App() {
               <textarea
                 rows={3}
                 value={fitnessWeek.summary ?? ""}
-                onChange={(e) => setFitnessWeek((prev) => ({ ...prev, summary: e.target.value }))}
+                disabled={fitnessLoading}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFitnessWeek((prev) => (prev ? { ...prev, summary: v } : prev));
+                  debouncedSaveFitnessSummary(v);
+                }}
                 placeholder="Weekly summary…"
               />
-              <button type="button" className="secondary" disabled={fitnessLoading} onClick={onSaveFitnessSummary}>
+              <div className="buttonRow">
+                <button type="button" className="secondary" disabled={fitnessLoading} onClick={onSaveFitnessSummary}>
                 Save summary
-              </button>
+                </button>
+              </div>
+
+              <details className="fitnessHistory">
+                <summary>History</summary>
+                <div className="fitnessHistoryBody">
+                  {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
+                  {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
+                  {!fitnessHistoryLoading && !fitnessHistory?.length ? (
+                    <p className="muted">No past weeks yet.</p>
+                  ) : (
+                    <>
+                      {[...fitnessHistory].reverse().map((w, idx) => renderHistoryWeek(w, idx))}
+                      <p className="muted">Most recent week first.</p>
+                    </>
+                  )}
+                </div>
+              </details>
             </>
           ) : null}
         </section>
@@ -494,7 +710,9 @@ export default function App() {
 
       {tab === "dashboard" ? (
         <section className="card">
-          <h2>Dashboard</h2>
+          <h2 ref={dashHeadingRef} tabIndex={-1}>
+            Dashboard
+          </h2>
           <div className="row">
             <label>
               Date
@@ -575,6 +793,7 @@ export default function App() {
               )}
 
               <h3>All days (food_log)</h3>
+              <p className="muted">Pick a date to jump up and view that day&apos;s totals, events, and daily log.</p>
               {dashFoodLogRows?.length ? (
                 <div className="tableScroll">
                   <table>
@@ -599,17 +818,21 @@ export default function App() {
                     </thead>
                     <tbody>
                       {dashFoodLogRows.map((row) => (
-                        <tr key={row.date}>
+                        <tr key={row.date} className={row.date === dashDate ? "selectedRow" : ""}>
                           <td>
                             <button
                               type="button"
                               className="linkButton"
-                              onClick={() => {
-                                setDashDate(row.date);
-                                loadDashboard(row.date);
-                              }}
+                              aria-current={row.date === dashDate ? "date" : undefined}
+                              onClick={() => onPickDashDateFromAllDays(row.date)}
                             >
                               {row.date}
+                              {row.date === dashDate ? (
+                                <span className="muted">
+                                  {" "}
+                                  {dashLoading ? "(loading…)" : "(viewing)"}
+                                </span>
+                              ) : null}
                             </button>
                           </td>
                           <td>{row.day_of_week ?? "—"}</td>

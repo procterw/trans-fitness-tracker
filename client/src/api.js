@@ -12,10 +12,11 @@ export async function getContext() {
   return fetchJson("/api/context");
 }
 
-export async function logFoodPhoto({ file, date, notes }) {
+export async function logFoodPhoto({ file, date, notes = "", description = "" }) {
   const fd = new FormData();
   fd.append("image", file);
   if (date) fd.append("date", date);
+  fd.append("description", description ?? "");
   fd.append("notes", notes ?? "");
   return fetchJson("/api/food/photo", { method: "POST", body: fd });
 }
@@ -80,6 +81,13 @@ export async function syncFoodForDate({ date, onlyUnsynced = true }) {
 
 export async function getFitnessCurrent() {
   return fetchJson("/api/fitness/current");
+}
+
+export async function getFitnessHistory({ limit = 12 } = {}) {
+  const params = new URLSearchParams();
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return fetchJson(`/api/fitness/history${qs ? `?${qs}` : ""}`);
 }
 
 export async function updateFitnessItem({ category, index, checked, details }) {
