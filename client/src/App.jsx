@@ -825,21 +825,37 @@ export default function App() {
                     onClick={() => foodFileInputRef.current?.click()}
                     disabled={composerLoading}
                   >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                      <path
-                        d="M12 5v14M5 12h14"
-                        stroke="currentColor"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M4 7.5A2.5 2.5 0 0 1 6.5 5h2.1l1.1-1.2c.4-.5 1-.8 1.7-.8h1.2c.7 0 1.3.3 1.7.8L15.4 5h2.1A2.5 2.5 0 0 1 20 7.5v9A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-9z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M9 12.2l2.1 2.1 4.2-4.2"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
 
-                  <textarea
-                    rows={1}
-                    className="composerInput"
-                    value={composerInput}
+                <input
+                  type="date"
+                  className="datePillInput composerDateInput"
+                  value={foodDate}
+                  onChange={(e) => setFoodDate(e.target.value)}
+                  disabled={composerLoading}
+                  aria-label="Log date"
+                />
+
+                <textarea
+                  rows={1}
+                  className="composerInput"
+                  value={composerInput}
                     onChange={(e) => setComposerInput(e.target.value)}
                     onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
                     onKeyDown={(e) => {
@@ -882,18 +898,7 @@ export default function App() {
                     ) : null}
                   </div>
 
-                  <div className="composerMetaRight">
-                    <label className="metaLabel">
-                      Date
-                      <input
-                        type="date"
-                        className="datePillInput"
-                        value={foodDate}
-                        onChange={(e) => setFoodDate(e.target.value)}
-                        disabled={composerLoading}
-                      />
-                    </label>
-                  </div>
+                  <div className="composerMetaRight" />
                 </div>
 
                 {composerStatus || composerError ? (

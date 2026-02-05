@@ -1,25 +1,31 @@
+@import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&display=swap");
+
 :root {
-  color-scheme: light dark;
-  --bg: #0b0c10;
-  --card: #14161d;
-  --text: #e8e8ee;
-  --muted: #a8acb8;
-  --border: #2a2f3a;
-  --accent: #7aa2f7;
-  --danger: #ff5c75;
-  --ok: #41d67a;
+  color-scheme: light;
+  --bg: #f2f4f9;
+  --card: #ffffff;
+  --text: #1b1e27;
+  --muted: #667085;
+  --border: #e4e8f0;
+  --accent: #2f6fe4;
+  --danger: #d04a5c;
+  --ok: #1a9f4b;
+  --sidebar: #f7f9fc;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: dark) {
   :root {
-    --bg: #f6f7fb;
+    --bg: #f2f4f9;
     --card: #ffffff;
-    --text: #11131a;
-    --muted: #5b6273;
-    --border: #d7dbe6;
-    --accent: #3b6ef5;
-    --danger: #d7374f;
+    --text: #1b1e27;
+    --muted: #667085;
+    --border: #e4e8f0;
+    --accent: #2f6fe4;
+    --danger: #d04a5c;
     --ok: #1a9f4b;
+    --sidebar: #f7f9fc;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
   }
 }
 
@@ -29,9 +35,9 @@
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+  font-family: "Sora", ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, "Apple Color Emoji",
     "Segoe UI Emoji";
-  background: var(--bg);
+  background: linear-gradient(180deg, #ffffff 0%, var(--bg) 100%);
   color: var(--text);
 }
 
@@ -44,16 +50,16 @@ a {
   height: 100vh;
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-  background: var(--bg);
+  background: transparent;
 }
 
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 28px 22px;
+  padding: 12px 8px;
   border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--card) 94%, black 6%);
+  background: var(--sidebar);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -120,6 +126,7 @@ h2:focus {
   border-radius: 0;
   padding: 16px;
   margin: 16px 0;
+  box-shadow: var(--shadow);
 }
 
 .tabs {
@@ -142,11 +149,11 @@ h2:focus {
 
 .tab {
   border: 1px solid var(--border);
-  background: transparent;
+  background: var(--card);
   color: var(--text);
   padding: 10px 14px;
   border-radius: 0;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -338,24 +345,40 @@ ul {
   flex: 1;
   max-height: none;
   overflow: auto;
-  padding: 12px;
+  padding: 22px 24px 18px;
   background: #ffffff;
   color: #111111;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
 }
 
 .chatMsg {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
+  padding: 0;
+  border: none;
   border-radius: 0;
-  margin: 10px 0;
+  margin: 0;
+  width: 100%;
 }
 
 .chatMsg.user {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  align-self: flex-end;
+  width: auto;
+  max-width: min(72%, 620px);
+  background: #fde7ef;
+  border: 1px solid #f8c7d9;
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 
 .chatMsg.assistant {
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .chatInlineCard {
@@ -363,7 +386,8 @@ ul {
   border-radius: 0;
   padding: 12px;
   margin: 16px 0 8px;
-  background: #f6f7fb;
+  background: #f9fafc;
+  box-shadow: var(--shadow);
 }
 
 .chatPanel {
@@ -379,6 +403,11 @@ ul {
   margin-bottom: 6px;
   font-size: 13px;
   color: var(--muted);
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+.chatMsg.assistant .chatRole {
+  display: none;
 }
 
 .chatContent {
@@ -469,10 +498,12 @@ ul {
   border-top: 1px solid #777;
   border-radius: 0;
   background: #ffffff;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
 .composerInput {
-  flex: 1;
+  flex: 1 1 220px;
   width: auto;
   margin: 0;
   padding: 8px 6px;
@@ -480,9 +511,12 @@ ul {
   border-radius: 0;
   background: #ffffff;
   color: #111111;
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
   resize: none;
   overflow: auto;
   min-height: 22px;
+  min-width: 180px;
   line-height: 1.35;
 }
 
@@ -603,6 +637,18 @@ ul {
   font-size: 12px;
 }
 
+.composerDateInput {
+  height: 38px;
+  margin-top: 0;
+  width: auto !important;
+  min-width: 0;
+  max-width: 120px;
+  inline-size: max-content;
+  padding: 6px 8px;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
 .pillRow {
   display: flex;
   gap: 8px;
@@ -658,10 +704,11 @@ ul {
 }
 
 .sidebarCard {
-  border: 1px solid var(--border);
+  border: 1px solid #eef1f6;
   border-radius: 0;
   padding: 14px 14px 16px;
-  background: color-mix(in srgb, var(--card) 88%, black 12%);
+  background: #ffffff;
+  box-shadow: var(--shadow);
 }
 
 .sidebarSectionHeader {
