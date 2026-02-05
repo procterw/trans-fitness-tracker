@@ -2,4 +2,4 @@ When writing complex features or significant refactors, use an ExecPlan (as desc
 
 Read PROJECT.md for top level project details and goals. 
 
-If sample input is needed for testing, use `/Users/williamleahy/Downloads/OIP-710878801.jpg` which is a picture of avcado toast.
+If sample input is needed for testing, use `samples/avocado-toast.png` which is a picture of avocado toast.
