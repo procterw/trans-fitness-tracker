@@ -6,12 +6,12 @@ This plan follows `PLANS.md` at the repository root and must be maintained in ac
 
 ## Purpose / Big Picture
 
-After this change, the Food tab behaves like a single ChatGPT-style composer: the user types once at the bottom (optionally attaching a photo) and the system decides whether they are logging food, logging an activity, or asking a question. GPT‑5 classifies the intent, then the server either logs to `tracking-data.json` and returns a short summary message, or answers the question. If the intent is ambiguous, the server asks a clarifying question instead of logging. The user can see this working by submitting a few messages (e.g., “70 minute run”, “ate a bagel”, “what’s my protein today?”) and observing the assistant summaries and updated data.
+After this change, the Food tab behaves like a single ChatGPT-style composer: the user types once at the bottom (optionally attaching a photo) and the system decides whether they are logging food, logging an activity, or asking a question. GPT‑5.2 classifies the intent, then the server either logs to `tracking-data.json` and returns a short summary message, or answers the question. If the intent is ambiguous, the server asks a clarifying question instead of logging. The user can see this working by submitting a few messages (e.g., “70 minute run”, “ate a bagel”, “what’s my protein today?”) and observing the assistant summaries and updated data.
 
 ## Progress
 
 - [x] (2026-02-05 20:17Z) Create this ExecPlan with initial scope, context, and acceptance.
-- [x] (2026-02-05 20:24Z) Implement GPT‑5 intent routing and activity mapping on the server.
+- [x] (2026-02-05 20:24Z) Implement GPT‑5.2 intent routing and activity mapping on the server.
 - [x] (2026-02-05 20:24Z) Replace the Food tab UI with a single chat thread + unified composer.
 - [x] (2026-02-05 20:24Z) Update docs and environment examples for the new ingest endpoint/model.
 - [x] (2026-02-05 20:24Z) Validate build and basic flows (food, activity, question, clarify).
@@ -23,9 +23,9 @@ None yet.
 ## Decision Log
 
 - Decision: Use a new unified endpoint `POST /api/assistant/ingest` that accepts text and optional image, and returns a summary message plus any log payloads.
-  Rationale: A single endpoint mirrors the “single input” UI and keeps intent routing server-side with GPT‑5 as requested.
+  Rationale: A single endpoint mirrors the “single input” UI and keeps intent routing server-side with GPT‑5.2 as requested.
   Date/Author: 2026-02-05 / Codex
-- Decision: Use GPT‑5 structured output (Zod‑parsed JSON) to classify intent and map activity selections to current checklist items.
+- Decision: Use GPT‑5.2 structured output (Zod‑parsed JSON) to classify intent and map activity selections to current checklist items.
   Rationale: Structured output is already used in this repo and gives reliable parsing with explicit fields.
   Date/Author: 2026-02-05 / Codex
 - Decision: Activity logs will auto‑check items and can update multiple items at once; details will be standardized and may include a follow‑up question.
@@ -40,7 +40,7 @@ None yet.
 
 ## Outcomes & Retrospective
 
-Completed a unified chat-style ingest flow: GPT‑5 classifies food/activity/questions, activity logs auto‑check checklist items with standardized details, and the Food tab now uses a single bottom composer with a chat thread. The new endpoint and environment variable are documented, and the build passes. Follow-up refinement for food entries remains a future enhancement if editing existing food events becomes necessary.
+Completed a unified chat-style ingest flow: GPT‑5.2 classifies food/activity/questions, activity logs auto‑check checklist items with standardized details, and the Food tab now uses a single bottom composer with a chat thread. The new endpoint and environment variable are documented, and the build passes. Follow-up refinement for food entries remains a future enhancement if editing existing food events becomes necessary.
 
 ## Context and Orientation
 
@@ -48,16 +48,16 @@ The server is in `src/server.js`, which exposes existing endpoints for food logg
 
 ## Plan of Work
 
-First, add a new GPT‑5 intent router that receives the user’s message, the optional presence of an image, and the current fitness checklist items. This router will return a structured decision (food, activity, question, or clarify) and, for activities, a set of `{category, index, details}` selections. Next, implement a new server endpoint that uses that decision to either call the existing food logging pipeline, update the current week checklist items (auto‑checked, with standardized details), or call the existing question‑answering assistant. Then, refactor the Food tab into a chat-style thread and a single bottom composer that sends all input to the new endpoint, with optional image upload. Finally, update documentation (PROJECT.md and `.env.example`) to reflect the new endpoint and model, and validate the build.
+First, add a new GPT‑5.2 intent router that receives the user’s message, the optional presence of an image, and the current fitness checklist items. This router will return a structured decision (food, activity, question, or clarify) and, for activities, a set of `{category, index, details}` selections. Next, implement a new server endpoint that uses that decision to either call the existing food logging pipeline, update the current week checklist items (auto‑checked, with standardized details), or call the existing question‑answering assistant. Then, refactor the Food tab into a chat-style thread and a single bottom composer that sends all input to the new endpoint, with optional image upload. Finally, update documentation (PROJECT.md and `.env.example`) to reflect the new endpoint and model, and validate the build.
 
 ## Concrete Steps
 
 Run commands from the repository root.
 
-1. Add GPT‑5 intent routing to `src/assistant.js` and expose a new function for ingestion decisions. Add any helper functions and a Zod schema for the structured decision.
+1. Add GPT‑5.2 intent routing to `src/assistant.js` and expose a new function for ingestion decisions. Add any helper functions and a Zod schema for the structured decision.
 2. Add a new route in `src/server.js` (`POST /api/assistant/ingest`) to:
    - Accept `multipart/form-data` with `message`, optional `image`, optional `date`, and optional `messages` JSON.
-   - Call the GPT‑5 decision function.
+   - Call the GPT‑5.2 decision function.
    - For food intent, call the existing log pipeline (image + text) and return a short summary plus the nutrition payload.
    - For activity intent, update one or more checklist items (auto‑checked) and return a summary and any follow‑up question.
    - For question intent, call `askAssistant` and return the answer.
@@ -97,7 +97,7 @@ Build output (2026-02-05 20:24Z):
 
 ## Interfaces and Dependencies
 
-In `src/assistant.js`, define a new exported function such as `decideIngestAction({ message, hasImage, date, messages })` that returns a structured decision object parsed with Zod. It must use GPT‑5 by default (via `OPENAI_INGEST_MODEL` or `gpt-5` fallback) and include the current week checklist items in the prompt.
+In `src/assistant.js`, define a new exported function such as `decideIngestAction({ message, hasImage, date, messages })` that returns a structured decision object parsed with Zod. It must use GPT‑5.2 by default (via `OPENAI_INGEST_MODEL` or `gpt-5.2` fallback) and include the current week checklist items in the prompt.
 
 In `src/server.js`, add `POST /api/assistant/ingest` that accepts `multipart/form-data` fields:
 

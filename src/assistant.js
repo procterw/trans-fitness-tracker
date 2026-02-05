@@ -76,7 +76,7 @@ function buildChecklistSnapshot(currentWeek) {
 
 export async function decideIngestAction({ message, hasImage = false, date = null, messages = [] }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_INGEST_MODEL || "gpt-5";
+  const model = process.env.OPENAI_INGEST_MODEL || "gpt-5.2";
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
@@ -130,7 +130,7 @@ export async function decideIngestAction({ message, hasImage = false, date = nul
 
 export async function askAssistant({ question, date = null, messages = [] }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-4.1-mini";
+  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
