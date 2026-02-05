@@ -554,7 +554,8 @@ export default function App() {
               ref={foodFileInputRef}
               type="file"
               accept="image/*"
-              className="hidden"
+              className="hidden composerFileInput"
+              hidden
               onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
             />
 
@@ -589,7 +590,7 @@ export default function App() {
                     if (!foodLoading) foodFormRef.current?.requestSubmit();
                   }
                 }}
-                placeholder="Describe your meal… (Shift+Enter for newline)"
+                placeholder="Add your workout or describe what you ate"
                 aria-label="Meal description"
               />
 

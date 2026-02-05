@@ -254,6 +254,10 @@ ul {
   display: none;
 }
 
+.composerFileInput {
+  display: none !important;
+}
+
 .chatBox {
   border: 1px solid var(--border);
   border-radius: 12px;
