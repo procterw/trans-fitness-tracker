@@ -39,6 +39,55 @@ a {
   color: inherit;
 }
 
+.appShell {
+  min-height: 100vh;
+  height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 28px 22px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 94%, black 6%);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.mainColumn {
+  min-height: 100vh;
+  height: 100vh;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mainScroll {
+  flex: 1;
+  overflow: auto;
+  padding-right: 6px;
+  min-height: 0;
+}
+
+h1.appTitle {
+  margin: 0 0 6px;
+  font-size: 26px;
+}
+
+p.appSubtitle {
+  margin: 0;
+  font-size: 13px;
+}
+
 .container {
   max-width: 980px;
   margin: 40px auto;
@@ -58,7 +107,7 @@ h2 {
 h2:focus {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .muted {
@@ -68,7 +117,7 @@ h2:focus {
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 16px;
   margin: 16px 0;
 }
@@ -80,12 +129,23 @@ h2:focus {
   flex-wrap: wrap;
 }
 
+.sidebarTabs {
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.sidebarTabs .tab {
+  width: 100%;
+  text-align: left;
+}
+
 .tab {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: 0;
   font-weight: 700;
   cursor: pointer;
 }
@@ -110,10 +170,11 @@ textarea {
   box-sizing: border-box;
   margin-top: 6px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text);
+  font-family: inherit;
 }
 
 textarea {
@@ -181,7 +242,7 @@ button {
   background: var(--accent);
   color: white;
   padding: 10px 14px;
-  border-radius: 10px;
+  border-radius: 0;
   font-weight: 800;
   cursor: pointer;
 }
@@ -193,7 +254,7 @@ button.secondary {
 
 button.small {
   padding: 6px 10px;
-  border-radius: 9px;
+  border-radius: 0;
   font-weight: 800;
   font-size: 13px;
 }
@@ -259,12 +320,18 @@ ul {
 }
 
 .chatBox {
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: none;
+  border-radius: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 420px;
+  min-height: 0;
+  background: #ffffff;
+}
+
+.chatBoxFull {
+  flex: 1;
+  min-height: 0;
 }
 
 .chatMessages {
@@ -272,13 +339,14 @@ ul {
   max-height: none;
   overflow: auto;
   padding: 12px;
-  background: color-mix(in srgb, var(--card) 82%, black 18%);
+  background: #ffffff;
+  color: #111111;
 }
 
 .chatMsg {
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   margin: 10px 0;
 }
 
@@ -288,6 +356,22 @@ ul {
 
 .chatMsg.assistant {
   background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.chatInlineCard {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px;
+  margin: 16px 0 8px;
+  background: #f6f7fb;
+}
+
+.chatPanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .chatRole {
@@ -335,7 +419,7 @@ ul {
 .chatContent.markdown pre {
   margin: 8px 0 10px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid var(--border);
   overflow: auto;
   background: color-mix(in srgb, var(--card) 70%, black 30%);
@@ -365,9 +449,15 @@ ul {
 
 .foodComposerForm {
   margin-top: 0;
-  padding: 12px;
-  border-top: 1px solid var(--border);
-  background: var(--card);
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.chatComposer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
 }
 
 .composerBar {
@@ -375,9 +465,10 @@ ul {
   align-items: flex-end;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: none;
+  border-top: 1px solid #777;
   border-radius: 0;
-  background: color-mix(in srgb, var(--card) 88%, black 12%);
+  background: #ffffff;
 }
 
 .composerInput {
@@ -386,9 +477,9 @@ ul {
   margin: 0;
   padding: 8px 6px;
   border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text);
+  border-radius: 0;
+  background: #ffffff;
+  color: #111111;
   resize: none;
   overflow: auto;
   min-height: 22px;
@@ -404,7 +495,7 @@ ul {
   width: 38px;
   height: 38px;
   padding: 0;
-  border-radius: 999px;
+  border-radius: 0;
   display: inline-grid;
   place-items: center;
 }
@@ -422,6 +513,7 @@ ul {
   background: var(--accent);
   color: white;
   border-color: color-mix(in srgb, var(--accent) 65%, var(--border));
+  border-radius: 999px;
 }
 
 .sendButton:hover:not(:disabled) {
@@ -434,6 +526,10 @@ ul {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.composerStatus {
   margin-top: 10px;
 }
 
@@ -454,7 +550,7 @@ ul {
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: transparent;
   font-weight: 800;
@@ -475,7 +571,7 @@ ul {
   width: 22px;
   height: 22px;
   padding: 0;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--muted);
@@ -502,7 +598,7 @@ ul {
   width: auto;
   margin: 0;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   font-weight: 900;
   font-size: 12px;
 }
@@ -519,7 +615,7 @@ ul {
   align-items: center;
   justify-content: center;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 78%, black 22%);
   font-weight: 900;
@@ -551,7 +647,7 @@ ul {
   margin-top: 10px;
   background: color-mix(in srgb, var(--border) 55%, transparent);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -559,6 +655,102 @@ ul {
   height: 100%;
   width: 0;
   background: var(--accent);
+}
+
+.sidebarCard {
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 14px 16px;
+  background: color-mix(in srgb, var(--card) 88%, black 12%);
+}
+
+.sidebarSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sidebarHeading {
+  margin: 0;
+  font-size: 16px;
+}
+
+.sidebarDate {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.sidebarList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.sidebarListItem {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebarListLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.sidebarProgress {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sidebarProgressLabel {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.sidebarChecklist {
+  display: grid;
+  gap: 12px;
+}
+
+.sidebarChecklistHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 800;
+}
+
+.sidebarChecklistItems {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.sidebarChecklistItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--text);
+}
+
+.sidebarChecklistEmoji {
+  width: 20px;
+  flex: 0 0 20px;
+}
+
+.sidebarChecklistItem.todo {
+  color: var(--muted);
 }
 
 .fitnessTopRow {
@@ -630,7 +822,7 @@ ul {
   width: 100%;
   margin: 0;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text);
@@ -670,7 +862,7 @@ ul {
 .fitnessHistory {
   margin-top: 18px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: hidden;
 }
 
@@ -687,7 +879,7 @@ ul {
 
 .fitnessHistoryTableScroll {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   overflow: auto;
   background: color-mix(in srgb, var(--card) 86%, black 14%);
 }
@@ -768,4 +960,24 @@ ul {
 .fitnessHistoryText {
   white-space: pre-wrap;
   line-height: 1.25;
+}
+
+@media (max-width: 1000px) {
+  .appShell {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .sidebar {
+    position: relative;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mainColumn {
+    padding: 0;
+    height: auto;
+    overflow: visible;
+  }
 }

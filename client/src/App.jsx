@@ -115,6 +115,10 @@ export default function App() {
   const [foodResult, setFoodResult] = useState(null);
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerMessages, setComposerMessages] = useState([]);
+  const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
+  const [sidebarDayStatus, setSidebarDayStatus] = useState("");
+  const [sidebarDayError, setSidebarDayError] = useState("");
+  const sidebarDaySeqRef = useRef(0);
 
   // Fitness tab state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -225,6 +229,39 @@ export default function App() {
   }, [tab]);
 
   useEffect(() => {
+    loadFitness();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadSidebarDaySummary = async (date) => {
+    if (!date) return;
+    const seq = ++sidebarDaySeqRef.current;
+    setSidebarDayError("");
+    setSidebarDayStatus("Loading…");
+    try {
+      const json = await getFoodForDate(date);
+      if (seq !== sidebarDaySeqRef.current) return;
+      setSidebarDaySummary({
+        date,
+        totals: json?.day_totals_from_events ?? null,
+        events: Array.isArray(json?.events) ? json.events : [],
+        eventsCount: Array.isArray(json?.events) ? json.events.length : 0,
+      });
+      setSidebarDayStatus("");
+    } catch (e) {
+      if (seq !== sidebarDaySeqRef.current) return;
+      setSidebarDayError(e instanceof Error ? e.message : String(e));
+      setSidebarDayStatus("");
+    }
+  };
+
+  useEffect(() => {
+    if (!foodDate) return;
+    loadSidebarDaySummary(foodDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foodDate]);
+
+  useEffect(() => {
     if (tab !== "dashboard") return;
     if (!dashDate) return;
     if (dashSkipNextAutoLoadRef.current) {
@@ -273,6 +310,8 @@ export default function App() {
       setComposerStatus("");
       setComposerInput("");
       clearFoodFile();
+      const summaryDate = json?.food_result?.date || foodDate;
+      if (summaryDate) loadSidebarDaySummary(summaryDate);
     } catch (e2) {
       setComposerError(e2 instanceof Error ? e2.message : String(e2));
       setComposerStatus("");
@@ -513,6 +552,66 @@ export default function App() {
     return cols;
   })();
 
+  const sidebarFitnessCategories = [
+    { key: "cardio", label: "Cardio" },
+    { key: "strength", label: "Strength" },
+    { key: "mobility", label: "Mobility" },
+    { key: "other", label: "Other" },
+  ];
+
+  const localDateString = (date) => {
+    const d = date instanceof Date ? date : new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  const sidebarDayEvents = Array.isArray(sidebarDaySummary?.events) ? sidebarDaySummary.events : [];
+  const sidebarDayEventNames = sidebarDayEvents
+    .map((event) => (event?.description ? String(event.description) : "Meal"))
+    .filter(Boolean);
+  const sidebarDayMealsSummary = sidebarDayEventNames.length
+    ? `${sidebarDayEventNames.slice(0, 3).join(", ")}${sidebarDayEventNames.length > 3 ? ` +${sidebarDayEventNames.length - 3} more` : ""}`
+    : "No meals logged yet.";
+
+  const sidebarTotals = sidebarDaySummary?.totals ?? {};
+  const sidebarCalories = typeof sidebarTotals.calories === "number" ? sidebarTotals.calories : null;
+  const sidebarProtein = typeof sidebarTotals.protein_g === "number" ? sidebarTotals.protein_g : null;
+  const sidebarCarbs = typeof sidebarTotals.carbs_g === "number" ? sidebarTotals.carbs_g : null;
+  const sidebarFat = typeof sidebarTotals.fat_g === "number" ? sidebarTotals.fat_g : null;
+
+  const now = new Date();
+  const isToday = sidebarDaySummary?.date === localDateString(now);
+  const hourNow = now.getHours();
+  const dayPart = hourNow < 11 ? "morning" : hourNow < 17 ? "afternoon" : "evening";
+  const timeLabel = isToday ? dayPart : "day";
+
+  let calorieNote = "No calorie data yet.";
+  if (sidebarCalories !== null) {
+    const target = isToday ? (dayPart === "morning" ? 450 : dayPart === "afternoon" ? 1000 : 1600) : 1600;
+    if (sidebarCalories < target * 0.6) calorieNote = `Light for this ${timeLabel}.`;
+    else if (sidebarCalories > target * 1.6) calorieNote = `Heavy for this ${timeLabel}.`;
+    else calorieNote = `On track for this ${timeLabel}.`;
+  }
+
+  let proteinNote = "Protein data missing.";
+  if (sidebarProtein !== null) {
+    if (sidebarProtein >= 110) proteinNote = "Protein high vs feminization goals.";
+    else if (sidebarProtein >= 80) proteinNote = "Protein moderate-high.";
+    else if (sidebarProtein >= 40) proteinNote = "Protein moderate (aligned).";
+    else proteinNote = "Protein low (aligned).";
+  }
+
+  let activityNote = "Activity load unknown.";
+  if (totalFitnessItems) {
+    if (totalFitnessPct >= 60) activityNote = "Higher activity week.";
+    else if (totalFitnessPct >= 30) activityNote = "Moderate activity week.";
+    else activityNote = "Light activity week.";
+  }
+
+  const sidebarQualitySummary = `${calorieNote} ${proteinNote} ${activityNote}`.trim();
+
   const renderFitnessHistoryTable = () => {
     const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
     if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
@@ -581,368 +680,464 @@ export default function App() {
   };
 
   return (
-    <main className="container">
-      <h1>Health &amp; Fitness Tracker</h1>
-      <p className="muted">Log meals and fitness to <code>tracking-data.json</code>.</p>
+    <div className="appShell">
+      <aside className="sidebar">
+        <div>
+          <h1 className="appTitle">Health &amp; Fitness Tracker</h1>
+        </div>
 
-      <nav className="tabs" aria-label="Sections">
-        <TabButton active={tab === "food"} onClick={() => setTab("food")}>
-          Food
-        </TabButton>
-        <TabButton active={tab === "fitness"} onClick={() => setTab("fitness")}>
-          Fitness
-        </TabButton>
-        <TabButton active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
-          Dashboard
-        </TabButton>
-      </nav>
+        <nav className="tabs sidebarTabs" aria-label="Sections">
+          <TabButton active={tab === "food"} onClick={() => setTab("food")}>
+            Food
+          </TabButton>
+          <TabButton active={tab === "fitness"} onClick={() => setTab("fitness")}>
+            Fitness
+          </TabButton>
+          <TabButton active={tab === "dashboard"} onClick={() => setTab("dashboard")}>
+            Dashboard
+          </TabButton>
+        </nav>
 
-      {tab === "food" ? (
-        <section className="card">
-          <h2>Food (photo + manual)</h2>
-
-          <div className="chatBox">
-            <div className="chatMessages" aria-label="Conversation">
-              {composerMessages.length ? (
-                composerMessages.map((m, idx) => (
-                  <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
-                    <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
-                    <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
-                      {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="muted">No messages yet.</div>
-              )}
-            </div>
-
-            <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm chatComposer">
-              <input
-                ref={foodFileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden composerFileInput"
-                hidden
-                onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
-              />
-
-              <div className="composerBar" aria-label="Unified input">
-                <button
-                  type="button"
-                  className="iconButton"
-                  aria-label={foodFile ? "Change photo" : "Add photo"}
-                  onClick={() => foodFileInputRef.current?.click()}
-                  disabled={composerLoading}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M12 5v14M5 12h14"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-
-                <textarea
-                  rows={1}
-                  className="composerInput"
-                  value={composerInput}
-                  onChange={(e) => setComposerInput(e.target.value)}
-                  onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (!composerLoading) foodFormRef.current?.requestSubmit();
-                    }
-                  }}
-                  placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
-                  aria-label="Unified input"
-                />
-
-                <button type="submit" className="sendButton" disabled={composerLoading} aria-label="Send">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="composerMetaRow">
-                <div className="composerMetaLeft">
-                  {foodFile ? (
-                    <span className="filePill" title={foodFile.name}>
-                      <span className="filePillLabel">Photo:</span> {foodFile.name}
-                      <button
-                        type="button"
-                        className="filePillRemove"
-                        aria-label="Remove photo"
-                        onClick={clearFoodFile}
-                        disabled={composerLoading}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="composerMetaRight">
-                  <label className="metaLabel">
-                    Date
-                    <input
-                      type="date"
-                      className="datePillInput"
-                      value={foodDate}
-                      onChange={(e) => setFoodDate(e.target.value)}
-                      disabled={composerLoading}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="status">
-                {composerError ? <span className="error">{composerError}</span> : composerStatus}
-              </div>
-            </form>
+        <section className="sidebarCard">
+          <div className="sidebarSectionHeader">
+            <h2 className="sidebarHeading">Day so far</h2>
+            <span className="sidebarDate">{foodDate || suggestedDate || "—"}</span>
           </div>
 
-          {foodResult ? <EstimateResult payload={foodResult} /> : null}
+          {sidebarDayError ? <p className="error">{sidebarDayError}</p> : null}
+          {!sidebarDayError && sidebarDayStatus ? <p className="muted">{sidebarDayStatus}</p> : null}
+
+          {!sidebarDayStatus && !sidebarDayError ? (
+            <ul className="sidebarList">
+              <li className="sidebarListItem">
+                <span className="sidebarListLabel">Meals</span>
+                <span>{sidebarDayMealsSummary}</span>
+              </li>
+              <li className="sidebarListItem">
+                <span className="sidebarListLabel">Totals</span>
+                <span>
+                  {fmt(sidebarCalories)} kcal • P {fmt(sidebarProtein)} g • C {fmt(sidebarCarbs)} g • F {fmt(sidebarFat)} g
+                </span>
+              </li>
+              <li className="sidebarListItem">
+                <span className="sidebarListLabel">Quality</span>
+                <span>{sidebarQualitySummary}</span>
+              </li>
+            </ul>
+          ) : null}
         </section>
-      ) : null}
 
-      {tab === "fitness" ? (
-        <section className="card">
-          <h2>Fitness</h2>
-
-          <div className="status">
-            {fitnessError ? <span className="error">{fitnessError}</span> : fitnessStatus}
+        <section className="sidebarCard">
+          <div className="sidebarSectionHeader">
+            <h2 className="sidebarHeading">Weekly activity</h2>
+            {fitnessWeek?.week_label ? <span className="sidebarDate">{fitnessWeek.week_label}</span> : null}
           </div>
 
-          {fitnessWeek ? (
+          {!fitnessWeek ? (
+            <p className="muted">Loading week…</p>
+          ) : (
             <>
-              <div className="fitnessTop">
-                <div className="fitnessTopRow">
-                  <div>
-                    <div className="muted">
-                      Current week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
-                    </div>
-                    <div className="pillRow">
-                      <span className="pill">
-                        Overall: {totalFitnessDone}/{totalFitnessItems}
-                      </span>
-                      <span className="pill subtle">{totalFitnessPct}%</span>
-                    </div>
-                  </div>
-
-                  <label className="toggle">
-                    <input
-                      type="checkbox"
-                      checked={fitnessShowRemainingOnly}
-                      disabled={fitnessLoading}
-                      onChange={(e) => setFitnessShowRemainingOnly(e.target.checked)}
-                    />
-                    Show remaining only
-                  </label>
+              <div className="sidebarProgress">
+                <div className="sidebarProgressLabel">
+                  Overall {totalFitnessDone}/{totalFitnessItems}
                 </div>
-
                 <div className="progressBar" role="img" aria-label="Overall weekly progress">
                   <div className="progressBarFill" style={{ width: `${totalFitnessPct}%` }} />
                 </div>
               </div>
 
-              {renderFitnessCategory("Cardio", "cardio")}
-              {renderFitnessCategory("Strength", "strength")}
-              {renderFitnessCategory("Mobility", "mobility")}
-              {renderFitnessCategory("Other", "other")}
+              <div className="sidebarChecklist">
+                {sidebarFitnessCategories.map(({ key, label }) => {
+                  const items = Array.isArray(fitnessWeek?.[key]) ? fitnessWeek[key] : [];
+                  const done = countDone(items);
+                  const total = countTotal(items);
+                  return (
+                    <div key={key} className="sidebarChecklistGroup">
+                      <div className="sidebarChecklistHeader">
+                        <span>{label}</span>
+                        <span className="pill subtle">
+                          {done}/{total}
+                        </span>
+                      </div>
+                      <div className="sidebarChecklistItems">
+                        {items.length ? (
+                          items.map((it, idx) => (
+                            <div key={idx} className={`sidebarChecklistItem ${it.checked ? "done" : "todo"}`}>
+                              <span className="sidebarChecklistEmoji" aria-hidden="true">
+                                {it.checked ? "✅" : "⬜️"}
+                              </span>
+                              <span>{it.item}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="sidebarChecklistItem muted">No items.</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </section>
+      </aside>
 
-              <h3>Summary</h3>
-              <textarea
-                rows={3}
-                value={fitnessWeek.summary ?? ""}
-                disabled={fitnessLoading}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setFitnessWeek((prev) => (prev ? { ...prev, summary: v } : prev));
-                  debouncedSaveFitnessSummary(v);
-                }}
-                placeholder="Weekly summary…"
-              />
-              <div className="buttonRow">
-                <button type="button" className="secondary" disabled={fitnessLoading} onClick={onSaveFitnessSummary}>
-                Save summary
-                </button>
+      <main className="mainColumn">
+        {tab === "food" ? (
+          <section className="chatPanel">
+            <div className="chatBox chatBoxFull">
+              <div className="chatMessages" aria-label="Conversation">
+                {composerMessages.length ? (
+                  composerMessages.map((m, idx) => (
+                    <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
+                      <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
+                      <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
+                        {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="muted">No messages yet.</div>
+                )}
+
+                {foodResult ? (
+                  <div className="chatInlineCard">
+                    <EstimateResult payload={foodResult} />
+                  </div>
+                ) : null}
               </div>
 
-              <details className="fitnessHistory">
-                <summary>History</summary>
-                <div className="fitnessHistoryBody">
-                  {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
-                  {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
-                  {!fitnessHistoryLoading ? renderFitnessHistoryTable() : null}
-                  {!fitnessHistoryLoading && fitnessHistory?.length ? <p className="muted">Most recent week first.</p> : null}
+              <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm chatComposer">
+                <input
+                  ref={foodFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden composerFileInput"
+                  hidden
+                  onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
+                />
+
+                <div className="composerBar" aria-label="Unified input">
+                  <button
+                    type="button"
+                    className="iconButton"
+                    aria-label={foodFile ? "Change photo" : "Add photo"}
+                    onClick={() => foodFileInputRef.current?.click()}
+                    disabled={composerLoading}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M12 5v14M5 12h14"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+
+                  <textarea
+                    rows={1}
+                    className="composerInput"
+                    value={composerInput}
+                    onChange={(e) => setComposerInput(e.target.value)}
+                    onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!composerLoading) foodFormRef.current?.requestSubmit();
+                      }
+                    }}
+                    placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
+                    aria-label="Unified input"
+                  />
+
+                  <button type="submit" className="sendButton" disabled={composerLoading} aria-label="Send">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
                 </div>
-              </details>
-            </>
-          ) : null}
-        </section>
-      ) : null}
 
-      {tab === "dashboard" ? (
-        <section className="card">
-          <h2 ref={dashHeadingRef} tabIndex={-1}>
-            Dashboard
-          </h2>
-          <div className="row">
-            <label>
-              Date
-              <input type="date" value={dashDate} onChange={(e) => setDashDate(e.target.value)} />
-            </label>
-            <div className="actionsRow">
-              <button type="button" className="secondary" disabled={dashLoading} onClick={() => loadDashboard(dashDate)}>
-                Refresh
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={dashLoading}
-                onClick={() => {
-                  loadDashboard(dashDate);
-                  loadDashboardFoodLog();
-                }}
-              >
-                Refresh all
-              </button>
-              <button type="button" className="secondary" disabled={dashLoading} onClick={onSyncDash}>
-                Sync unsynced events
-              </button>
-              <button type="button" className="danger" disabled={dashLoading} onClick={onRollupDash}>
-                Recalculate daily log from events
-              </button>
-            </div>
-          </div>
-
-          <p className="muted">
-            <strong>Sync unsynced events</strong> applies older <code>food_events</code> into <code>food_log</code> if they
-            haven&apos;t been applied yet. <strong>Recalculate</strong> overwrites the day&apos;s <code>food_log</code>{" "}
-            totals to equal the sum of all <code>food_events</code> for that date (keeps notes/status/weight).
-          </p>
-
-          <div className="status">{dashError ? <span className="error">{dashError}</span> : dashStatus}</div>
-
-          {dashPayload ? (
-            <>
-              <h3>Totals (from events)</h3>
-              <NutrientsTable nutrients={dashPayload.day_totals_from_events} />
-
-              <h3>Events</h3>
-              {dashPayload.events?.length ? (
-                <ul>
-                  {dashPayload.events.map((e, idx) => (
-                    <li key={idx}>
-                      <strong>{e.description ?? "(no description)"}</strong>
-                      {typeof e?.nutrients?.calories === "number" ? <> — {e.nutrients.calories} kcal</> : null}
-                      {e.notes ? <div className="muted">Notes: {e.notes}</div> : null}
-                      <br />
-                      <span className="muted">
-                        <code>{e.source}</code> • <code>{e.logged_at}</code>
+                <div className="composerMetaRow">
+                  <div className="composerMetaLeft">
+                    {foodFile ? (
+                      <span className="filePill" title={foodFile.name}>
+                        <span className="filePillLabel">Photo:</span> {foodFile.name}
+                        <button
+                          type="button"
+                          className="filePillRemove"
+                          aria-label="Remove photo"
+                          onClick={clearFoodFile}
+                          disabled={composerLoading}
+                        >
+                          ×
+                        </button>
                       </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">No food events for this date yet.</p>
-              )}
+                    ) : null}
+                  </div>
 
-              <h3>Daily log (food_log)</h3>
-              {dashPayload.food_log ? (
-                <>
-                  <p className="muted">
-                    Status: <code>{dashPayload.food_log.status ?? ""}</code>
-                  </p>
-                  <NutrientsTable nutrients={dashPayload.food_log} />
-                  {dashPayload.food_log.notes ? <p className="muted">{dashPayload.food_log.notes}</p> : null}
-                </>
-              ) : (
-                <p className="muted">No daily log row for this date yet.</p>
-              )}
-
-              <h3>All days (food_log)</h3>
-              <p className="muted">Pick a date to jump up and view that day&apos;s totals, events, and daily log.</p>
-              {dashFoodLogRows?.length ? (
-                <div className="tableScroll">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Day</th>
-                        <th>Status</th>
-                        <th>Weight</th>
-                        <th>Calories</th>
-                        <th>Fat</th>
-                        <th>Carbs</th>
-                        <th>Protein</th>
-                        <th>Fiber</th>
-                        <th>Potassium</th>
-                        <th>Magnesium</th>
-                        <th>Omega‑3</th>
-                        <th>Calcium</th>
-                        <th>Iron</th>
-                        <th>Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashFoodLogRows.map((row) => (
-                        <tr key={row.date} className={row.date === dashDate ? "selectedRow" : ""}>
-                          <td>
-                            <button
-                              type="button"
-                              className="linkButton"
-                              aria-current={row.date === dashDate ? "date" : undefined}
-                              onClick={() => onPickDashDateFromAllDays(row.date)}
-                            >
-                              {row.date}
-                              {row.date === dashDate ? (
-                                <span className="muted">
-                                  {" "}
-                                  {dashLoading ? "(loading…)" : "(viewing)"}
-                                </span>
-                              ) : null}
-                            </button>
-                          </td>
-                          <td>{row.day_of_week ?? "—"}</td>
-                          <td>{row.status ?? "—"}</td>
-                          <td>{fmt(row.weight_lb)}</td>
-                          <td>{fmt(row.calories)}</td>
-                          <td>{fmt(row.fat_g)}</td>
-                          <td>{fmt(row.carbs_g)}</td>
-                          <td>{fmt(row.protein_g)}</td>
-                          <td>{fmt(row.fiber_g)}</td>
-                          <td>{fmt(row.potassium_mg)}</td>
-                          <td>{fmt(row.magnesium_mg)}</td>
-                          <td>{fmt(row.omega3_mg)}</td>
-                          <td>{fmt(row.calcium_mg)}</td>
-                          <td>{fmt(row.iron_mg)}</td>
-                          <td className="notesCell" title={row.notes ?? ""}>
-                            {row.notes ?? ""}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="composerMetaRight">
+                    <label className="metaLabel">
+                      Date
+                      <input
+                        type="date"
+                        className="datePillInput"
+                        value={foodDate}
+                        onChange={(e) => setFoodDate(e.target.value)}
+                        disabled={composerLoading}
+                      />
+                    </label>
+                  </div>
                 </div>
-              ) : (
-                <p className="muted">No daily log rows found.</p>
-              )}
-            </>
-          ) : null}
-        </section>
-      ) : null}
-    </main>
+
+                {composerStatus || composerError ? (
+                  <div className="status composerStatus">
+                    {composerError ? <span className="error">{composerError}</span> : composerStatus}
+                  </div>
+                ) : null}
+              </form>
+            </div>
+          </section>
+        ) : null}
+
+        {tab === "fitness" ? (
+          <div className="mainScroll">
+            <section className="card">
+              <h2>Fitness</h2>
+
+              <div className="status">
+                {fitnessError ? <span className="error">{fitnessError}</span> : fitnessStatus}
+              </div>
+
+              {fitnessWeek ? (
+                <>
+                  <div className="fitnessTop">
+                    <div className="fitnessTopRow">
+                      <div>
+                        <div className="muted">
+                          Current week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
+                        </div>
+                        <div className="pillRow">
+                          <span className="pill">
+                            Overall: {totalFitnessDone}/{totalFitnessItems}
+                          </span>
+                          <span className="pill subtle">{totalFitnessPct}%</span>
+                        </div>
+                      </div>
+
+                      <label className="toggle">
+                        <input
+                          type="checkbox"
+                          checked={fitnessShowRemainingOnly}
+                          disabled={fitnessLoading}
+                          onChange={(e) => setFitnessShowRemainingOnly(e.target.checked)}
+                        />
+                        Show remaining only
+                      </label>
+                    </div>
+
+                    <div className="progressBar" role="img" aria-label="Overall weekly progress">
+                      <div className="progressBarFill" style={{ width: `${totalFitnessPct}%` }} />
+                    </div>
+                  </div>
+
+                  {renderFitnessCategory("Cardio", "cardio")}
+                  {renderFitnessCategory("Strength", "strength")}
+                  {renderFitnessCategory("Mobility", "mobility")}
+                  {renderFitnessCategory("Other", "other")}
+
+                  <h3>Summary</h3>
+                  <textarea
+                    rows={3}
+                    value={fitnessWeek.summary ?? ""}
+                    disabled={fitnessLoading}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setFitnessWeek((prev) => (prev ? { ...prev, summary: v } : prev));
+                      debouncedSaveFitnessSummary(v);
+                    }}
+                    placeholder="Weekly summary…"
+                  />
+                  <div className="buttonRow">
+                    <button type="button" className="secondary" disabled={fitnessLoading} onClick={onSaveFitnessSummary}>
+                      Save summary
+                    </button>
+                  </div>
+
+                  <details className="fitnessHistory">
+                    <summary>History</summary>
+                    <div className="fitnessHistoryBody">
+                      {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
+                      {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
+                      {!fitnessHistoryLoading ? renderFitnessHistoryTable() : null}
+                      {!fitnessHistoryLoading && fitnessHistory?.length ? <p className="muted">Most recent week first.</p> : null}
+                    </div>
+                  </details>
+                </>
+              ) : null}
+            </section>
+          </div>
+        ) : null}
+
+        {tab === "dashboard" ? (
+          <div className="mainScroll">
+            <section className="card">
+              <h2 ref={dashHeadingRef} tabIndex={-1}>
+                Dashboard
+              </h2>
+              <div className="row">
+                <label>
+                  Date
+                  <input type="date" value={dashDate} onChange={(e) => setDashDate(e.target.value)} />
+                </label>
+                <div className="actionsRow">
+                  <button type="button" className="secondary" disabled={dashLoading} onClick={() => loadDashboard(dashDate)}>
+                    Refresh
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={dashLoading}
+                    onClick={() => {
+                      loadDashboard(dashDate);
+                      loadDashboardFoodLog();
+                    }}
+                  >
+                    Refresh all
+                  </button>
+                  <button type="button" className="secondary" disabled={dashLoading} onClick={onSyncDash}>
+                    Sync unsynced events
+                  </button>
+                  <button type="button" className="danger" disabled={dashLoading} onClick={onRollupDash}>
+                    Recalculate daily log from events
+                  </button>
+                </div>
+              </div>
+
+              <p className="muted">
+                <strong>Sync unsynced events</strong> applies older <code>food_events</code> into <code>food_log</code> if they
+                haven&apos;t been applied yet. <strong>Recalculate</strong> overwrites the day&apos;s <code>food_log</code>{" "}
+                totals to equal the sum of all <code>food_events</code> for that date (keeps notes/status/weight).
+              </p>
+
+              <div className="status">{dashError ? <span className="error">{dashError}</span> : dashStatus}</div>
+
+              {dashPayload ? (
+                <>
+                  <h3>Totals (from events)</h3>
+                  <NutrientsTable nutrients={dashPayload.day_totals_from_events} />
+
+                  <h3>Events</h3>
+                  {dashPayload.events?.length ? (
+                    <ul>
+                      {dashPayload.events.map((e, idx) => (
+                        <li key={idx}>
+                          <strong>{e.description ?? "(no description)"}</strong>
+                          {typeof e?.nutrients?.calories === "number" ? <> — {e.nutrients.calories} kcal</> : null}
+                          {e.notes ? <div className="muted">Notes: {e.notes}</div> : null}
+                          <br />
+                          <span className="muted">
+                            <code>{e.source}</code> • <code>{e.logged_at}</code>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">No food events for this date yet.</p>
+                  )}
+
+                  <h3>Daily log (food_log)</h3>
+                  {dashPayload.food_log ? (
+                    <>
+                      <p className="muted">
+                        Status: <code>{dashPayload.food_log.status ?? ""}</code>
+                      </p>
+                      <NutrientsTable nutrients={dashPayload.food_log} />
+                      {dashPayload.food_log.notes ? <p className="muted">{dashPayload.food_log.notes}</p> : null}
+                    </>
+                  ) : (
+                    <p className="muted">No daily log row for this date yet.</p>
+                  )}
+
+                  <h3>All days (food_log)</h3>
+                  <p className="muted">Pick a date to jump up and view that day&apos;s totals, events, and daily log.</p>
+                  {dashFoodLogRows?.length ? (
+                    <div className="tableScroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Day</th>
+                            <th>Status</th>
+                            <th>Weight</th>
+                            <th>Calories</th>
+                            <th>Fat</th>
+                            <th>Carbs</th>
+                            <th>Protein</th>
+                            <th>Fiber</th>
+                            <th>Potassium</th>
+                            <th>Magnesium</th>
+                            <th>Omega‑3</th>
+                            <th>Calcium</th>
+                            <th>Iron</th>
+                            <th>Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dashFoodLogRows.map((row) => (
+                            <tr key={row.date} className={row.date === dashDate ? "selectedRow" : ""}>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="linkButton"
+                                  aria-current={row.date === dashDate ? "date" : undefined}
+                                  onClick={() => onPickDashDateFromAllDays(row.date)}
+                                >
+                                  {row.date}
+                                  {row.date === dashDate ? (
+                                    <span className="muted">
+                                      {" "}
+                                      {dashLoading ? "(loading…)" : "(viewing)"}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              </td>
+                              <td>{row.day_of_week ?? "—"}</td>
+                              <td>{row.status ?? "—"}</td>
+                              <td>{fmt(row.weight_lb)}</td>
+                              <td>{fmt(row.calories)}</td>
+                              <td>{fmt(row.fat_g)}</td>
+                              <td>{fmt(row.carbs_g)}</td>
+                              <td>{fmt(row.protein_g)}</td>
+                              <td>{fmt(row.fiber_g)}</td>
+                              <td>{fmt(row.potassium_mg)}</td>
+                              <td>{fmt(row.magnesium_mg)}</td>
+                              <td>{fmt(row.omega3_mg)}</td>
+                              <td>{fmt(row.calcium_mg)}</td>
+                              <td>{fmt(row.iron_mg)}</td>
+                              <td className="notesCell" title={row.notes ?? ""}>
+                                {row.notes ?? ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="muted">No daily log rows found.</p>
+                  )}
+                </>
+              ) : null}
+            </section>
+          </div>
+        ) : null}
+      </main>
+    </div>
   );
 }
