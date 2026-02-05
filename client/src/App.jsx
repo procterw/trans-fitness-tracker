@@ -373,7 +373,6 @@ export default function App() {
     }
   };
 
-<<<<<<< ours
   const focusDashboardHeading = () => {
     const el = dashHeadingRef.current;
     if (!el) return;
@@ -392,10 +391,10 @@ export default function App() {
     loadDashboard(date);
     focusDashboardHeading();
   };
-=======
+
   const countDone = (items) => (Array.isArray(items) ? items.filter((it) => Boolean(it?.checked)).length : 0);
   const countTotal = (items) => (Array.isArray(items) ? items.length : 0);
->>>>>>> theirs
+
 
   const renderFitnessCategory = (title, category) => {
     const list = Array.isArray(fitnessWeek?.[category]) ? fitnessWeek[category] : [];
