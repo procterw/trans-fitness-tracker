@@ -1,0 +1,765 @@
+{
+  "metadata": {
+    "last_updated": "2026-02-03T00:00:00-08:00",
+    "version": "1.0",
+    "description": "Complete health, fitness, and transition tracking data",
+    "logging_conventions": {
+      "timezone": "Pacific Time (PT) - UTC-8/UTC-7. User is located in Seattle, Washington, US.",
+      "late_night_entries": "When logging late at night or in early morning hours (after midnight), assume entries are for the previous calendar day unless explicitly stated otherwise. If it's 2AM Tuesday, treat food/activity logs as Monday's data by default.",
+      "date_format": "YYYY-MM-DD (ISO 8601)",
+      "week_start": "Monday (weeks run Monday-Sunday)"
+    },
+    "food_definitions": {
+      "chocolate": {
+        "default": "Endangered Species 88% dark chocolate",
+        "typical_portion": "3 pieces",
+        "notes": "Assume this brand/type unless otherwise specified"
+      },
+      "chili": {
+        "recipe_name": "Normal chili recipe",
+        "serving_size": "1/3 pot",
+        "per_serving": {
+          "calories": 430,
+          "fat_g": 25,
+          "carbs_g": 44,
+          "protein_g": 13,
+          "fiber_g": "13-14"
+        },
+        "recipe_notes": "Uses 4 Tbsp olive oil and adds 2 dates"
+      },
+      "smoothie": {
+        "recipe_name": "Standard smoothie",
+        "default": true,
+        "ingredients": [
+          "1/8 banana",
+          "1 Tbsp hemp seeds",
+          "1 Tbsp whole flax seeds",
+          "1/4 cup blueberries with frozen beets",
+          "Small handful frozen kale",
+          "~1/8 packet Emergen-C",
+          "1.5 cups soy milk"
+        ],
+        "notes": "This is the default smoothie unless stated otherwise"
+      },
+      "fish_oil": {
+        "type": "supplement",
+        "serving_size": "2 softgels",
+        "per_serving": {
+          "calories": 25,
+          "fat_g": 2.5,
+          "carbs_g": 0,
+          "protein_g": 0,
+          "fiber_g": 0,
+          "omega_3_mg": 1280
+        },
+        "notes": "Standard fish oil supplement (EPA+DHA)"
+      },
+      "oatmeal": {
+        "recipe_name": "Standard oatmeal",
+        "default": true,
+        "ingredients": [
+          "1/2 cup rolled oats",
+          "1 cup soy milk",
+          "1 tsp dried blueberries",
+          "1 date",
+          "1 Tbsp hemp seeds",
+          "1 Tbsp olive oil",
+          "Sprinkle of brown sugar",
+          "Pumpkin spice"
+        ],
+        "notes": "This is the default breakfast unless stated otherwise"
+      },
+      "daily_supplements": {
+        "type": "supplement_routine",
+        "items": [
+          "Half of a women's multivitamin",
+          "D3 + K2 supplement",
+          "B12 supplement"
+        ],
+        "notes": "Taken daily. Negligible calories (<5 total)."
+      },
+      "soy_milk": {
+        "default": "Silk unsweetened soy milk",
+        "per_cup": {
+          "calories": 80,
+          "fat_g": 4,
+          "carbs_g": 6,
+          "protein_g": 7,
+          "calcium_mg": 300,
+          "potassium_mg": 200
+        },
+        "notes": "Always refers to Silk unsweetened unless otherwise specified"
+      }
+    }
+  },
+  "food_log": [
+    {
+      "date": "2026-01-20",
+      "day_of_week": "Tue",
+      "weight_lb": null,
+      "calories": 2960,
+      "fat_g": 131,
+      "carbs_g": 337,
+      "protein_g": 123,
+      "fiber_g": 32,
+      "potassium_mg": 3400,
+      "magnesium_mg": 360,
+      "omega3_mg": 1280,
+      "calcium_mg": 950,
+      "iron_mg": 18,
+      "status": "\ud83d\udfe1",
+      "notes": "Protein-heavy relative to goal due to carnitas and bars. Endurance work, heat exposure, and high calories softened muscle-retention signaling; less ideal quality but still permissive."
+    },
+    {
+      "date": "2026-01-21",
+      "day_of_week": "Wed",
+      "weight_lb": null,
+      "calories": 3280,
+      "fat_g": 145,
+      "carbs_g": 406,
+      "protein_g": 104,
+      "fiber_g": 38,
+      "potassium_mg": 3800,
+      "magnesium_mg": 400,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 17,
+      "status": "\ud83d\udfe2",
+      "notes": "Very high-energy endurance and glute day. Carbohydrates dominated intake; protein spread across meals and fat-paired, supporting performance without aggressive hypertrophy signaling."
+    },
+    {
+      "date": "2026-01-22",
+      "day_of_week": "Thu",
+      "weight_lb": null,
+      "calories": 2695,
+      "fat_g": 129,
+      "carbs_g": 313,
+      "protein_g": 107,
+      "fiber_g": 34,
+      "potassium_mg": 3600,
+      "magnesium_mg": 380,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 16,
+      "status": "\ud83d\udfe2",
+      "notes": "Maintenance-to-surplus intake with high carbs supporting endurance. Protein near upper edge but evenly distributed and paired with fat, remaining compatible with slow atrophy goals."
+    },
+    {
+      "date": "2026-01-23",
+      "day_of_week": "Fri",
+      "weight_lb": null,
+      "calories": 2070,
+      "fat_g": 68,
+      "carbs_g": 273,
+      "protein_g": 85,
+      "fiber_g": 42,
+      "potassium_mg": 4200,
+      "magnesium_mg": 420,
+      "omega3_mg": 1280,
+      "calcium_mg": 850,
+      "iron_mg": 15,
+      "status": "\ud83d\udfe2",
+      "notes": "High-volume, fiber-forward soups and vegetables created strong satiety. Moderate calories and protein allowed energy sufficiency without muscle-retention signaling."
+    },
+    {
+      "date": "2026-01-24",
+      "day_of_week": "Sat",
+      "weight_lb": null,
+      "calories": 2800,
+      "fat_g": 148,
+      "carbs_g": 285,
+      "protein_g": 93,
+      "fiber_g": 28,
+      "potassium_mg": 3200,
+      "magnesium_mg": 340,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 14,
+      "status": "\ud83d\udfe2",
+      "notes": "Restaurant-heavy, oily, fat-forward surplus day. Episodic indulgence that supports metabolic safety and does not interfere with gradual upper-body atrophy."
+    },
+    {
+      "date": "2026-01-25",
+      "day_of_week": "Sun",
+      "weight_lb": null,
+      "calories": 2300,
+      "fat_g": 120,
+      "carbs_g": 220,
+      "protein_g": 103,
+      "fiber_g": 30,
+      "potassium_mg": 3500,
+      "magnesium_mg": 360,
+      "omega3_mg": 1280,
+      "calcium_mg": 950,
+      "iron_mg": 16,
+      "status": "\ud83d\udfe2",
+      "notes": "Home and restaurant meals including lamb. Protein elevated but spread throughout the day; overall pattern supportive and low-stress."
+    },
+    {
+      "date": "2026-01-26",
+      "day_of_week": "Mon",
+      "weight_lb": null,
+      "calories": 2170,
+      "fat_g": 109,
+      "carbs_g": 214,
+      "protein_g": 87,
+      "fiber_g": 33,
+      "potassium_mg": 3600,
+      "magnesium_mg": 380,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 15,
+      "status": "\ud83d\udfe2",
+      "notes": "Mixed flexible day with oatmeal, soup, snacks, and fast food. Calories near maintenance; fat carried intake; protein evenly distributed."
+    },
+    {
+      "date": "2026-01-27",
+      "day_of_week": "Tue",
+      "weight_lb": null,
+      "calories": 2820,
+      "fat_g": 115,
+      "carbs_g": 348,
+      "protein_g": 83,
+      "fiber_g": 26,
+      "potassium_mg": 3000,
+      "magnesium_mg": 320,
+      "omega3_mg": 1280,
+      "calcium_mg": 850,
+      "iron_mg": 13,
+      "status": "\ud83d\udfe2",
+      "notes": "Fuel-heavy day with pizza, candy, chews, and bread-based snacks. Carbs and fats dominated; protein moderate and diffuse."
+    },
+    {
+      "date": "2026-01-28",
+      "day_of_week": "Wed",
+      "weight_lb": null,
+      "calories": 2950,
+      "fat_g": 175,
+      "carbs_g": 190,
+      "protein_g": 120,
+      "fiber_g": 24,
+      "potassium_mg": 3100,
+      "magnesium_mg": 330,
+      "omega3_mg": 1280,
+      "calcium_mg": 1000,
+      "iron_mg": 17,
+      "status": "\ud83d\udfe2",
+      "notes": "Light carb-forward intake earlier, followed by a rich Canlis dinner. Protein high but spread across courses and paired with very high fat; celebratory surplus day."
+    },
+    {
+      "date": "2026-01-29",
+      "day_of_week": "Thu",
+      "weight_lb": null,
+      "calories": 3580,
+      "fat_g": 146,
+      "carbs_g": 432,
+      "protein_g": 144,
+      "fiber_g": 22,
+      "potassium_mg": 2900,
+      "magnesium_mg": 300,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 14,
+      "status": "\ud83d\udfe1",
+      "notes": "Very refined, sodium-dense, fuel-heavy day with pizza, bars, and chews. Energy availability high; micronutrient density low. Protein high but fat-paired and spread out; episodic and not ideal quality, but unlikely to disrupt atrophy."
+    },
+    {
+      "date": "2026-01-30",
+      "day_of_week": "Fri",
+      "weight_lb": null,
+      "calories": 3200,
+      "fat_g": 150,
+      "carbs_g": 360,
+      "protein_g": 110,
+      "fiber_g": 20,
+      "potassium_mg": 2800,
+      "magnesium_mg": 290,
+      "omega3_mg": 1280,
+      "calcium_mg": 850,
+      "iron_mg": 13,
+      "status": "\u274c",
+      "notes": "Calories were ample for fat gain, but food quality was low and protein crept higher than ideal. No restriction or rebound behavior, which aligns with long-term redistribution goals."
+    },
+    {
+      "date": "2026-01-31",
+      "day_of_week": "Sat",
+      "weight_lb": 157.6,
+      "calories": 3200,
+      "fat_g": 135,
+      "carbs_g": 370,
+      "protein_g": 125,
+      "fiber_g": 27,
+      "potassium_mg": 3400,
+      "magnesium_mg": 360,
+      "omega3_mg": 1280,
+      "calcium_mg": 950,
+      "iron_mg": 16,
+      "status": "\ud83d\udfe1",
+      "notes": "Full day including turkey-and-cheddar sandwich, smoothie, energy chews, Cheez-Its, dark chocolate, soy milk, tofu stir-fry with rice, extra tofu, more soy milk, and gummy candy. Large carb-forward surplus with high but very diffuse, fat-paired protein; permissive overall, though protein crept above ideal."
+    },
+    {
+      "date": "2026-02-01",
+      "day_of_week": "Sun",
+      "weight_lb": null,
+      "calories": 3100,
+      "fat_g": 147,
+      "carbs_g": 264,
+      "protein_g": 126,
+      "fiber_g": 18,
+      "potassium_mg": 3000,
+      "magnesium_mg": 300,
+      "omega3_mg": 1280,
+      "calcium_mg": 900,
+      "iron_mg": 15,
+      "status": "\ud83d\udfe2",
+      "notes": "Earlier intake plus Mediterranean dinner and additional dark chocolate. Ran two 5Ks; clear calorie sufficiency with carb-forward fueling. Protein elevated but diffuse and fat-paired, well buffered by endurance volume."
+    },
+    {
+      "date": "2026-02-02",
+      "day_of_week": "Mon",
+      "weight_lb": 158.2,
+      "calories": 3165,
+      "fat_g": 156.5,
+      "carbs_g": 329,
+      "protein_g": 118,
+      "fiber_g": 53,
+      "potassium_mg": 4800,
+      "magnesium_mg": 560,
+      "omega3_mg": 1280,
+      "calcium_mg": 1700,
+      "iron_mg": 21,
+      "status": "\ud83d\udfe2",
+      "notes": "Cheese sandwich, standard smoothie, vegan dinner (mashed cauliflower; tortillas with vegan cheese; sweet potato; greens with tofu and eggplant), plus a flourless peanut butter chocolate chip cookie and a glazed donut. Late night: 2 servings dark chocolate (6 pieces) and 2 cups soy milk. Solid surplus with well-distributed protein."
+    },
+    {
+      "date": "2026-02-03",
+      "day_of_week": "Tue",
+      "weight_lb": 158.8,
+      "calories": 3060,
+      "fat_g": 135,
+      "carbs_g": 333,
+      "protein_g": 118,
+      "fiber_g": 41,
+      "potassium_mg": 2350,
+      "magnesium_mg": 500,
+      "omega3_mg": 1280,
+      "calcium_mg": 2000,
+      "iron_mg": 20,
+      "status": "🟢",
+      "notes": "Cheese sandwich on Dave's Killer Bread with vegan mayo, standard smoothie, 1 serving dark chocolate (3 pieces), Silk unsweetened soy milk, sesame bagel, pack of Bolt energy chews. Dinner: 4 slices large double mushroom pizza and 2 slices veggie pizza from Pagliacci. Late night: 2 servings dark chocolate (6 pieces) and 1.5 cups soy milk. Solid surplus with well-distributed protein."
+    },
+    {
+      "date": "2026-02-04",
+      "day_of_week": "Wed",
+      "weight_lb": null,
+      "calories": 3115,
+      "fat_g": 143,
+      "carbs_g": 286,
+      "protein_g": 143,
+      "fiber_g": 21,
+      "potassium_mg": 2350,
+      "magnesium_mg": 350,
+      "omega3_mg": 1280,
+      "calcium_mg": 1050,
+      "iron_mg": 17,
+      "status": "🟡",
+      "notes": "Lunch: 2 soft boiled eggs, 2 slices Dave's Killer Bread (toast), standard smoothie. Snack: 2 servings Tim's chips. Dinner: Large Korean BBQ (substantial beef portion, banchan, rice). Late: 1 serving dark chocolate (3 pieces) and soy milk. Protein elevated at 143g but diffuse and fat-paired with BBQ."
+    }
+  ],
+  "fitness_weeks": [
+    {
+      "week_start": "2026-01-19",
+      "week_label": "1/19-1/25",
+      "cardio": [
+        {
+          "item": "Quality run",
+          "checked": true,
+          "details": "Threshold 5k; sustained effort near threshold pace, primary weekly speed stimulus"
+        },
+        {
+          "item": "Long aerobic",
+          "checked": false,
+          "details": ""
+        },
+        {
+          "item": "Bike / cross-training",
+          "checked": true,
+          "details": "Elliptical, steady aerobic"
+        },
+        {
+          "item": "Easy aerobic #1",
+          "checked": true,
+          "details": "Easy run; relaxed aerobic"
+        },
+        {
+          "item": "Easy aerobic #2",
+          "checked": true,
+          "details": "Walks; low stress volume"
+        },
+        {
+          "item": "Recovery / very easy #1",
+          "checked": true,
+          "details": "Long walk; social, restorative"
+        },
+        {
+          "item": "Recovery / very easy #2",
+          "checked": true,
+          "details": "Long walk; social, restorative"
+        }
+      ],
+      "strength": [
+        {
+          "item": "Glutes \u2014 hard",
+          "checked": true,
+          "details": "Hip abduction, leg press, kickbacks; controlled hypertrophy"
+        },
+        {
+          "item": "Glutes \u2014 easy",
+          "checked": true,
+          "details": "Light pump-focused glute work"
+        },
+        {
+          "item": "Extra glutes (outlier)",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "mobility": [
+        {
+          "item": "Mobility / prehab #1",
+          "checked": true,
+          "details": "ATG split squats, loaded stretching; hip-focused"
+        },
+        {
+          "item": "Mobility / prehab #2",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "other": [
+        {
+          "item": "Rock climbing",
+          "checked": true,
+          "details": "Social climbing"
+        },
+        {
+          "item": "Ballet #1",
+          "checked": true,
+          "details": "Open class; felt strong, jumps good, turns slippery; left hip irritation noted"
+        },
+        {
+          "item": "Ballet #2",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "summary": "Strong glute emphasis with minimal upper-body spillover. Aerobic support maintained despite illness. Ballet aligned with aesthetic goals but highlighted left hip sensitivity."
+    },
+    {
+      "week_start": "2026-01-26",
+      "week_label": "1/26-2/1",
+      "cardio": [
+        {
+          "item": "Quality run",
+          "checked": true,
+          "details": "Lunch run 2.45 mi, 24:33 (10:00/mi), flat; avg HR 152, steady moderate effort"
+        },
+        {
+          "item": "Long aerobic",
+          "checked": true,
+          "details": "6-mile hike, ~2000 ft gain, snowy; long steady effort, high time-on-feet with low impact"
+        },
+        {
+          "item": "Bike / cross-training",
+          "checked": true,
+          "details": "30 min light elliptical; HR ~130, steady aerobic, low fatigue"
+        },
+        {
+          "item": "Easy aerobic #1",
+          "checked": true,
+          "details": "Morning run 2.96 mi, 29:05 (9:48/mi), ~186 ft gain; avg HR 144, relaxed aerobic"
+        },
+        {
+          "item": "Easy aerobic #2",
+          "checked": true,
+          "details": "30 min treadmill; easy aerobic filler"
+        },
+        {
+          "item": "Recovery / very easy #1",
+          "checked": false,
+          "details": ""
+        },
+        {
+          "item": "Recovery / very easy #2",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "strength": [
+        {
+          "item": "Glutes \u2014 hard",
+          "checked": true,
+          "details": "Cable kickbacks, squats up to ~205 lb, glute med raises; clear hypertrophy stimulus, no failure"
+        },
+        {
+          "item": "Glutes \u2014 easy",
+          "checked": true,
+          "details": "Belt squats (90\u2013180 lb), hip abduction, light thrusts; pump-focused, low fatigue"
+        },
+        {
+          "item": "Extra glutes (outlier)",
+          "checked": true,
+          "details": "Medium-effort abduction + belt squats; added due to session feeling easy"
+        }
+      ],
+      "mobility": [
+        {
+          "item": "Mobility / prehab #1",
+          "checked": true,
+          "details": "Hip mobility, slant-board calves & tibialis; joint care and tissue tolerance"
+        },
+        {
+          "item": "Mobility / prehab #2",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "other": [
+        {
+          "item": "Rock climbing",
+          "checked": true,
+          "details": "Light top rope with one hard effort; mostly social, minimal hypertrophy signal"
+        },
+        {
+          "item": "Ballet #1",
+          "checked": true,
+          "details": "First ~45 min of class (barre only); technical focus, low impact, stopped before center"
+        },
+        {
+          "item": "Ballet #2",
+          "checked": false,
+          "details": ""
+        }
+      ],
+      "summary": "High overall volume with a demanding hike, two aerobic runs, and well-controlled glute work (one hard, one easy, one outlier). Quality run achieved without overreaching. Stopping here appropriate given cumulative load."
+    }
+  ],
+  "current_week": {
+    "week_start": "2026-02-02",
+    "week_label": "2/2-2/8",
+    "cardio": [
+      {
+        "item": "Quality run",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Long aerobic",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Bike / cross-training",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Easy aerobic #1",
+        "checked": true,
+        "details": "Evening run 3.24 mi, 29:16 (9:01/mi), 110 ft gain; avg HR 157, moderate steady effort"
+      },
+      {
+        "item": "Easy aerobic #2",
+        "checked": true,
+        "details": "Leisurely 5K run; relaxed, conversational pace"
+      },
+      {
+        "item": "Recovery / very easy #1",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Recovery / very easy #2",
+        "checked": false,
+        "details": ""
+      }
+    ],
+    "strength": [
+      {
+        "item": "Glutes \u2014 hard",
+        "checked": true,
+        "details": "Hip abduction 3x15 200lb, belt squats 3x12 four plates; controlled hypertrophy stimulus"
+      },
+      {
+        "item": "Glutes \u2014 easy",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Extra glutes (outlier)",
+        "checked": false,
+        "details": ""
+      }
+    ],
+    "mobility": [
+      {
+        "item": "Mobility / prehab #1",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Mobility / prehab #2",
+        "checked": false,
+        "details": ""
+      }
+    ],
+    "other": [
+      {
+        "item": "Rock climbing",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Ballet #1",
+        "checked": false,
+        "details": ""
+      },
+      {
+        "item": "Ballet #2",
+        "checked": false,
+        "details": ""
+      }
+    ],
+    "summary": ""
+  },
+  "diet_philosophy": {
+    "goals": [
+      "Energy sufficiency",
+      "Calm surplus (2600-2900 daily)",
+      "Minimal muscle-preservation signaling"
+    ],
+    "protein": {
+      "target_g": "100-120",
+      "philosophy": "On estrogen with suppressed testosterone, protein alone doesn't cause muscle retention - training stimulus does. Focus on distribution quality (diffuse, fat-paired) rather than minimizing total grams.",
+      "key_factors": [
+        "Distribution: spread across meals rather than concentrated",
+        "Pairing: consumed with fats and carbs, not lean/isolated",
+        "Timing: avoid acute protein immediately post-workout",
+        "Context: combined with no upper-body training stimulus"
+      ]
+    },
+    "calories": {
+      "target": "2600-2900 daily",
+      "philosophy": "Consistent moderate surplus signals metabolic safety and provides substrate for estrogen-driven fat redistribution. Avoid volatile swings between deficit and large surplus."
+    },
+    "carbs": {
+      "philosophy": "Neutral or positive. Primary fuel for endurance and lower-body training. No distinction between complex and simple."
+    },
+    "fat": {
+      "philosophy": "Supportive. Essential for hormone production, fat-soluble vitamins, and calorie intake without protein."
+    },
+    "evaluation_criteria": {
+      "green": "Calories 2600-2900, protein 100-120g when diffuse/fat-paired, calm and permissive",
+      "yellow": "Inconsistent calories (swings above 3200+ or below 2400), or convenience-dominated but adequate energy",
+      "red": "Calorie restriction pattern, or acute/lean protein that could signal retention if repeated"
+    }
+  },
+  "fitness_philosophy": {
+    "big_picture": "Long-term trans feminization with health, stability, and sustainability. Optimize for selective change over time: let estrogen work while avoiding stressors that cause rebound, stagnation, or injury.",
+    "physique_goals": [
+      "Allow upper-body muscle to gradually atrophy without provoking defensive retention",
+      "Support estrogen-driven fat redistribution (hips, thighs, chest)",
+      "Maintain or subtly enhance glutes and hips for shape and proportion",
+      "Move through time + consistency, not force",
+      "Prioritize softness, drape, posture over metrics"
+    ],
+    "cardio": {
+      "approach": "Regular aerobic work (running, cycling, elliptical, walking) for cardiovascular health, recovery, and fat-friendly stress",
+      "target": "5-7 sessions per week",
+      "intensity": "Managed to avoid injury and excessive cortisol"
+    },
+    "strength": {
+      "lower_body": "Two medium-high intensity glute sessions per week for maintenance and slow hypertrophy. Both sessions target glutes with controlled effort, avoiding failure. Optional third session if recovery permits.",
+      "upper_body": "Intentionally minimized - complete avoidance"
+    },
+    "mobility": {
+      "target": "2x per week",
+      "priority_areas": [
+        "Hip flexors",
+        "Hip mobility",
+        "Ankle mobility",
+        "Calves"
+      ],
+      "approach": "End-range loading (ATG split squats, loaded stretches) for tissue health. Addresses hip irritation noted in ballet."
+    },
+    "other": {
+      "ballet": "Movement quality and nervous-system regulation, not training stress",
+      "climbing": "Social and occasional, not a conditioning driver",
+      "progression": "Conservative to avoid accidental escalation"
+    },
+    "health_priorities": [
+      "Heart health: endurance exercise, fiber, omega-3s, stress reduction",
+      "Joint health: mobility, varied movement, avoiding excessive load",
+      "Mental health: routine, non-punitive rules, not tying self-worth to metrics",
+      "Hormonal environment: adequate energy, dietary fat, avoiding chronic stress"
+    ]
+  },
+  "transition_context": {
+    "hrt_timeline": {
+      "early_hrt": "Oral estradiol (2\u21926 mg) + spironolactone (50 mg) with limited response",
+      "switched_mid_2024": "Estradiol valerate injection monotherapy, 5-6 mg weekly IM",
+      "current_levels": {
+        "testosterone_ng_dl": "15-20",
+        "estradiol_pg_ml": "100-140 (trough)",
+        "labs_timing": "Friday morning pre-injection"
+      },
+      "progesterone": "Rectal progesterone 200mg nightly (added June 2025, increased from 100mg Nov 2025). Improved libido and mood."
+    },
+    "physical_changes": {
+      "breasts": "C-D cups (accelerated after injection switch and progesterone)",
+      "skin": "Gradual texture changes",
+      "body_hair": "Significant reduction",
+      "muscle": "Marked upper-body loss with intentional lower-body/glute hypertrophy",
+      "strength": "Large upper-body decreases (pull-ups, climbing)",
+      "temperature": "Reduced cold tolerance",
+      "endurance": "Preserved"
+    },
+    "surgical_history": {
+      "ffs": "July 30, 2025",
+      "outcome": "No misgendering reported since surgery"
+    },
+    "mental_health": "Markedly improved since transition. Resolution of long-standing depression and suicidal ideation.",
+    "social_context": {
+      "passing": "Reads as passing in daily life. May be read as 'trans-passing' rather than unambiguously cis in some contexts.",
+      "comfort_high": "Embodied, physical contexts (gym, locker room, sauna)",
+      "comfort_lower": "Work/school contexts where voice and authority are salient"
+    },
+    "body_image_concerns": {
+      "shoulder_to_hip_ratio": {
+        "concern": "Primary body image concern",
+        "reality": "Skeletal structure cannot change. Focus on: glute/hip development (ongoing), upper-body atrophy (needs time), fat deposition (requires consistent surplus), posture (ballet helps).",
+        "context": "Many cis women have broad shoulders. Natural variation is enormous. FFS success indicates strong overall presentation."
+      },
+      "voice": {
+        "concern": "Especially in professional settings",
+        "options": "Voice feminization training, speech-language pathologist consultation"
+      },
+      "facial_scrutiny": "Despite FFS success and no misgendering, internal hypervigilance persists"
+    },
+    "timeline_and_expectations": {
+      "time_on_effective_hrt": "~1.5 years (injection monotherapy since mid-2024)",
+      "realistic_timeline": "3-5+ years for full feminization",
+      "key_points": [
+        "Upper-body atrophy is already happening but takes years",
+        "Fat redistribution requires consistent caloric surplus",
+        "Skeletal structure cannot change",
+        "Further restriction won't meaningfully accelerate changes",
+        "Primary work: patience, consistency, reducing hypervigilant self-scrutiny"
+      ],
+      "principle": "Trust the process. On strong estrogen with suppressed testosterone, feminization is inevitable given time. Focus on not interfering rather than forcing faster changes."
+    },
+    "comparison_set": "Ballet dancers, fit trans women, similarly-sized cis celebrities (extremely high-bar)",
+    "core_goal": "Look like a fit, attractive cis woman consistently, without bottom surgery",
+    "primary_current_work": "Internal recalibration and reducing hypervigilant self-scrutiny rather than further medical/surgical intervention"
+  }
+}
