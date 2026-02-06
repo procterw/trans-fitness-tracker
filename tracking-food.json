@@ -339,6 +339,23 @@
         "iron_mg": 5.5
       },
       "healthy": "❌"
+    },
+    {
+      "date": "2026-02-06",
+      "day_of_week": "Fri",
+      "weight_lb": null,
+      "calories": 450,
+      "fat_g": 23,
+      "carbs_g": 46,
+      "protein_g": 24,
+      "fiber_g": 10,
+      "potassium_mg": 270,
+      "magnesium_mg": 76,
+      "omega3_mg": null,
+      "calcium_mg": 460,
+      "iron_mg": 2.8,
+      "status": "⚪",
+      "notes": "Auto-updated from food_events."
     }
   ],
   "food_events": [
@@ -559,6 +576,70 @@
         "calcium_mg": 20,
         "iron_mg": 1.5
       }
+    },
+    {
+      "id": "3618b850-745b-4cdd-84d9-e2a79c56446e",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T13:04:18-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Cheese sandwich on Dave's bread",
+      "input_text": "I had a cheese sandwich on dave's for breakfast",
+      "notes": "",
+      "nutrients": {
+        "calories": 450,
+        "fat_g": 23,
+        "carbs_g": 46,
+        "protein_g": 24,
+        "fiber_g": 10,
+        "potassium_mg": 270,
+        "magnesium_mg": 76,
+        "omega3_mg": null,
+        "calcium_mg": 460,
+        "iron_mg": 2.8
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.62,
+        "notes": "Main uncertainty is the exact Dave's bread variety (calories/fiber differ) and the amount/type of cheese (1 vs 2 oz; cheddar vs American/provolone). Micronutrients are approximate; omega-3 not estimated because it depends heavily on bread seed content and cheese type and is usually small."
+      },
+      "items": [
+        {
+          "name": "Dave's Killer Bread (assumed), 2 slices",
+          "portion": "2 slices",
+          "nutrients": {
+            "calories": 220,
+            "fat_g": 4,
+            "carbs_g": 44,
+            "protein_g": 10,
+            "fiber_g": 10,
+            "potassium_mg": 220,
+            "magnesium_mg": 60,
+            "omega3_mg": null,
+            "calcium_mg": 60,
+            "iron_mg": 2.4
+          },
+          "notes": "Assumed a typical Dave's Killer Bread (e.g., 21 Whole Grains & Seeds) serving = 2 slices. Nutrition varies by variety."
+        },
+        {
+          "name": "Cheddar cheese (assumed)",
+          "portion": "2 slices / ~2 oz (56 g)",
+          "nutrients": {
+            "calories": 230,
+            "fat_g": 19,
+            "carbs_g": 2,
+            "protein_g": 14,
+            "fiber_g": 0,
+            "potassium_mg": 50,
+            "magnesium_mg": 16,
+            "omega3_mg": null,
+            "calcium_mg": 400,
+            "iron_mg": 0.4
+          },
+          "notes": "Assumed 2 oz total cheese (common for a cheese sandwich). Type and amount can change calories/fat substantially."
+        }
+      ],
+      "applied_to_food_log": true
     }
   ]
 }
