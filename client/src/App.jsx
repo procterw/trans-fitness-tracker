@@ -615,62 +615,67 @@ export default function App() {
   const renderFitnessHistoryTable = () => {
     const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
     if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
+    const template = fitnessWeek ?? weeks[0] ?? {};
+    const categories = [
+      ["cardio", "Cardio"],
+      ["strength", "Strength"],
+      ["mobility", "Mobility"],
+      ["other", "Other"],
+    ];
 
     return (
       <div className="tableScroll fitnessHistoryTableScroll" role="region" aria-label="Fitness history table">
         <table className="fitnessHistoryTable">
           <thead>
             <tr>
-              <th className="fitnessHistoryWeekCol">Week</th>
-              {historyColumns.map((c) => (
-                <th key={c.key} title={c.label}>
-                  {c.label}
+              <th className="fitnessHistoryWeekCol">Activity</th>
+              {weeks.map((week, idx) => (
+                <th key={week?.week_start ?? `week_${idx}`} className="fitnessHistoryWeekHeader">
+                  <div className="fitnessHistoryWeekTitle">{week?.week_label ?? "—"}</div>
+                  <div className="fitnessHistoryWeekMeta muted">
+                    <code>{week?.week_start ?? "—"}</code>
+                  </div>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {weeks.map((week, idx) => {
-              const done =
-                countDone(week?.cardio) + countDone(week?.strength) + countDone(week?.mobility) + countDone(week?.other);
-              const total =
-                countTotal(week?.cardio) +
-                countTotal(week?.strength) +
-                countTotal(week?.mobility) +
-                countTotal(week?.other);
-              const pct = total ? Math.round((done / total) * 100) : 0;
-              const key = week?.week_start ?? `week_${idx}`;
-
+            {categories.map(([catKey, catLabel]) => {
+              const items = Array.isArray(template?.[catKey]) ? template[catKey] : [];
+              if (!items.length) return null;
               return (
-                <tr key={key}>
-                  <td className="fitnessHistoryWeekCell">
-                    <div className="fitnessHistoryWeekTitle">{week?.week_label ?? "—"}</div>
-                    <div className="fitnessHistoryWeekMeta muted">
-                      <code>{week?.week_start ?? "—"}</code> • {done}/{total} • {pct}%
-                    </div>
-                    {week?.summary ? (
-                      <div className="fitnessHistoryWeekSummaryText muted" title={week.summary}>
-                        {week.summary}
-                      </div>
-                    ) : null}
-                  </td>
-                  {historyColumns.map((c) => {
-                    const list = Array.isArray(week?.[c.category]) ? week[c.category] : [];
-                    const it = list[c.index];
-                    const checked = Boolean(it?.checked);
-                    const details = (it?.details ?? "").trim();
-                    return (
-                      <td key={c.key} className={`fitnessHistoryCell ${checked ? "checked" : "unchecked"}`}>
-                        <div className="fitnessHistoryCellInner">
-                          <span className={`fitnessHistoryMark ${checked ? "ok" : "error"}`}>
-                            {checked ? "✓" : "×"}
-                          </span>
-                          {details ? <div className="fitnessHistoryText">{details}</div> : null}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
+                <React.Fragment key={catKey}>
+                  <tr className="fitnessHistoryCategoryRow">
+                    <td className="fitnessHistoryCategoryCell" colSpan={weeks.length + 1}>
+                      {catLabel}
+                    </td>
+                  </tr>
+                  {items.map((item, itemIdx) => (
+                    <tr key={`${catKey}_${itemIdx}`}>
+                      <td className="fitnessHistoryActivityCell">{item?.item ?? `${catLabel} ${itemIdx + 1}`}</td>
+                      {weeks.map((week, weekIdx) => {
+                        const list = Array.isArray(week?.[catKey]) ? week[catKey] : [];
+                        const it = list[itemIdx];
+                        const checked = Boolean(it?.checked);
+                        const details = (it?.details ?? "").trim();
+                        return (
+                          <td
+                            key={`${week?.week_start ?? weekIdx}_${catKey}_${itemIdx}`}
+                            className={`fitnessHistoryCell ${checked ? "checked" : "unchecked"}`}
+                            title={details || undefined}
+                          >
+                            <div className="fitnessHistoryCellInner">
+                              <span className={`fitnessHistoryMark ${checked ? "ok" : "error"}`}>
+                                {checked ? "✓" : "×"}
+                              </span>
+                              {details ? <div className="fitnessHistoryText">{details}</div> : null}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -981,15 +986,15 @@ export default function App() {
                     </button>
                   </div>
 
-                  <details className="fitnessHistory">
-                    <summary>History</summary>
+                  <section className="fitnessHistory">
+                    <h3>History</h3>
                     <div className="fitnessHistoryBody">
                       {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
                       {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
                       {!fitnessHistoryLoading ? renderFitnessHistoryTable() : null}
                       {!fitnessHistoryLoading && fitnessHistory?.length ? <p className="muted">Most recent week first.</p> : null}
                     </div>
-                  </details>
+                  </section>
                 </>
               ) : null}
             </section>

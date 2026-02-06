@@ -937,10 +937,11 @@ ul {
   border: 1px solid var(--border);
   border-radius: 0;
   overflow: hidden;
+  background: var(--card);
 }
 
-.fitnessHistory summary {
-  cursor: pointer;
+.fitnessHistory h3 {
+  margin: 0;
   padding: 12px 14px;
   font-weight: 900;
   background: color-mix(in srgb, var(--card) 78%, black 22%);
@@ -968,13 +969,14 @@ ul {
   padding: 10px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+  background: #ffffff;
 }
 
 .fitnessHistoryTable thead th {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--card);
+  background: #ffffff;
   white-space: nowrap;
 }
 
@@ -982,35 +984,34 @@ ul {
   position: sticky;
   left: 0;
   z-index: 3;
-  background: var(--card);
+  background: #ffffff;
   min-width: 220px;
 }
 
-.fitnessHistoryWeekCell {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  background: var(--card);
-  min-width: 220px;
-  max-width: 320px;
-}
-
-.fitnessHistoryWeekTitle {
+.fitnessHistoryWeekHeader .fitnessHistoryWeekTitle {
   font-weight: 900;
   line-height: 1.2;
 }
 
-.fitnessHistoryWeekMeta {
+.fitnessHistoryWeekHeader .fitnessHistoryWeekMeta {
   margin-top: 4px;
   font-size: 12px;
 }
 
-.fitnessHistoryWeekSummaryText {
-  margin-top: 6px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.fitnessHistoryCategoryRow td {
+  padding: 8px 10px;
+  background: #ffffff;
+  font-weight: 900;
+}
+
+.fitnessHistoryActivityCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #ffffff;
+  min-width: 220px;
+  max-width: 320px;
+  font-weight: 800;
 }
 
 .fitnessHistoryCell {
