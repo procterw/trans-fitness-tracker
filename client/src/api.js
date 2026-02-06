@@ -1,5 +1,16 @@
+import { getAccessToken, isSupabaseEnabled } from "./supabaseClient.js";
+
+async function withAuth(options = {}) {
+  if (!isSupabaseEnabled()) return options;
+  const token = await getAccessToken();
+  if (!token) return options;
+  const headers = new Headers(options.headers || {});
+  if (!headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  return { ...options, headers };
+}
+
 export async function fetchJson(url, options) {
-  const res = await fetch(url, options);
+  const res = await fetch(url, await withAuth(options));
   const json = await res.json().catch(() => ({}));
   if (!res.ok || !json?.ok) {
     const msg = json?.error || `Request failed (${res.status})`;

@@ -7,6 +7,7 @@ import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { askAssistant, decideIngestAction } from "./assistant.js";
+import { createSupabaseAuth } from "./auth/supabaseAuth.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
@@ -27,6 +28,13 @@ import {
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
+
+const authRequired = String(process.env.SUPABASE_AUTH_REQUIRED || "").toLowerCase() === "true";
+const supabaseAuth = createSupabaseAuth({
+  supabaseUrl: process.env.SUPABASE_URL || "",
+  required: authRequired,
+});
+app.use("/api", supabaseAuth);
 
 const upload = multer({
   storage: multer.memoryStorage(),

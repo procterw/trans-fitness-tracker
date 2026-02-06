@@ -16,6 +16,13 @@ import {
 import EstimateResult from "./components/EstimateResult.jsx";
 import MarkdownContent from "./components/MarkdownContent.jsx";
 import NutrientsTable from "./components/NutrientsTable.jsx";
+import {
+  getSession,
+  isSupabaseEnabled,
+  onAuthStateChange,
+  signInWithGoogle,
+  signOut,
+} from "./supabaseClient.js";
 
 function useDebouncedCallback(fn, ms) {
   const timeoutRef = useRef(null);
@@ -142,6 +149,9 @@ export default function App() {
   const dashHeadingRef = useRef(null);
   const dashSkipNextAutoLoadRef = useRef(false);
   const dashLoadSeqRef = useRef(0);
+  const [authEnabled] = useState(isSupabaseEnabled());
+  const [authSession, setAuthSession] = useState(null);
+  const [authStatus, setAuthStatus] = useState("");
 
   const fmt = (n) => {
     if (n === null || n === undefined) return "—";
@@ -159,6 +169,31 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!authEnabled) return;
+    let mounted = true;
+    setAuthStatus("Checking session…");
+    getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setAuthSession(data?.session ?? null);
+        setAuthStatus("");
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setAuthStatus("Could not load session.");
+      });
+
+    const { data } = onAuthStateChange((_event, session) => {
+      setAuthSession(session ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      data?.subscription?.unsubscribe?.();
+    };
+  }, [authEnabled]);
 
   const loadFitness = async () => {
     setFitnessLoading(true);
@@ -710,6 +745,31 @@ export default function App() {
         <div>
           <h1 className="appTitle">Health &amp; Fitness Tracker</h1>
         </div>
+
+        {authEnabled ? (
+          <section className="sidebarCard authCard">
+            <div className="sidebarSectionHeader">
+              <h2 className="sidebarHeading">Account</h2>
+            </div>
+            {authStatus ? <p className="muted">{authStatus}</p> : null}
+            {authSession?.user ? (
+              <div className="authMeta">
+                <div className="muted">Signed in as</div>
+                <div className="authEmail">{authSession.user.email || "Google user"}</div>
+                <button type="button" className="secondary" onClick={() => signOut()}>
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <div className="authMeta">
+                <p className="muted">Sign in to sync your data.</p>
+                <button type="button" onClick={() => signInWithGoogle()}>
+                  Sign in with Google
+                </button>
+              </div>
+            )}
+          </section>
+        ) : null}
 
         <nav className="tabs sidebarTabs" aria-label="Sections">
           <TabButton active={tab === "food"} onClick={() => setTab("food")}>

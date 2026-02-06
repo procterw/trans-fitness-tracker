@@ -22,3 +22,10 @@ Minimal local web app that:
 - Tracking data is split across `tracking-food.json`, `tracking-activity.json`, `tracking-profile.json`, and `tracking-rules.json`
 - Meal logs are appended to `food_events` (created automatically if missing)
 - If you logged events before `food_log` syncing existed, use Dashboard → “Sync unsynced events”.
+
+## Supabase (optional, multi-user)
+You can enable Google login + Postgres storage via Supabase. The React login UI is gated by `VITE_SUPABASE_ENABLED` and the API auth requirement is gated by `SUPABASE_AUTH_REQUIRED`.
+
+Required env vars:
+- Client: `VITE_SUPABASE_ENABLED`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+- Server: `SUPABASE_AUTH_REQUIRED`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`

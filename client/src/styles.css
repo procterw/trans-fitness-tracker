@@ -737,6 +737,17 @@ ul {
   box-shadow: var(--shadow);
 }
 
+.authCard .authMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.authCard .authEmail {
+  font-weight: 700;
+  word-break: break-word;
+}
+
 .sidebarSectionHeader {
   display: flex;
   align-items: center;
