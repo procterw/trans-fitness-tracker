@@ -11,13 +11,14 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 - **Fitness:** endurance-biased; lower-body/glute-focused strength; **intentional avoidance of upper-body training**; mobility/prehab 2×/week (hip/ankle/calf emphasis); ballet/climbing as optional “other” activities.
 - **Process:** long-horizon progress (3–5+ years); non-punitive tracking; reduce hypervigilant self-scrutiny by leaning on consistency + data.
 
-## Source of truth: `tracking-data.json`
-All tracked data lives in `tracking-data.json`. The file already contains:
-- `metadata` (timezone conventions, food definitions, last updated)
-- `food_log` (daily summary rows with calories/macros/micros + status)
-- `food_events` (event-level food entries; used by the photo logging flow)
-- `fitness_weeks` + `current_week` (weekly checklists with details + summaries)
-- `diet_philosophy`, `fitness_philosophy`, `transition_context` (project “rules” / context)
+## Source of truth: split tracking files
+Tracking data is split across four files in the repo root:
+- `tracking-food.json` — `food_log` + `food_events`
+- `tracking-activity.json` — `fitness_weeks` + `current_week`
+- `tracking-profile.json` — `transition_context` (user profile)
+- `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy` (parsing/interpretation rules)
+
+`tracking-data.json` is treated as a legacy single-file format (still readable if configured), but new writes go to the split files by default.
 
 ### Conventions
 - **Timezone:** Seattle, WA (Pacific Time).
@@ -38,7 +39,7 @@ Note: for photo-based inference, some micronutrients may be unknown; represent u
 ## App: local web UI + API
 This repo includes a minimal local web app that supports:
 - Unified meal logging (photo and/or manual description) + nutrition inference (OpenAI)
-- Asking questions in-app (OpenAI assistant, contextualized by `tracking-data.json`)
+- Asking questions in-app (OpenAI assistant, contextualized by the split tracking files)
 - A unified chat-style input that routes food/activity/questions via GPT‑5.2
 - Weekly fitness checklist updates (`current_week`)
 - A basic dashboard for browsing:
@@ -62,7 +63,11 @@ This repo includes a minimal local web app that supports:
 - `OPENAI_ASSISTANT_MODEL` (optional; defaults to `OPENAI_MODEL`)
 - `OPENAI_INGEST_MODEL` (optional; defaults to `gpt-5.2`)
 - `PORT` (optional; defaults to `3000`)
-- `TRACKING_DATA_FILE` (optional; defaults to repo `tracking-data.json`)
+- `TRACKING_FOOD_FILE` (optional; defaults to repo `tracking-food.json`)
+- `TRACKING_ACTIVITY_FILE` (optional; defaults to repo `tracking-activity.json`)
+- `TRACKING_PROFILE_FILE` (optional; defaults to repo `tracking-profile.json`)
+- `TRACKING_RULES_FILE` (optional; defaults to repo `tracking-rules.json`)
+- `TRACKING_DATA_FILE` (optional; legacy single-file mode when set)
 
 ### Endpoints
 - `GET /` → React UI (Food / Fitness / Dashboard)
@@ -86,13 +91,13 @@ This repo includes a minimal local web app that supports:
 - `POST /api/fitness/current/item` → JSON body: `category` (`cardio|strength|mobility|other`), `index`, `checked`, `details`
 - `POST /api/fitness/current/summary` → JSON body: `summary`
 - `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
-  - Answers questions using OpenAI, contextualized by `tracking-data.json` (diet/fitness philosophy + recent logs)
+  - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)
 - `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
   - GPT‑5.2 decides if the input is food, activity, or a question; logs the result or answers/clarifies
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format
-Photo + manual logs append to `tracking-data.json.food_events` with:
+Photo + manual logs append to `tracking-food.json.food_events` with:
 - `id` (uuid)
 - `date` (effective date used for the log)
 - `logged_at` (Seattle-local ISO string)
@@ -114,7 +119,11 @@ Implementation: `src/visionNutrition.js`
 - Sets micronutrients to `null` when they’re genuinely not inferable from image/context (rather than guessing).
 
 ## File layout
-- `tracking-data.json` — all tracking data
+- `tracking-food.json` — food events + daily food log
+- `tracking-activity.json` — weekly fitness checklist data
+- `tracking-profile.json` — user profile / transition context
+- `tracking-rules.json` — metadata + diet/fitness philosophy + parsing rules
+- `tracking-data.json` — legacy single-file tracking data (optional)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups
 - `src/visionNutrition.js` — OpenAI nutrition estimation (photo + text)
@@ -123,8 +132,8 @@ Implementation: `src/visionNutrition.js`
 
 ## Intended interaction model (assistant + app)
 Project intent includes a workflow where:
-- When you mention eating food or doing activities, the tracker should **immediately** update `tracking-data.json`.
-- Advice should be contextualized by reading recent patterns from `tracking-data.json` first.
+- When you mention eating food or doing activities, the tracker should **immediately** update the split tracking files.
+- Advice should be contextualized by reading recent patterns from the tracking files first.
 
 (Current code implements a unified chat-style input with GPT‑5.2 routing, photo + manual meal logging → `food_events` + auto-updated `food_log`, current-week fitness checklist updates, and optional “recalculate from events” rollups.)
 

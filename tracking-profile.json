@@ -1,0 +1,60 @@
+{
+  "transition_context": {
+    "hrt_timeline": {
+      "early_hrt": "Oral estradiol (2→6 mg) + spironolactone (50 mg) with limited response",
+      "switched_mid_2024": "Estradiol valerate injection monotherapy, 5-6 mg weekly IM",
+      "current_levels": {
+        "testosterone_ng_dl": "15-20",
+        "estradiol_pg_ml": "100-140 (trough)",
+        "labs_timing": "Friday morning pre-injection"
+      },
+      "progesterone": "Rectal progesterone 200mg nightly (added June 2025, increased from 100mg Nov 2025). Improved libido and mood."
+    },
+    "physical_changes": {
+      "breasts": "C-D cups (accelerated after injection switch and progesterone)",
+      "skin": "Gradual texture changes",
+      "body_hair": "Significant reduction",
+      "muscle": "Marked upper-body loss with intentional lower-body/glute hypertrophy",
+      "strength": "Large upper-body decreases (pull-ups, climbing)",
+      "temperature": "Reduced cold tolerance",
+      "endurance": "Preserved"
+    },
+    "surgical_history": {
+      "ffs": "July 30, 2025",
+      "outcome": "No misgendering reported since surgery"
+    },
+    "mental_health": "Markedly improved since transition. Resolution of long-standing depression and suicidal ideation.",
+    "social_context": {
+      "passing": "Reads as passing in daily life. May be read as 'trans-passing' rather than unambiguously cis in some contexts.",
+      "comfort_high": "Embodied, physical contexts (gym, locker room, sauna)",
+      "comfort_lower": "Work/school contexts where voice and authority are salient"
+    },
+    "body_image_concerns": {
+      "shoulder_to_hip_ratio": {
+        "concern": "Primary body image concern",
+        "reality": "Skeletal structure cannot change. Focus on: glute/hip development (ongoing), upper-body atrophy (needs time), fat deposition (requires consistent surplus), posture (ballet helps).",
+        "context": "Many cis women have broad shoulders. Natural variation is enormous. FFS success indicates strong overall presentation."
+      },
+      "voice": {
+        "concern": "Especially in professional settings",
+        "options": "Voice feminization training, speech-language pathologist consultation"
+      },
+      "facial_scrutiny": "Despite FFS success and no misgendering, internal hypervigilance persists"
+    },
+    "timeline_and_expectations": {
+      "time_on_effective_hrt": "~1.5 years (injection monotherapy since mid-2024)",
+      "realistic_timeline": "3-5+ years for full feminization",
+      "key_points": [
+        "Upper-body atrophy is already happening but takes years",
+        "Fat redistribution requires consistent caloric surplus",
+        "Skeletal structure cannot change",
+        "Further restriction won't meaningfully accelerate changes",
+        "Primary work: patience, consistency, reducing hypervigilant self-scrutiny"
+      ],
+      "principle": "Trust the process. On strong estrogen with suppressed testosterone, feminization is inevitable given time. Focus on not interfering rather than forcing faster changes."
+    },
+    "comparison_set": "Ballet dancers, fit trans women, similarly-sized cis celebrities (extremely high-bar)",
+    "core_goal": "Look like a fit, attractive cis woman consistently, without bottom surgery",
+    "primary_current_work": "Internal recalibration and reducing hypervigilant self-scrutiny rather than further medical/surgical intervention"
+  }
+}

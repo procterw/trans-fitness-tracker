@@ -5,8 +5,28 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_TRACKING_FILE = path.resolve(__dirname, "..", "tracking-data.json");
-const TRACKING_FILE = process.env.TRACKING_DATA_FILE ? path.resolve(process.env.TRACKING_DATA_FILE) : DEFAULT_TRACKING_FILE;
+const DEFAULT_DATA_DIR = path.resolve(__dirname, "..");
+const LEGACY_TRACKING_FILE = process.env.TRACKING_DATA_FILE
+  ? path.resolve(process.env.TRACKING_DATA_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, "tracking-data.json");
+const TRACKING_FOOD_FILE = process.env.TRACKING_FOOD_FILE
+  ? path.resolve(process.env.TRACKING_FOOD_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, "tracking-food.json");
+const TRACKING_ACTIVITY_FILE = process.env.TRACKING_ACTIVITY_FILE
+  ? path.resolve(process.env.TRACKING_ACTIVITY_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, "tracking-activity.json");
+const TRACKING_PROFILE_FILE = process.env.TRACKING_PROFILE_FILE
+  ? path.resolve(process.env.TRACKING_PROFILE_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, "tracking-profile.json");
+const TRACKING_RULES_FILE = process.env.TRACKING_RULES_FILE
+  ? path.resolve(process.env.TRACKING_RULES_FILE)
+  : path.resolve(DEFAULT_DATA_DIR, "tracking-rules.json");
+const USE_LEGACY_FILE =
+  Boolean(process.env.TRACKING_DATA_FILE) &&
+  !process.env.TRACKING_FOOD_FILE &&
+  !process.env.TRACKING_ACTIVITY_FILE &&
+  !process.env.TRACKING_PROFILE_FILE &&
+  !process.env.TRACKING_RULES_FILE;
 const TIME_ZONE = "America/Los_Angeles";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -98,13 +118,145 @@ async function atomicWriteJson(filePath, data) {
   await fs.rename(tmpPath, filePath);
 }
 
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJsonOrDefault(filePath, fallback = {}) {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err?.code === "ENOENT") return fallback;
+    throw err;
+  }
+}
+
+function splitTrackingData(data) {
+  const {
+    metadata,
+    food_log,
+    food_events,
+    current_week,
+    fitness_weeks,
+    diet_philosophy,
+    fitness_philosophy,
+    transition_context,
+    ...rest
+  } = data ?? {};
+
+  const rulesMeta = typeof metadata === "object" && metadata ? { ...metadata } : {};
+  rulesMeta.data_files = {
+    food: path.basename(TRACKING_FOOD_FILE),
+    activity: path.basename(TRACKING_ACTIVITY_FILE),
+    profile: path.basename(TRACKING_PROFILE_FILE),
+    rules: path.basename(TRACKING_RULES_FILE),
+  };
+  if (rulesMeta.data_file === "tracking-data.json") {
+    rulesMeta.data_file = "tracking-data.json (legacy)";
+  }
+
+  return {
+    food: {
+      food_log: Array.isArray(food_log) ? food_log : [],
+      food_events: Array.isArray(food_events) ? food_events : [],
+    },
+    activity: {
+      current_week: current_week && typeof current_week === "object" ? current_week : null,
+      fitness_weeks: Array.isArray(fitness_weeks) ? fitness_weeks : [],
+    },
+    profile: {
+      transition_context: transition_context && typeof transition_context === "object" ? transition_context : {},
+    },
+    rules: {
+      metadata: rulesMeta,
+      diet_philosophy: diet_philosophy && typeof diet_philosophy === "object" ? diet_philosophy : {},
+      fitness_philosophy: fitness_philosophy && typeof fitness_philosophy === "object" ? fitness_philosophy : {},
+      ...rest,
+    },
+  };
+}
+
+function mergeTrackingData({ food, activity, profile, rules }) {
+  return {
+    ...(rules ?? {}),
+    ...(food ?? {}),
+    ...(activity ?? {}),
+    ...(profile ?? {}),
+  };
+}
+
+async function writeSplitFiles(split) {
+  await Promise.all([
+    atomicWriteJson(TRACKING_FOOD_FILE, split.food),
+    atomicWriteJson(TRACKING_ACTIVITY_FILE, split.activity),
+    atomicWriteJson(TRACKING_PROFILE_FILE, split.profile),
+    atomicWriteJson(TRACKING_RULES_FILE, split.rules),
+  ]);
+}
+
+async function ensureSplitFiles() {
+  const [foodExists, activityExists, profileExists, rulesExists] = await Promise.all([
+    fileExists(TRACKING_FOOD_FILE),
+    fileExists(TRACKING_ACTIVITY_FILE),
+    fileExists(TRACKING_PROFILE_FILE),
+    fileExists(TRACKING_RULES_FILE),
+  ]);
+
+  if (foodExists || activityExists || profileExists || rulesExists) {
+    return;
+  }
+
+  const legacyExists = await fileExists(LEGACY_TRACKING_FILE);
+  if (!legacyExists) {
+    await writeSplitFiles(
+      splitTrackingData({
+        metadata: {},
+        food_log: [],
+        food_events: [],
+        current_week: null,
+        fitness_weeks: [],
+        diet_philosophy: {},
+        fitness_philosophy: {},
+        transition_context: {},
+      }),
+    );
+    return;
+  }
+
+  const legacyData = await readJsonOrDefault(LEGACY_TRACKING_FILE, {});
+  const split = splitTrackingData(legacyData);
+  await writeSplitFiles(split);
+}
+
 export async function readTrackingData() {
-  const raw = await fs.readFile(TRACKING_FILE, "utf8");
-  return JSON.parse(raw);
+  if (USE_LEGACY_FILE) {
+    const raw = await fs.readFile(LEGACY_TRACKING_FILE, "utf8");
+    return JSON.parse(raw);
+  }
+  await ensureSplitFiles();
+  const [food, activity, profile, rules] = await Promise.all([
+    readJsonOrDefault(TRACKING_FOOD_FILE, {}),
+    readJsonOrDefault(TRACKING_ACTIVITY_FILE, {}),
+    readJsonOrDefault(TRACKING_PROFILE_FILE, {}),
+    readJsonOrDefault(TRACKING_RULES_FILE, {}),
+  ]);
+  return mergeTrackingData({ food, activity, profile, rules });
 }
 
 export async function writeTrackingData(data) {
-  await atomicWriteJson(TRACKING_FILE, data);
+  if (USE_LEGACY_FILE) {
+    await atomicWriteJson(LEGACY_TRACKING_FILE, data);
+    return;
+  }
+  await ensureSplitFiles();
+  const split = splitTrackingData(data);
+  await writeSplitFiles(split);
 }
 
 function ensureCurrentWeekInData(data, now = new Date()) {

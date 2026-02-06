@@ -1,0 +1,174 @@
+{
+  "metadata": {
+    "last_updated": "2026-02-05T12:30:27-08:00",
+    "version": "1.0",
+    "description": "Complete health, fitness, and transition tracking data",
+    "data_file": "tracking-data.json (legacy)",
+    "logging_conventions": {
+      "timezone": "Pacific Time (PT) - UTC-8/UTC-7. User is located in Seattle, Washington, US.",
+      "late_night_entries": "When logging late at night or in early morning hours (after midnight), assume entries are for the previous calendar day unless explicitly stated otherwise. If it's 2AM Tuesday, treat food/activity logs as Monday's data by default.",
+      "date_format": "YYYY-MM-DD (ISO 8601)",
+      "week_start": "Monday (weeks run Monday-Sunday)"
+    },
+    "food_definitions": {
+      "chocolate": {
+        "default": "Endangered Species 88% dark chocolate",
+        "typical_portion": "3 pieces",
+        "notes": "Assume this brand/type unless otherwise specified"
+      },
+      "chili": {
+        "recipe_name": "Normal chili recipe",
+        "serving_size": "1/3 pot",
+        "per_serving": {
+          "calories": 430,
+          "fat_g": 25,
+          "carbs_g": 44,
+          "protein_g": 13,
+          "fiber_g": "13-14"
+        },
+        "recipe_notes": "Uses 4 Tbsp olive oil and adds 2 dates"
+      },
+      "smoothie": {
+        "recipe_name": "Standard smoothie",
+        "default": true,
+        "ingredients": [
+          "1/8 banana",
+          "1 Tbsp hemp seeds",
+          "1 Tbsp whole flax seeds",
+          "1/4 cup blueberries with frozen beets",
+          "Small handful frozen kale",
+          "~1/8 packet Emergen-C",
+          "1.5 cups soy milk"
+        ],
+        "notes": "This is the default smoothie unless stated otherwise"
+      },
+      "fish_oil": {
+        "type": "supplement",
+        "serving_size": "2 softgels",
+        "per_serving": {
+          "calories": 25,
+          "fat_g": 2.5,
+          "carbs_g": 0,
+          "protein_g": 0,
+          "fiber_g": 0,
+          "omega_3_mg": 1280
+        },
+        "notes": "Standard fish oil supplement (EPA+DHA)"
+      },
+      "oatmeal": {
+        "recipe_name": "Standard oatmeal",
+        "default": true,
+        "ingredients": [
+          "1/2 cup rolled oats",
+          "1 cup soy milk",
+          "1 tsp dried blueberries",
+          "1 date",
+          "1 Tbsp hemp seeds",
+          "1 Tbsp olive oil",
+          "Sprinkle of brown sugar",
+          "Pumpkin spice"
+        ],
+        "notes": "This is the default breakfast unless stated otherwise"
+      },
+      "daily_supplements": {
+        "type": "supplement_routine",
+        "items": [
+          "Half of a women's multivitamin",
+          "D3 + K2 supplement",
+          "B12 supplement"
+        ],
+        "notes": "Taken daily. Negligible calories (<5 total)."
+      },
+      "soy_milk": {
+        "default": "Silk unsweetened soy milk",
+        "per_cup": {
+          "calories": 80,
+          "fat_g": 4,
+          "carbs_g": 6,
+          "protein_g": 7,
+          "calcium_mg": 300,
+          "potassium_mg": 200
+        },
+        "notes": "Always refers to Silk unsweetened unless otherwise specified"
+      }
+    },
+    "data_files": {
+      "food": "tracking-food.json",
+      "activity": "tracking-activity.json",
+      "profile": "tracking-profile.json",
+      "rules": "tracking-rules.json"
+    }
+  },
+  "diet_philosophy": {
+    "goals": [
+      "Energy sufficiency",
+      "Calm surplus (2600-2900 daily)",
+      "Minimal muscle-preservation signaling"
+    ],
+    "protein": {
+      "target_g": "100-120",
+      "philosophy": "On estrogen with suppressed testosterone, protein alone doesn't cause muscle retention - training stimulus does. Focus on distribution quality (diffuse, fat-paired) rather than minimizing total grams.",
+      "key_factors": [
+        "Distribution: spread across meals rather than concentrated",
+        "Pairing: consumed with fats and carbs, not lean/isolated",
+        "Timing: avoid acute protein immediately post-workout",
+        "Context: combined with no upper-body training stimulus"
+      ]
+    },
+    "calories": {
+      "target": "2600-2900 daily",
+      "philosophy": "Consistent moderate surplus signals metabolic safety and provides substrate for estrogen-driven fat redistribution. Avoid volatile swings between deficit and large surplus."
+    },
+    "carbs": {
+      "philosophy": "Neutral or positive. Primary fuel for endurance and lower-body training. No distinction between complex and simple."
+    },
+    "fat": {
+      "philosophy": "Supportive. Essential for hormone production, fat-soluble vitamins, and calorie intake without protein."
+    },
+    "evaluation_criteria": {
+      "green": "Calories 2600-2900, protein 100-120g when diffuse/fat-paired, calm and permissive",
+      "yellow": "Inconsistent calories (swings above 3200+ or below 2400), or convenience-dominated but adequate energy",
+      "red": "Calorie restriction pattern, or acute/lean protein that could signal retention if repeated"
+    }
+  },
+  "fitness_philosophy": {
+    "big_picture": "Long-term trans feminization with health, stability, and sustainability. Optimize for selective change over time: let estrogen work while avoiding stressors that cause rebound, stagnation, or injury.",
+    "physique_goals": [
+      "Allow upper-body muscle to gradually atrophy without provoking defensive retention",
+      "Support estrogen-driven fat redistribution (hips, thighs, chest)",
+      "Maintain or subtly enhance glutes and hips for shape and proportion",
+      "Move through time + consistency, not force",
+      "Prioritize softness, drape, posture over metrics"
+    ],
+    "cardio": {
+      "approach": "Regular aerobic work (running, cycling, elliptical, walking) for cardiovascular health, recovery, and fat-friendly stress",
+      "target": "5-7 sessions per week",
+      "intensity": "Managed to avoid injury and excessive cortisol"
+    },
+    "strength": {
+      "lower_body": "Two medium-high intensity glute sessions per week for maintenance and slow hypertrophy. Both sessions target glutes with controlled effort, avoiding failure. Optional third session if recovery permits.",
+      "upper_body": "Intentionally minimized - complete avoidance"
+    },
+    "mobility": {
+      "target": "2x per week",
+      "priority_areas": [
+        "Hip flexors",
+        "Hip mobility",
+        "Ankle mobility",
+        "Calves"
+      ],
+      "approach": "End-range loading (ATG split squats, loaded stretches) for tissue health. Addresses hip irritation noted in ballet."
+    },
+    "other": {
+      "ballet": "Movement quality and nervous-system regulation, not training stress",
+      "climbing": "Social and occasional, not a conditioning driver",
+      "progression": "Conservative to avoid accidental escalation"
+    },
+    "health_priorities": [
+      "Heart health: endurance exercise, fiber, omega-3s, stress reduction",
+      "Joint health: mobility, varied movement, avoiding excessive load",
+      "Mental health: routine, non-punitive rules, not tying self-worth to metrics",
+      "Hormonal environment: adequate energy, dietary fat, avoiding chronic stress"
+    ]
+  }
+}
