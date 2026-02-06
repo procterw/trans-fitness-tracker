@@ -395,6 +395,11 @@ ul {
   padding: 0;
 }
 
+.chatMsg.assistant.thinking {
+  opacity: 0.7;
+  font-style: italic;
+}
+
 .chatInlineCard {
   border: 1px solid var(--border);
   border-radius: 0;

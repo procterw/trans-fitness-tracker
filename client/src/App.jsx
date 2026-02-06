@@ -800,6 +800,12 @@ export default function App() {
                   <div className="muted">No messages yet.</div>
                 )}
 
+                {composerLoading && !composerError ? (
+                  <div className="chatMsg assistant thinking">
+                    <div className="chatContent plain">Thinking…</div>
+                  </div>
+                ) : null}
+
                 {foodResult ? (
                   <div className="chatInlineCard">
                     <EstimateResult payload={foodResult} />
@@ -901,9 +907,9 @@ export default function App() {
                   <div className="composerMetaRight" />
                 </div>
 
-                {composerStatus || composerError ? (
+                {composerError ? (
                   <div className="status composerStatus">
-                    {composerError ? <span className="error">{composerError}</span> : composerStatus}
+                    <span className="error">{composerError}</span>
                   </div>
                 ) : null}
               </form>
