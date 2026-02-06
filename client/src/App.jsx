@@ -1080,7 +1080,6 @@ export default function App() {
                       {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
                       {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
                       {!fitnessHistoryLoading ? renderFitnessHistoryTable() : null}
-                      {!fitnessHistoryLoading && fitnessHistory?.length ? <p className="muted">Most recent week first.</p> : null}
                     </div>
                   </section>
                 </>
