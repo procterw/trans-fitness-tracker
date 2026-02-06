@@ -134,7 +134,6 @@ export default function App() {
   const [fitnessError, setFitnessError] = useState("");
   const [fitnessWeek, setFitnessWeek] = useState(null);
   const [fitnessLoading, setFitnessLoading] = useState(false);
-  const [fitnessShowRemainingOnly, setFitnessShowRemainingOnly] = useState(false);
   const [fitnessHistory, setFitnessHistory] = useState([]);
   const [fitnessHistoryError, setFitnessHistoryError] = useState("");
   const [fitnessHistoryLoading, setFitnessHistoryLoading] = useState(false);
@@ -510,29 +509,14 @@ export default function App() {
     focusDashboardHeading();
   };
 
-  const countDone = (items) => (Array.isArray(items) ? items.filter((it) => Boolean(it?.checked)).length : 0);
-  const countTotal = (items) => (Array.isArray(items) ? items.length : 0);
-
-
   const renderFitnessCategory = (title, category) => {
     const list = Array.isArray(fitnessWeek?.[category]) ? fitnessWeek[category] : [];
-    const done = countDone(list);
-    const total = countTotal(list);
-    const pct = total ? Math.round((done / total) * 100) : 0;
-    const entries = list
-      .map((it, idx) => ({ it, idx }))
-      .filter(({ it }) => (!fitnessShowRemainingOnly ? true : !it.checked));
+    const entries = list.map((it, idx) => ({ it, idx }));
 
     return (
       <section key={category} className="fitnessCategory">
         <div className="fitnessCategoryHeader">
           <h3 className="fitnessCategoryTitle">{title}</h3>
-          <div className="fitnessCategoryMeta">
-            <span className="pill">
-              {done}/{total}
-            </span>
-            <span className="muted">{pct}%</span>
-          </div>
         </div>
         <div className="fitnessChecklist" aria-label={`${title} checklist`}>
           {entries.length ? (
@@ -564,24 +548,12 @@ export default function App() {
               );
             })
           ) : (
-            <p className="muted">{fitnessShowRemainingOnly ? "No remaining items." : "No items."}</p>
+            <p className="muted">No items.</p>
           )}
         </div>
       </section>
     );
   };
-
-  const totalFitnessDone =
-    countDone(fitnessWeek?.cardio) +
-    countDone(fitnessWeek?.strength) +
-    countDone(fitnessWeek?.mobility) +
-    countDone(fitnessWeek?.other);
-  const totalFitnessItems =
-    countTotal(fitnessWeek?.cardio) +
-    countTotal(fitnessWeek?.strength) +
-    countTotal(fitnessWeek?.mobility) +
-    countTotal(fitnessWeek?.other);
-  const totalFitnessPct = totalFitnessItems ? Math.round((totalFitnessDone / totalFitnessItems) * 100) : 0;
 
   const historyColumns = (() => {
     const template = fitnessWeek;
@@ -658,14 +630,7 @@ export default function App() {
     else proteinNote = "Protein low (aligned).";
   }
 
-  let activityNote = "Activity load unknown.";
-  if (totalFitnessItems) {
-    if (totalFitnessPct >= 60) activityNote = "Higher activity week.";
-    else if (totalFitnessPct >= 30) activityNote = "Moderate activity week.";
-    else activityNote = "Light activity week.";
-  }
-
-  const sidebarQualitySummary = `${calorieNote} ${proteinNote} ${activityNote}`.trim();
+  const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
 
   const renderFitnessHistoryTable = () => {
     const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
@@ -822,27 +787,13 @@ export default function App() {
             <p className="muted">Loading week…</p>
           ) : (
             <>
-              <div className="sidebarProgress">
-                <div className="sidebarProgressLabel">
-                  Overall {totalFitnessDone}/{totalFitnessItems}
-                </div>
-                <div className="progressBar" role="img" aria-label="Overall weekly progress">
-                  <div className="progressBarFill" style={{ width: `${totalFitnessPct}%` }} />
-                </div>
-              </div>
-
               <div className="sidebarChecklist">
                 {sidebarFitnessCategories.map(({ key, label }) => {
                   const items = Array.isArray(fitnessWeek?.[key]) ? fitnessWeek[key] : [];
-                  const done = countDone(items);
-                  const total = countTotal(items);
                   return (
                     <div key={key} className="sidebarChecklistGroup">
                       <div className="sidebarChecklistHeader">
                         <span>{label}</span>
-                        <span className="pill subtle">
-                          {done}/{total}
-                        </span>
                       </div>
                       <div className="sidebarChecklistItems">
                         {items.length ? (
@@ -1027,27 +978,7 @@ export default function App() {
                         <div className="muted">
                           Current week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
                         </div>
-                        <div className="pillRow">
-                          <span className="pill">
-                            Overall: {totalFitnessDone}/{totalFitnessItems}
-                          </span>
-                          <span className="pill subtle">{totalFitnessPct}%</span>
-                        </div>
                       </div>
-
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={fitnessShowRemainingOnly}
-                          disabled={fitnessLoading}
-                          onChange={(e) => setFitnessShowRemainingOnly(e.target.checked)}
-                        />
-                        Show remaining only
-                      </label>
-                    </div>
-
-                    <div className="progressBar" role="img" aria-label="Overall weekly progress">
-                      <div className="progressBarFill" style={{ width: `${totalFitnessPct}%` }} />
                     </div>
                   </div>
 
