@@ -31,28 +31,7 @@ export default function NutrientsTable({ nutrients }) {
           <th>Fiber (g)</th>
           <td>{fmt(nutrients.fiber_g)}</td>
         </tr>
-        <tr>
-          <th>Potassium (mg)</th>
-          <td>{fmt(nutrients.potassium_mg)}</td>
-        </tr>
-        <tr>
-          <th>Magnesium (mg)</th>
-          <td>{fmt(nutrients.magnesium_mg)}</td>
-        </tr>
-        <tr>
-          <th>Omega‑3 (mg)</th>
-          <td>{fmt(nutrients.omega3_mg)}</td>
-        </tr>
-        <tr>
-          <th>Calcium (mg)</th>
-          <td>{fmt(nutrients.calcium_mg)}</td>
-        </tr>
-        <tr>
-          <th>Iron (mg)</th>
-          <td>{fmt(nutrients.iron_mg)}</td>
-        </tr>
       </tbody>
     </table>
   );
 }
-

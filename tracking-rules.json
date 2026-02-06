@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-05T12:30:27-08:00",
+    "last_updated": "2026-02-05T12:54:36-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json (legacy)",
@@ -50,10 +50,12 @@
           "fat_g": 2.5,
           "carbs_g": 0,
           "protein_g": 0,
-          "fiber_g": 0,
-          "omega_3_mg": 1280
+          "fiber_g": 0
         },
-        "notes": "Standard fish oil supplement (EPA+DHA)"
+        "notes": "Standard fish oil supplement (EPA+DHA)",
+        "micronutrients_legacy": {
+          "omega_3_mg": 1280
+        }
       },
       "oatmeal": {
         "recipe_name": "Standard oatmeal",
@@ -85,13 +87,25 @@
           "calories": 80,
           "fat_g": 4,
           "carbs_g": 6,
-          "protein_g": 7,
+          "protein_g": 7
+        },
+        "notes": "Always refers to Silk unsweetened unless otherwise specified",
+        "micronutrients_legacy": {
           "calcium_mg": 300,
           "potassium_mg": 200
-        },
-        "notes": "Always refers to Silk unsweetened unless otherwise specified"
+        }
       }
     },
+    "protocol_updates": [
+      {
+        "date": "2026-02-05",
+        "changes": [
+          "Stopped tracking micronutrients (potassium, magnesium, omega-3, calcium, iron) in daily logs and food events; track calories, macros, and fiber only.",
+          "Added graded daily 'healthy' flag to capture food-quality patterns (plant-forward meals, takeout/snacks load, meat heaviness).",
+          "Preserved existing micronutrient history by moving prior micronutrient values into micronutrients_legacy objects."
+        ]
+      }
+    ],
     "data_files": {
       "food": "tracking-food.json",
       "activity": "tracking-activity.json",
@@ -102,8 +116,9 @@
   "diet_philosophy": {
     "goals": [
       "Energy sufficiency",
-      "Calm surplus (2600-2900 daily)",
-      "Minimal muscle-preservation signaling"
+      "Calm surplus (2600-2900 daily) with smoother day-to-day swings",
+      "Track calories + macros + fiber; use a separate 'healthy' flag for food-quality patterns",
+      "Minimal muscle-preservation signaling (upper-body disuse is the primary lever)"
     ],
     "protein": {
       "target_g": "100-120",
@@ -117,7 +132,19 @@
     },
     "calories": {
       "target": "2600-2900 daily",
-      "philosophy": "Consistent moderate surplus signals metabolic safety and provides substrate for estrogen-driven fat redistribution. Avoid volatile swings between deficit and large surplus."
+      "training_day_floor": 2500,
+      "absolute_floor": 2400,
+      "soft_ceiling": 3200,
+      "philosophy": "Keep a calm, consistent surplus to support recovery and estrogen-driven changes. Primary improvement focus: reduce volatility (avoid oscillating between low days and large surpluses). Use floors and a soft ceiling most days; if you go high one day, do not compensate with a low day—return to your base day.",
+      "add_on_system": {
+        "principle": "Keep a stable base day; add calories based on training load instead of reinventing the whole day.",
+        "easy_aerobic_add_kcal": 200,
+        "hard_or_long_add_kcal": "300-500",
+        "notes": [
+          "Above 3200 is fine when intentional (social dinner, long hike, double-run day).",
+          "If you go high one day, do NOT compensate with a low day; return to the base day."
+        ]
+      }
     },
     "carbs": {
       "philosophy": "Neutral or positive. Primary fuel for endurance and lower-body training. No distinction between complex and simple."
@@ -126,9 +153,35 @@
       "philosophy": "Supportive. Essential for hormone production, fat-soluble vitamins, and calorie intake without protein."
     },
     "evaluation_criteria": {
-      "green": "Calories 2600-2900, protein 100-120g when diffuse/fat-paired, calm and permissive",
-      "yellow": "Inconsistent calories (swings above 3200+ or below 2400), or convenience-dominated but adequate energy",
-      "red": "Calorie restriction pattern, or acute/lean protein that could signal retention if repeated"
+      "green": "Calories mostly 2600-2900 (or within plan floors/ceiling), with training days ≥2500 and no days <2400; protein ~100-120g when diffuse/fat-paired; fiber ≥28g most days. 'Healthy' flag can be 🟢 or 🟡.",
+      "yellow": "Calories outside 2600-2900 or ≥3200 (especially if unplanned), or fiber <28g; still no restriction pattern. Often coincides with a 🟡 healthy flag.",
+      "red": "Any restriction-pattern day (<2400 without illness/intentional exception), repeated low-energy days, or patterns that reintroduce muscle-preservation signaling (e.g., repeated lean protein spikes + upper-body loading). Often coincides with ❌ healthy flag."
+    },
+    "fiber": {
+      "floor_g": 28,
+      "target_g": "28-35",
+      "philosophy": "Fiber is the one quantitative 'quality proxy' you track. It tends to correlate with plant intake and steadier appetite/energy."
+    },
+    "healthy_flag_rubric": {
+      "field_name": "healthy",
+      "scale": {
+        "🟢": "Healthy day: at least one clearly plant-forward meal (beans/lentils/tofu/veg-heavy), snacks not dominant, takeout limited; overall feels nutrient-dense.",
+        "🟡": "Mixed: some plants are present but the day is noticeably takeout/snack heavy and/or meat-forward; still adequate overall.",
+        "❌": "Not healthy: day is dominated by takeout/ultra-processed snacks and/or heavy meat with little plant-forward food; low fiber often accompanies this.",
+        "⚪": "Not rated / incomplete day (e.g., still logging)."
+      },
+      "examples_not_healthy": [
+        "low micronutrient intake (captured now via quality judgment rather than numbers)",
+        "lots of takeout",
+        "no plant-based meals",
+        "too much meat",
+        "lots of unhealthy snacks"
+      ],
+      "notes": [
+        "This flag is descriptive, not moral.",
+        "Expect plenty of 🟡 days; occasional ❌ days are normal.",
+        "You'll likely refine this rubric over time."
+      ]
     }
   },
   "fitness_philosophy": {
@@ -143,21 +196,31 @@
     "cardio": {
       "approach": "Regular aerobic work (running, cycling, elliptical, walking) for cardiovascular health, recovery, and fat-friendly stress",
       "target": "5-7 sessions per week",
-      "intensity": "Managed to avoid injury and excessive cortisol"
+      "intensity": "Managed to avoid injury and excessive cortisol",
+      "timing_rules": [
+        "Avoid stacking the hardest run (quality/threshold) and the hardest glute session back-to-back when possible.",
+        "Aim for 24–48 hours between the hardest endurance session and the hardest glute session when possible.",
+        "If cardio is needed near a hard glute day, prefer low-eccentric options (elliptical/bike/walk) over hard running."
+      ]
     },
     "strength": {
-      "lower_body": "Two medium-high intensity glute sessions per week for maintenance and slow hypertrophy. Both sessions target glutes with controlled effort, avoiding failure. Optional third session if recovery permits.",
-      "upper_body": "Intentionally minimized - complete avoidance"
+      "lower_body": "Glute-focused with minimal systemic stress: 1 hard glute day + 1 shaping day. Hard day: controlled hypertrophy, no failure. Shaping day: still low fatigue, but include 2–4 hard sets (RIR ~1–3) of a hip-dominant glute-max movement (hip thrust/bridge, glute-biased back extension, or similar) before pump work. Add 1 micro-dose glute-med session (10–15 min; 2–3 sets abduction/lateral pattern) weekly if recovery is good. Optional third session only as a true outlier—keep it easy and do not chase fatigue.",
+      "upper_body": "Intentionally minimized - complete avoidance",
+      "quad_bias_note": "If quad growth is not desired, bias programming toward hip-dominant patterns over heavy knee-dominant squatting."
     },
     "mobility": {
-      "target": "2x per week",
+      "target": "Minimum viable: 10 minutes after 3 sessions/week (micro-dose). Ideal: 2 dedicated sessions/week if time allows.",
       "priority_areas": [
         "Hip flexors",
         "Hip mobility",
         "Ankle mobility",
         "Calves"
       ],
-      "approach": "End-range loading (ATG split squats, loaded stretches) for tissue health. Addresses hip irritation noted in ballet."
+      "approach": "End-range loading (ATG split squats, loaded stretches) for tissue health. Addresses hip irritation noted in ballet.",
+      "implementation": [
+        "Keep it short and frequent rather than waiting for a 'perfect' long session.",
+        "Prioritize hips/hip flexors + ankles/calves (supports running + ballet, protects the irritated hip)."
+      ]
     },
     "other": {
       "ballet": "Movement quality and nervous-system regulation, not training stress",

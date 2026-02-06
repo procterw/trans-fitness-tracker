@@ -2,6 +2,7 @@
   "current_week": {
     "week_start": "2026-02-02",
     "week_label": "2/2-2/8",
+    "summary": "Focus this week: calm surplus consistency; track fiber as quality proxy; tag each day with a 'healthy' flag; keep hard glutes separated from hardest run by 24–48h; make easy glutes include 2–4 hard hip-dominant sets; complete 3 mobility micro-doses.",
     "cardio": [
       {
         "item": "Quality run",
@@ -37,6 +38,11 @@
         "item": "Recovery / very easy #2",
         "checked": false,
         "details": ""
+      },
+      {
+        "item": "Timing: protect glute recovery",
+        "checked": false,
+        "details": "Keep 24–48h between hard run (quality) and hard glutes when possible; use bike/elliptical/walk near glute day."
       }
     ],
     "strength": [
@@ -48,24 +54,34 @@
       {
         "item": "Glutes — easy",
         "checked": false,
-        "details": ""
+        "details": "Template: 2–4 hard sets (RIR ~1–3) hip-dominant glute-max movement (hip thrust/bridge/back extension) + pump work (abduction, light thrusts)."
+      },
+      {
+        "item": "Glute med micro-dose (10–15 min)",
+        "checked": false,
+        "details": "2–3 sets abduction/lateral pattern. Optional but high leverage for hip shape; keep low fatigue."
       },
       {
         "item": "Extra glutes (outlier)",
         "checked": false,
-        "details": ""
+        "details": "Only if recovery is excellent. Keep it easy (pump), do not chase fatigue."
       }
     ],
     "mobility": [
       {
-        "item": "Mobility / prehab #1",
+        "item": "Mobility micro-dose #1 (10 min)",
         "checked": false,
-        "details": ""
+        "details": "Hips/hip flexors + ankles/calves. End-range loading, gentle and consistent."
       },
       {
-        "item": "Mobility / prehab #2",
+        "item": "Mobility micro-dose #2 (10 min)",
         "checked": false,
-        "details": ""
+        "details": "Hips/hip flexors + ankles/calves. End-range loading, gentle and consistent."
+      },
+      {
+        "item": "Mobility micro-dose #3 (10 min)",
+        "checked": false,
+        "details": "Hips/hip flexors + ankles/calves. End-range loading, gentle and consistent."
       }
     ],
     "other": [
@@ -85,7 +101,23 @@
         "details": ""
       }
     ],
-    "summary": ""
+    "nutrition": [
+      {
+        "item": "Calorie consistency",
+        "checked": false,
+        "details": "Aim most days 2600–2900. Floors: ≥2500 on training days, ≥2400 absolute. Soft ceiling: <3200 most days. Use add-ons (+200 easy aerobic; +300–500 long/hard)."
+      },
+      {
+        "item": "Fiber floor",
+        "checked": false,
+        "details": "Aim fiber ≥28g most days (quality proxy). If a day is low-fiber, try to add one plant-forward meal."
+      },
+      {
+        "item": "Healthy-day flag",
+        "checked": false,
+        "details": "At end of day, set healthy: 🟢 / 🟡 / ❌ (⚪ if incomplete). 🟢 = at least one plant-forward meal and snacks/takeout not dominant; 🟡 = mixed; ❌ = mostly takeout/snacks/heavy meat with little plant-forward food."
+      }
+    ]
   },
   "fitness_weeks": [
     {

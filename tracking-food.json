@@ -9,13 +9,16 @@
       "carbs_g": 337,
       "protein_g": 123,
       "fiber_g": 32,
-      "potassium_mg": 3400,
-      "magnesium_mg": 360,
-      "omega3_mg": 1280,
-      "calcium_mg": 950,
-      "iron_mg": 18,
       "status": "🟡",
-      "notes": "Protein-heavy relative to goal due to carnitas and bars. Endurance work, heat exposure, and high calories softened muscle-retention signaling; less ideal quality but still permissive."
+      "notes": "Protein-heavy relative to goal due to carnitas and bars. Endurance work, heat exposure, and high calories softened muscle-retention signaling; less ideal quality but still permissive.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3400,
+        "magnesium_mg": 360,
+        "omega3_mg": 1280,
+        "calcium_mg": 950,
+        "iron_mg": 18
+      },
+      "healthy": "❌"
     },
     {
       "date": "2026-01-21",
@@ -26,13 +29,16 @@
       "carbs_g": 406,
       "protein_g": 104,
       "fiber_g": 38,
-      "potassium_mg": 3800,
-      "magnesium_mg": 400,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 17,
       "status": "🟢",
-      "notes": "Very high-energy endurance and glute day. Carbohydrates dominated intake; protein spread across meals and fat-paired, supporting performance without aggressive hypertrophy signaling."
+      "notes": "Very high-energy endurance and glute day. Carbohydrates dominated intake; protein spread across meals and fat-paired, supporting performance without aggressive hypertrophy signaling.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3800,
+        "magnesium_mg": 400,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 17
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-22",
@@ -43,13 +49,16 @@
       "carbs_g": 313,
       "protein_g": 107,
       "fiber_g": 34,
-      "potassium_mg": 3600,
-      "magnesium_mg": 380,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 16,
       "status": "🟢",
-      "notes": "Maintenance-to-surplus intake with high carbs supporting endurance. Protein near upper edge but evenly distributed and paired with fat, remaining compatible with slow atrophy goals."
+      "notes": "Maintenance-to-surplus intake with high carbs supporting endurance. Protein near upper edge but evenly distributed and paired with fat, remaining compatible with slow atrophy goals.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3600,
+        "magnesium_mg": 380,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 16
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-23",
@@ -60,13 +69,16 @@
       "carbs_g": 273,
       "protein_g": 85,
       "fiber_g": 42,
-      "potassium_mg": 4200,
-      "magnesium_mg": 420,
-      "omega3_mg": 1280,
-      "calcium_mg": 850,
-      "iron_mg": 15,
       "status": "🟢",
-      "notes": "High-volume, fiber-forward soups and vegetables created strong satiety. Moderate calories and protein allowed energy sufficiency without muscle-retention signaling."
+      "notes": "High-volume, fiber-forward soups and vegetables created strong satiety. Moderate calories and protein allowed energy sufficiency without muscle-retention signaling.",
+      "micronutrients_legacy": {
+        "potassium_mg": 4200,
+        "magnesium_mg": 420,
+        "omega3_mg": 1280,
+        "calcium_mg": 850,
+        "iron_mg": 15
+      },
+      "healthy": "🟢"
     },
     {
       "date": "2026-01-24",
@@ -77,13 +89,16 @@
       "carbs_g": 285,
       "protein_g": 93,
       "fiber_g": 28,
-      "potassium_mg": 3200,
-      "magnesium_mg": 340,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 14,
       "status": "🟢",
-      "notes": "Restaurant-heavy, oily, fat-forward surplus day. Episodic indulgence that supports metabolic safety and does not interfere with gradual upper-body atrophy."
+      "notes": "Restaurant-heavy, oily, fat-forward surplus day. Episodic indulgence that supports metabolic safety and does not interfere with gradual upper-body atrophy.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3200,
+        "magnesium_mg": 340,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 14
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-25",
@@ -94,13 +109,16 @@
       "carbs_g": 220,
       "protein_g": 103,
       "fiber_g": 30,
-      "potassium_mg": 3500,
-      "magnesium_mg": 360,
-      "omega3_mg": 1280,
-      "calcium_mg": 950,
-      "iron_mg": 16,
       "status": "🟢",
-      "notes": "Home and restaurant meals including lamb. Protein elevated but spread throughout the day; overall pattern supportive and low-stress."
+      "notes": "Home and restaurant meals including lamb. Protein elevated but spread throughout the day; overall pattern supportive and low-stress.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3500,
+        "magnesium_mg": 360,
+        "omega3_mg": 1280,
+        "calcium_mg": 950,
+        "iron_mg": 16
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-26",
@@ -111,13 +129,16 @@
       "carbs_g": 214,
       "protein_g": 87,
       "fiber_g": 33,
-      "potassium_mg": 3600,
-      "magnesium_mg": 380,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 15,
       "status": "🟢",
-      "notes": "Mixed flexible day with oatmeal, soup, snacks, and fast food. Calories near maintenance; fat carried intake; protein evenly distributed."
+      "notes": "Mixed flexible day with oatmeal, soup, snacks, and fast food. Calories near maintenance; fat carried intake; protein evenly distributed.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3600,
+        "magnesium_mg": 380,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 15
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-27",
@@ -128,13 +149,16 @@
       "carbs_g": 348,
       "protein_g": 83,
       "fiber_g": 26,
-      "potassium_mg": 3000,
-      "magnesium_mg": 320,
-      "omega3_mg": 1280,
-      "calcium_mg": 850,
-      "iron_mg": 13,
       "status": "🟢",
-      "notes": "Fuel-heavy day with pizza, candy, chews, and bread-based snacks. Carbs and fats dominated; protein moderate and diffuse."
+      "notes": "Fuel-heavy day with pizza, candy, chews, and bread-based snacks. Carbs and fats dominated; protein moderate and diffuse.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3000,
+        "magnesium_mg": 320,
+        "omega3_mg": 1280,
+        "calcium_mg": 850,
+        "iron_mg": 13
+      },
+      "healthy": "❌"
     },
     {
       "date": "2026-01-28",
@@ -145,13 +169,16 @@
       "carbs_g": 190,
       "protein_g": 120,
       "fiber_g": 24,
-      "potassium_mg": 3100,
-      "magnesium_mg": 330,
-      "omega3_mg": 1280,
-      "calcium_mg": 1000,
-      "iron_mg": 17,
       "status": "🟢",
-      "notes": "Light carb-forward intake earlier, followed by a rich Canlis dinner. Protein high but spread across courses and paired with very high fat; celebratory surplus day."
+      "notes": "Light carb-forward intake earlier, followed by a rich Canlis dinner. Protein high but spread across courses and paired with very high fat; celebratory surplus day.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3100,
+        "magnesium_mg": 330,
+        "omega3_mg": 1280,
+        "calcium_mg": 1000,
+        "iron_mg": 17
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-29",
@@ -162,13 +189,16 @@
       "carbs_g": 432,
       "protein_g": 144,
       "fiber_g": 22,
-      "potassium_mg": 2900,
-      "magnesium_mg": 300,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 14,
       "status": "🟡",
-      "notes": "Very refined, sodium-dense, fuel-heavy day with pizza, bars, and chews. Energy availability high; micronutrient density low. Protein high but fat-paired and spread out; episodic and not ideal quality, but unlikely to disrupt atrophy."
+      "notes": "Very refined, sodium-dense, fuel-heavy day with pizza, bars, and chews. Energy availability high; micronutrient density low. Protein high but fat-paired and spread out; episodic and not ideal quality, but unlikely to disrupt atrophy.",
+      "micronutrients_legacy": {
+        "potassium_mg": 2900,
+        "magnesium_mg": 300,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 14
+      },
+      "healthy": "❌"
     },
     {
       "date": "2026-01-30",
@@ -179,13 +209,16 @@
       "carbs_g": 360,
       "protein_g": 110,
       "fiber_g": 20,
-      "potassium_mg": 2800,
-      "magnesium_mg": 290,
-      "omega3_mg": 1280,
-      "calcium_mg": 850,
-      "iron_mg": 13,
       "status": "❌",
-      "notes": "Calories were ample for fat gain, but food quality was low and protein crept higher than ideal. No restriction or rebound behavior, which aligns with long-term redistribution goals."
+      "notes": "Calories were ample for fat gain, but food quality was low and protein crept higher than ideal. No restriction or rebound behavior, which aligns with long-term redistribution goals.",
+      "micronutrients_legacy": {
+        "potassium_mg": 2800,
+        "magnesium_mg": 290,
+        "omega3_mg": 1280,
+        "calcium_mg": 850,
+        "iron_mg": 13
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-01-31",
@@ -196,13 +229,16 @@
       "carbs_g": 370,
       "protein_g": 125,
       "fiber_g": 27,
-      "potassium_mg": 3400,
-      "magnesium_mg": 360,
-      "omega3_mg": 1280,
-      "calcium_mg": 950,
-      "iron_mg": 16,
       "status": "🟡",
-      "notes": "Full day including turkey-and-cheddar sandwich, smoothie, energy chews, Cheez-Its, dark chocolate, soy milk, tofu stir-fry with rice, extra tofu, more soy milk, and gummy candy. Large carb-forward surplus with high but very diffuse, fat-paired protein; permissive overall, though protein crept above ideal."
+      "notes": "Full day including turkey-and-cheddar sandwich, smoothie, energy chews, Cheez-Its, dark chocolate, soy milk, tofu stir-fry with rice, extra tofu, more soy milk, and gummy candy. Large carb-forward surplus with high but very diffuse, fat-paired protein; permissive overall, though protein crept above ideal.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3400,
+        "magnesium_mg": 360,
+        "omega3_mg": 1280,
+        "calcium_mg": 950,
+        "iron_mg": 16
+      },
+      "healthy": "❌"
     },
     {
       "date": "2026-02-01",
@@ -213,13 +249,16 @@
       "carbs_g": 264,
       "protein_g": 126,
       "fiber_g": 18,
-      "potassium_mg": 3000,
-      "magnesium_mg": 300,
-      "omega3_mg": 1280,
-      "calcium_mg": 900,
-      "iron_mg": 15,
       "status": "🟢",
-      "notes": "Earlier intake plus Mediterranean dinner and additional dark chocolate. Ran two 5Ks; clear calorie sufficiency with carb-forward fueling. Protein elevated but diffuse and fat-paired, well buffered by endurance volume."
+      "notes": "Earlier intake plus Mediterranean dinner and additional dark chocolate. Ran two 5Ks; clear calorie sufficiency with carb-forward fueling. Protein elevated but diffuse and fat-paired, well buffered by endurance volume.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3000,
+        "magnesium_mg": 300,
+        "omega3_mg": 1280,
+        "calcium_mg": 900,
+        "iron_mg": 15
+      },
+      "healthy": "❌"
     },
     {
       "date": "2026-02-02",
@@ -230,13 +269,16 @@
       "carbs_g": 329,
       "protein_g": 118,
       "fiber_g": 53,
-      "potassium_mg": 4800,
-      "magnesium_mg": 560,
-      "omega3_mg": 1280,
-      "calcium_mg": 1700,
-      "iron_mg": 21,
       "status": "🟢",
-      "notes": "Cheese sandwich, standard smoothie, vegan dinner (mashed cauliflower; tortillas with vegan cheese; sweet potato; greens with tofu and eggplant), plus a flourless peanut butter chocolate chip cookie and a glazed donut. Late night: 2 servings dark chocolate (6 pieces) and 2 cups soy milk. Solid surplus with well-distributed protein."
+      "notes": "Cheese sandwich, standard smoothie, vegan dinner (mashed cauliflower; tortillas with vegan cheese; sweet potato; greens with tofu and eggplant), plus a flourless peanut butter chocolate chip cookie and a glazed donut. Late night: 2 servings dark chocolate (6 pieces) and 2 cups soy milk. Solid surplus with well-distributed protein.",
+      "micronutrients_legacy": {
+        "potassium_mg": 4800,
+        "magnesium_mg": 560,
+        "omega3_mg": 1280,
+        "calcium_mg": 1700,
+        "iron_mg": 21
+      },
+      "healthy": "🟢"
     },
     {
       "date": "2026-02-03",
@@ -247,13 +289,16 @@
       "carbs_g": 333,
       "protein_g": 118,
       "fiber_g": 41,
-      "potassium_mg": 2350,
-      "magnesium_mg": 500,
-      "omega3_mg": 1280,
-      "calcium_mg": 2000,
-      "iron_mg": 20,
       "status": "🟢",
-      "notes": "Cheese sandwich on Dave's Killer Bread with vegan mayo, standard smoothie, 1 serving dark chocolate (3 pieces), Silk unsweetened soy milk, sesame bagel, pack of Bolt energy chews. Dinner: 4 slices large double mushroom pizza and 2 slices veggie pizza from Pagliacci. Late night: 2 servings dark chocolate (6 pieces) and 1.5 cups soy milk. Solid surplus with well-distributed protein."
+      "notes": "Cheese sandwich on Dave's Killer Bread with vegan mayo, standard smoothie, 1 serving dark chocolate (3 pieces), Silk unsweetened soy milk, sesame bagel, pack of Bolt energy chews. Dinner: 4 slices large double mushroom pizza and 2 slices veggie pizza from Pagliacci. Late night: 2 servings dark chocolate (6 pieces) and 1.5 cups soy milk. Solid surplus with well-distributed protein.",
+      "micronutrients_legacy": {
+        "potassium_mg": 2350,
+        "magnesium_mg": 500,
+        "omega3_mg": 1280,
+        "calcium_mg": 2000,
+        "iron_mg": 20
+      },
+      "healthy": "🟢"
     },
     {
       "date": "2026-02-04",
@@ -264,13 +309,16 @@
       "carbs_g": 347,
       "protein_g": 154,
       "fiber_g": 34,
-      "potassium_mg": 3140,
-      "magnesium_mg": 445,
-      "omega3_mg": 1280,
-      "calcium_mg": 1150,
-      "iron_mg": 20.8,
       "status": "🟡",
-      "notes": "Lunch: 2 soft boiled eggs, 2 slices Dave's Killer Bread (toast), standard smoothie. Snack: 2 servings Tim's chips. Dinner: Large Korean BBQ (substantial beef portion, banchan, rice). Late: 1 serving dark chocolate (3 pieces) and soy milk. Protein elevated at 143g but diffuse and fat-paired with BBQ."
+      "notes": "Lunch: 2 soft boiled eggs, 2 slices Dave's Killer Bread (toast), standard smoothie. Snack: 2 servings Tim's chips. Dinner: Large Korean BBQ (substantial beef portion, banchan, rice). Late: 1 serving dark chocolate (3 pieces) and soy milk. Protein elevated at 143g but diffuse and fat-paired with BBQ.",
+      "micronutrients_legacy": {
+        "potassium_mg": 3140,
+        "magnesium_mg": 445,
+        "omega3_mg": 1280,
+        "calcium_mg": 1150,
+        "iron_mg": 20.8
+      },
+      "healthy": "🟡"
     },
     {
       "date": "2026-02-05",
@@ -281,13 +329,16 @@
       "carbs_g": 119,
       "protein_g": 28,
       "fiber_g": 6,
-      "potassium_mg": 550,
-      "magnesium_mg": 70,
-      "omega3_mg": null,
-      "calcium_mg": 420,
-      "iron_mg": 5.5,
       "status": "⚪",
-      "notes": "Auto-generated from food_events."
+      "notes": "Auto-generated from food_events.",
+      "micronutrients_legacy": {
+        "potassium_mg": 550,
+        "magnesium_mg": 70,
+        "omega3_mg": null,
+        "calcium_mg": 420,
+        "iron_mg": 5.5
+      },
+      "healthy": "❌"
     }
   ],
   "food_events": [
@@ -304,12 +355,7 @@
         "fat_g": 22,
         "carbs_g": 72,
         "protein_g": 24,
-        "fiber_g": 4,
-        "potassium_mg": 360,
-        "magnesium_mg": 60,
-        "omega3_mg": 200,
-        "calcium_mg": 440,
-        "iron_mg": 4
+        "fiber_g": 4
       },
       "model": "gpt-5.2",
       "confidence": {
@@ -325,16 +371,25 @@
             "fat_g": 22,
             "carbs_g": 72,
             "protein_g": 24,
-            "fiber_g": 4,
+            "fiber_g": 4
+          },
+          "notes": "Estimated using typical nutrition for standard cheese pizza slices. User note says pizza; photo does not clearly match pizza, so this is based on the note rather than the image.",
+          "micronutrients_legacy": {
             "potassium_mg": 360,
             "magnesium_mg": 60,
             "omega3_mg": 200,
             "calcium_mg": 440,
             "iron_mg": 4
-          },
-          "notes": "Estimated using typical nutrition for standard cheese pizza slices. User note says pizza; photo does not clearly match pizza, so this is based on the note rather than the image."
+          }
         }
-      ]
+      ],
+      "micronutrients_legacy": {
+        "potassium_mg": 360,
+        "magnesium_mg": 60,
+        "omega3_mg": 200,
+        "calcium_mg": 440,
+        "iron_mg": 4
+      }
     },
     {
       "id": "7ef832e3-e438-4dda-9f1c-4d0cb14ea60d",
@@ -349,12 +404,7 @@
         "fat_g": 28,
         "carbs_g": 61,
         "protein_g": 11,
-        "fiber_g": 13,
-        "potassium_mg": 790,
-        "magnesium_mg": 95,
-        "omega3_mg": null,
-        "calcium_mg": 100,
-        "iron_mg": 3.8
+        "fiber_g": 13
       },
       "model": "gpt-5.2",
       "confidence": {
@@ -370,14 +420,16 @@
             "fat_g": 19,
             "carbs_g": 41,
             "protein_g": 9,
-            "fiber_g": 12,
+            "fiber_g": 12
+          },
+          "notes": "Assumed whole-grain/rye-style bread and ~1/2 avocado based on coverage. Minimal added oil; balsamic glaze assumed small.",
+          "micronutrients_legacy": {
             "potassium_mg": 700,
             "magnesium_mg": 85,
             "omega3_mg": 120,
             "calcium_mg": 80,
             "iron_mg": 3
-          },
-          "notes": "Assumed whole-grain/rye-style bread and ~1/2 avocado based on coverage. Minimal added oil; balsamic glaze assumed small."
+          }
         },
         {
           "name": "Small fruit pastry/tart (with sliced fruit)",
@@ -387,16 +439,25 @@
             "fat_g": 9,
             "carbs_g": 20,
             "protein_g": 2,
-            "fiber_g": 1,
+            "fiber_g": 1
+          },
+          "notes": "Pastry nutrition varies widely; assumed a small buttery tart/puff pastry with a little fruit and/or cream.",
+          "micronutrients_legacy": {
             "potassium_mg": 90,
             "magnesium_mg": 10,
             "omega3_mg": null,
             "calcium_mg": 20,
             "iron_mg": 0.8
-          },
-          "notes": "Pastry nutrition varies widely; assumed a small buttery tart/puff pastry with a little fruit and/or cream."
+          }
         }
-      ]
+      ],
+      "micronutrients_legacy": {
+        "potassium_mg": 790,
+        "magnesium_mg": 95,
+        "omega3_mg": null,
+        "calcium_mg": 100,
+        "iron_mg": 3.8
+      }
     },
     {
       "id": "4381316f-77dd-40ed-9eba-c26b63e642a6",
@@ -411,12 +472,7 @@
         "fat_g": 22,
         "carbs_g": 64,
         "protein_g": 24,
-        "fiber_g": 4,
-        "potassium_mg": 400,
-        "magnesium_mg": 50,
-        "omega3_mg": null,
-        "calcium_mg": 400,
-        "iron_mg": 4
+        "fiber_g": 4
       },
       "model": "gpt-5.2",
       "confidence": {
@@ -432,17 +488,26 @@
             "fat_g": 22,
             "carbs_g": 64,
             "protein_g": 24,
-            "fiber_g": 4,
+            "fiber_g": 4
+          },
+          "notes": "Assumed 1 slice ≈ 280 kcal (typical large hand-tossed cheese). Actual varies a lot by crust (thin/handmade pan), size, and toppings.",
+          "micronutrients_legacy": {
             "potassium_mg": 400,
             "magnesium_mg": 50,
             "omega3_mg": null,
             "calcium_mg": 400,
             "iron_mg": 4
-          },
-          "notes": "Assumed 1 slice ≈ 280 kcal (typical large hand-tossed cheese). Actual varies a lot by crust (thin/handmade pan), size, and toppings."
+          }
         }
       ],
-      "applied_to_food_log": true
+      "applied_to_food_log": true,
+      "micronutrients_legacy": {
+        "potassium_mg": 400,
+        "magnesium_mg": 50,
+        "omega3_mg": null,
+        "calcium_mg": 400,
+        "iron_mg": 4
+      }
     },
     {
       "id": "2b3b5078-9518-411b-9988-21813f3ceff3",
@@ -458,12 +523,7 @@
         "fat_g": 14,
         "carbs_g": 55,
         "protein_g": 4,
-        "fiber_g": 2,
-        "potassium_mg": 150,
-        "magnesium_mg": 20,
-        "omega3_mg": null,
-        "calcium_mg": 20,
-        "iron_mg": 1.5
+        "fiber_g": 2
       },
       "model": "gpt-5.2",
       "confidence": {
@@ -479,17 +539,26 @@
             "fat_g": 14,
             "carbs_g": 55,
             "protein_g": 4,
-            "fiber_g": 2,
+            "fiber_g": 2
+          },
+          "notes": "Assumed a typical commercially prepared/home-style slice with top & bottom crust and sweetened cherry filling. Values can vary widely with slice size, crust type (butter vs shortening), and added ice cream/whipped cream (not included).",
+          "micronutrients_legacy": {
             "potassium_mg": 150,
             "magnesium_mg": 20,
             "omega3_mg": null,
             "calcium_mg": 20,
             "iron_mg": 1.5
-          },
-          "notes": "Assumed a typical commercially prepared/home-style slice with top & bottom crust and sweetened cherry filling. Values can vary widely with slice size, crust type (butter vs shortening), and added ice cream/whipped cream (not included)."
+          }
         }
       ],
-      "applied_to_food_log": true
+      "applied_to_food_log": true,
+      "micronutrients_legacy": {
+        "potassium_mg": 150,
+        "magnesium_mg": 20,
+        "omega3_mg": null,
+        "calcium_mg": 20,
+        "iron_mg": 1.5
+      }
     }
   ]
 }

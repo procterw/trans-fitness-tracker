@@ -50,6 +50,9 @@ export default function EstimateResult({ payload, onAsk }) {
           <p className="muted">
             Status: <code>{escapeText(foodLog.status)}</code>
           </p>
+          <p className="muted">
+            Healthy: <code>{escapeText(foodLog.healthy ?? "⚪")}</code>
+          </p>
           <NutrientsTable nutrients={foodLog} />
           {foodLog.notes ? <p className="muted">{escapeText(foodLog.notes)}</p> : null}
         </>

@@ -1057,17 +1057,20 @@ export default function App() {
                     <p className="muted">No food events for this date yet.</p>
                   )}
 
-                  <h3>Daily log (food_log)</h3>
-                  {dashPayload.food_log ? (
-                    <>
-                      <p className="muted">
-                        Status: <code>{dashPayload.food_log.status ?? ""}</code>
-                      </p>
-                      <NutrientsTable nutrients={dashPayload.food_log} />
-                      {dashPayload.food_log.notes ? <p className="muted">{dashPayload.food_log.notes}</p> : null}
-                    </>
-                  ) : (
-                    <p className="muted">No daily log row for this date yet.</p>
+              <h3>Daily log (food_log)</h3>
+              {dashPayload.food_log ? (
+                <>
+                  <p className="muted">
+                    Status: <code>{dashPayload.food_log.status ?? ""}</code>
+                  </p>
+                  <p className="muted">
+                    Healthy: <code>{dashPayload.food_log.healthy ?? "⚪"}</code>
+                  </p>
+                  <NutrientsTable nutrients={dashPayload.food_log} />
+                  {dashPayload.food_log.notes ? <p className="muted">{dashPayload.food_log.notes}</p> : null}
+                </>
+              ) : (
+                <p className="muted">No daily log row for this date yet.</p>
                   )}
 
                   <h3>All days (food_log)</h3>
@@ -1076,26 +1079,22 @@ export default function App() {
                     <div className="tableScroll">
                       <table>
                         <thead>
-                          <tr>
-                            <th>Date</th>
-                            <th>Day</th>
-                            <th>Status</th>
-                            <th>Weight</th>
-                            <th>Calories</th>
-                            <th>Fat</th>
-                            <th>Carbs</th>
-                            <th>Protein</th>
-                            <th>Fiber</th>
-                            <th>Potassium</th>
-                            <th>Magnesium</th>
-                            <th>Omega‑3</th>
-                            <th>Calcium</th>
-                            <th>Iron</th>
-                            <th>Notes</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {dashFoodLogRows.map((row) => (
+                      <tr>
+                        <th>Date</th>
+                        <th>Day</th>
+                        <th>Status</th>
+                        <th>Healthy</th>
+                        <th>Weight</th>
+                        <th>Calories</th>
+                        <th>Fat</th>
+                        <th>Carbs</th>
+                        <th>Protein</th>
+                        <th>Fiber</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashFoodLogRows.map((row) => (
                             <tr key={row.date} className={row.date === dashDate ? "selectedRow" : ""}>
                               <td>
                                 <button
@@ -1112,23 +1111,19 @@ export default function App() {
                                     </span>
                                   ) : null}
                                 </button>
-                              </td>
-                              <td>{row.day_of_week ?? "—"}</td>
-                              <td>{row.status ?? "—"}</td>
-                              <td>{fmt(row.weight_lb)}</td>
-                              <td>{fmt(row.calories)}</td>
-                              <td>{fmt(row.fat_g)}</td>
-                              <td>{fmt(row.carbs_g)}</td>
-                              <td>{fmt(row.protein_g)}</td>
-                              <td>{fmt(row.fiber_g)}</td>
-                              <td>{fmt(row.potassium_mg)}</td>
-                              <td>{fmt(row.magnesium_mg)}</td>
-                              <td>{fmt(row.omega3_mg)}</td>
-                              <td>{fmt(row.calcium_mg)}</td>
-                              <td>{fmt(row.iron_mg)}</td>
-                              <td className="notesCell" title={row.notes ?? ""}>
-                                {row.notes ?? ""}
-                              </td>
+                          </td>
+                          <td>{row.day_of_week ?? "—"}</td>
+                          <td>{row.status ?? "—"}</td>
+                          <td>{row.healthy ?? "⚪"}</td>
+                          <td>{fmt(row.weight_lb)}</td>
+                          <td>{fmt(row.calories)}</td>
+                          <td>{fmt(row.fat_g)}</td>
+                          <td>{fmt(row.carbs_g)}</td>
+                          <td>{fmt(row.protein_g)}</td>
+                          <td>{fmt(row.fiber_g)}</td>
+                          <td className="notesCell" title={row.notes ?? ""}>
+                            {row.notes ?? ""}
+                          </td>
                             </tr>
                           ))}
                         </tbody>
