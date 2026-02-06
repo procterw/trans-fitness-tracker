@@ -105,6 +105,8 @@ export default function App() {
   const [suggestedDate, setSuggestedDate] = useState("");
   const foodFormRef = useRef(null);
   const foodFileInputRef = useRef(null);
+  const composerInputRef = useRef(null);
+  const chatMessagesRef = useRef(null);
 
   // Food tab state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
@@ -262,6 +264,17 @@ export default function App() {
   }, [foodDate]);
 
   useEffect(() => {
+    const el = chatMessagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [composerMessages, composerLoading, foodResult]);
+
+  useEffect(() => {
+    if (composerLoading) return;
+    composerInputRef.current?.focus();
+  }, [composerLoading]);
+
+  useEffect(() => {
     if (tab !== "dashboard") return;
     if (!dashDate) return;
     if (dashSkipNextAutoLoadRef.current) {
@@ -274,6 +287,9 @@ export default function App() {
 
   const onSubmitFood = async (e) => {
     e.preventDefault();
+    if (composerLoading) return;
+    const inputEl = composerInputRef.current;
+    const wasFocused = document.activeElement === inputEl;
     setComposerError("");
     setComposerStatus("");
 
@@ -290,8 +306,11 @@ export default function App() {
       role: "user",
       content: messageText || (foodFile ? "📷 Photo attached." : ""),
     };
-    const nextLocal = [...previous, userMessage];
-    setComposerMessages(nextLocal);
+    setComposerMessages((prev) => [...prev, userMessage]);
+    setComposerInput("");
+    requestAnimationFrame(() => autosizeComposerTextarea(composerInputRef.current));
+    requestAnimationFrame(() => composerInputRef.current?.focus());
+    if (wasFocused) setTimeout(() => inputEl?.focus(), 0);
     try {
       const json = await ingestAssistant({
         message: messageText,
@@ -306,9 +325,10 @@ export default function App() {
       const assistantMessages = [];
       if (json?.assistant_message) assistantMessages.push({ role: "assistant", content: json.assistant_message });
       if (json?.followup_question) assistantMessages.push({ role: "assistant", content: json.followup_question });
-      setComposerMessages([...nextLocal, ...assistantMessages]);
+      if (assistantMessages.length) {
+        setComposerMessages((prev) => [...prev, ...assistantMessages]);
+      }
       setComposerStatus("");
-      setComposerInput("");
       clearFoodFile();
       const summaryDate = json?.food_result?.date || foodDate;
       if (summaryDate) loadSidebarDaySummary(summaryDate);
@@ -791,7 +811,7 @@ export default function App() {
         {tab === "food" ? (
           <section className="chatPanel">
             <div className="chatBox chatBoxFull">
-              <div className="chatMessages" aria-label="Conversation">
+              <div ref={chatMessagesRef} className="chatMessages" aria-label="Conversation">
                 {composerMessages.length ? (
                   composerMessages.map((m, idx) => (
                     <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
@@ -834,7 +854,6 @@ export default function App() {
                     className="iconButton"
                     aria-label={foodFile ? "Change photo" : "Add photo"}
                     onClick={() => foodFileInputRef.current?.click()}
-                    disabled={composerLoading}
                   >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -859,27 +878,36 @@ export default function App() {
                   className="datePillInput composerDateInput"
                   value={foodDate}
                   onChange={(e) => setFoodDate(e.target.value)}
-                  disabled={composerLoading}
                   aria-label="Log date"
                 />
 
                 <textarea
+                  ref={composerInputRef}
                   rows={1}
                   className="composerInput"
                   value={composerInput}
-                    onChange={(e) => setComposerInput(e.target.value)}
-                    onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (!composerLoading) foodFormRef.current?.requestSubmit();
-                      }
-                    }}
-                    placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
-                    aria-label="Unified input"
-                  />
+                  onChange={(e) => setComposerInput(e.target.value)}
+                  onInput={(e) => autosizeComposerTextarea(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    if (composerLoading) {
+                      e.preventDefault();
+                      return;
+                    }
+                    e.preventDefault();
+                    foodFormRef.current?.requestSubmit();
+                  }}
+                  placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
+                  aria-label="Unified input"
+                />
 
-                  <button type="submit" className="sendButton" disabled={composerLoading} aria-label="Send">
+                  <button
+                    type="submit"
+                    className="sendButton"
+                    disabled={composerLoading}
+                    aria-label="Send"
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path
                         d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
