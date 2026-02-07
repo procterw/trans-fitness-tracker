@@ -33,7 +33,7 @@ export default function SidebarView({
   return (
     <aside className="sidebar">
       <div>
-        <h1 className="appTitle">Health &amp; Fitness Tracker</h1>
+        <h2 className="appTitle">Get fit and hot</h2>
       </div>
 
       {authEnabled ? (
@@ -116,9 +116,7 @@ export default function SidebarView({
               const items = Array.isArray(fitnessWeek?.[key]) ? fitnessWeek[key] : [];
               return (
                 <div key={key} className="sidebarChecklistGroup">
-                  <div className="sidebarChecklistHeader">
-                    <span>{label}</span>
-                  </div>
+                  <h3 className="sidebarChecklistHeader">{label}</h3>
                   <div className="sidebarChecklistItems">
                     {items.length ? (
                       items.map((it, idx) => (

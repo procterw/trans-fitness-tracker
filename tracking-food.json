@@ -344,16 +344,16 @@
       "date": "2026-02-06",
       "day_of_week": "Fri",
       "weight_lb": null,
-      "calories": 450,
-      "fat_g": 23,
-      "carbs_g": 46,
-      "protein_g": 24,
-      "fiber_g": 10,
-      "potassium_mg": 270,
-      "magnesium_mg": 76,
+      "calories": 870,
+      "fat_g": 41,
+      "carbs_g": 106,
+      "protein_g": 29,
+      "fiber_g": 12,
+      "potassium_mg": 420,
+      "magnesium_mg": 101,
       "omega3_mg": null,
-      "calcium_mg": 460,
-      "iron_mg": 2.8,
+      "calcium_mg": 520,
+      "iron_mg": 4.8,
       "status": "⚪",
       "notes": "Auto-updated from food_events."
     }
@@ -637,6 +637,53 @@
             "iron_mg": 0.4
           },
           "notes": "Assumed 2 oz total cheese (common for a cheese sandwich). Type and amount can change calories/fat substantially."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "58990a84-6e0a-4ad2-b956-a757d5704790",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T17:19:17-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Slice of chocolate cake",
+      "input_text": "I just ate a slice of chocolate cake",
+      "notes": "",
+      "nutrients": {
+        "calories": 420,
+        "fat_g": 18,
+        "carbs_g": 60,
+        "protein_g": 5,
+        "fiber_g": 2,
+        "potassium_mg": 150,
+        "magnesium_mg": 25,
+        "omega3_mg": null,
+        "calcium_mg": 60,
+        "iron_mg": 2
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.4,
+        "notes": "Low-moderate confidence because 'a slice' is ambiguous (could be 250–700+ kcal depending on size and frosting). Micronutrients (K, Mg, Ca, Fe) are rough typical values for cake; omega-3 not estimated because it depends on specific fats used (butter vs oils) and is usually small/unspecified."
+      },
+      "items": [
+        {
+          "name": "Chocolate cake (slice)",
+          "portion": "1 slice (assumed ~1/12 of a 9-inch cake; ~120 g)",
+          "nutrients": {
+            "calories": 420,
+            "fat_g": 18,
+            "carbs_g": 60,
+            "protein_g": 5,
+            "fiber_g": 2,
+            "potassium_mg": 150,
+            "magnesium_mg": 25,
+            "omega3_mg": null,
+            "calcium_mg": 60,
+            "iron_mg": 2
+          },
+          "notes": "Assumed a typical frosted chocolate layer cake slice. Actual values vary widely by recipe (butter/oil amount, frosting thickness, portion size)."
         }
       ],
       "applied_to_food_log": true

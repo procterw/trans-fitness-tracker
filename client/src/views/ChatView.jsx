@@ -29,7 +29,6 @@ export default function ChatView({
           {composerMessages.length ? (
             composerMessages.map((m, idx) => (
               <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
-                <div className="chatRole">{m.role === "assistant" ? "Assistant" : "You"}</div>
                 <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
                   {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
                 </div>
