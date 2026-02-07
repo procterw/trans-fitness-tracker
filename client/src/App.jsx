@@ -80,9 +80,9 @@ export default function App() {
   const [composerInput, setComposerInput] = useState("");
   const [foodFile, setFoodFile] = useState(null);
   const [composerError, setComposerError] = useState("");
-  const [foodResult, setFoodResult] = useState(null);
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerMessages, setComposerMessages] = useState([]);
+  const composerMessageIdRef = useRef(0);
   const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
   const [sidebarDayStatus, setSidebarDayStatus] = useState("");
   const [sidebarDayError, setSidebarDayError] = useState("");
@@ -262,7 +262,7 @@ export default function App() {
     const el = chatMessagesRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [composerMessages, composerLoading, foodResult]);
+  }, [composerMessages, composerLoading]);
 
   useEffect(() => {
     if (composerLoading) return;
@@ -295,9 +295,12 @@ export default function App() {
 
     setComposerLoading(true);
     const previous = composerMessages;
+    composerMessageIdRef.current += 1;
     const userMessage = {
+      id: composerMessageIdRef.current,
       role: "user",
       content: messageText || (foodFile ? "📷 Photo attached." : ""),
+      format: "plain",
     };
     setComposerMessages((prev) => [...prev, userMessage]);
     setComposerInput("");
@@ -313,14 +316,38 @@ export default function App() {
         messages: previous,
       });
 
-      if (json?.food_result) {
-        setFoodResult(json.food_result);
-        if (json.food_result?.date) setDashDate(json.food_result.date);
-      }
+      if (json?.food_result?.date) setDashDate(json.food_result.date);
 
       const assistantMessages = [];
-      if (json?.assistant_message) assistantMessages.push({ role: "assistant", content: json.assistant_message });
-      if (json?.followup_question) assistantMessages.push({ role: "assistant", content: json.followup_question });
+      if (json?.action === "food" || json?.action === "activity") {
+        composerMessageIdRef.current += 1;
+        const activityStatus = json?.activity_log_state === "updated" ? "Updated activity." : "Saved activity.";
+        assistantMessages.push({
+          id: composerMessageIdRef.current,
+          role: "assistant",
+          content: json.action === "food" ? "✓ Saved meal entry." : `✓ ${activityStatus}`,
+          format: "plain",
+          tone: "status",
+        });
+      }
+      if (json?.assistant_message) {
+        composerMessageIdRef.current += 1;
+        assistantMessages.push({
+          id: composerMessageIdRef.current,
+          role: "assistant",
+          content: json.assistant_message,
+          format: json?.action === "question" || json?.action === "food" ? "markdown" : "plain",
+        });
+      }
+      if (json?.followup_question) {
+        composerMessageIdRef.current += 1;
+        assistantMessages.push({
+          id: composerMessageIdRef.current,
+          role: "assistant",
+          content: json.followup_question,
+          format: "plain",
+        });
+      }
       if (assistantMessages.length) {
         setComposerMessages((prev) => [...prev, ...assistantMessages]);
       }
@@ -531,7 +558,6 @@ export default function App() {
             composerMessages={composerMessages}
             composerLoading={composerLoading}
             composerError={composerError}
-            foodResult={foodResult}
             foodFormRef={foodFormRef}
             foodFileInputRef={foodFileInputRef}
             composerInputRef={composerInputRef}

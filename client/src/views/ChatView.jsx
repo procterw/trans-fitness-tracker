@@ -1,6 +1,5 @@
 import React from "react";
 
-import EstimateResult from "../components/EstimateResult.jsx";
 import MarkdownContent from "../components/MarkdownContent.jsx";
 
 export default function ChatView({
@@ -8,7 +7,6 @@ export default function ChatView({
   composerMessages,
   composerLoading,
   composerError,
-  foodResult,
   foodFormRef,
   foodFileInputRef,
   composerInputRef,
@@ -28,9 +26,20 @@ export default function ChatView({
         <div ref={chatMessagesRef} className="chatMessages" aria-label="Conversation">
           {composerMessages.length ? (
             composerMessages.map((m, idx) => (
-              <div key={idx} className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"}`}>
-                <div className={`chatContent ${m.role === "assistant" ? "markdown" : "plain"}`}>
-                  {m.role === "assistant" ? <MarkdownContent content={m.content} /> : m.content}
+              <div
+                key={m.id ?? idx}
+                className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
+              >
+                <div
+                  className={`chatContent ${
+                    m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
+                  }`}
+                >
+                  {m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? (
+                    <MarkdownContent content={m.content} />
+                  ) : (
+                    m.content
+                  )}
                 </div>
               </div>
             ))
@@ -41,12 +50,6 @@ export default function ChatView({
           {composerLoading && !composerError ? (
             <div className="chatMsg assistant thinking">
               <div className="chatContent plain">Thinking…</div>
-            </div>
-          ) : null}
-
-          {foodResult ? (
-            <div className="chatInlineCard">
-              <EstimateResult payload={foodResult} />
             </div>
           ) : null}
         </div>

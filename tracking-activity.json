@@ -16,13 +16,13 @@
       },
       {
         "item": "Bike / cross-training",
-        "checked": false,
-        "details": ""
+        "checked": true,
+        "details": "60 min • User corrected previous entry from 30 min to 60 min; update duration."
       },
       {
         "item": "Easy aerobic #1",
         "checked": true,
-        "details": "10 min • easy • Ran 1 mile."
+        "details": "17 min • easy • Run 2 miles at 8:20/mi pace (~16:40). User confirmed 'easy peasy'."
       },
       {
         "item": "Easy aerobic #2",

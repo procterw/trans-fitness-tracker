@@ -344,16 +344,16 @@
       "date": "2026-02-06",
       "day_of_week": "Fri",
       "weight_lb": null,
-      "calories": 870,
-      "fat_g": 41,
-      "carbs_g": 106,
-      "protein_g": 29,
-      "fiber_g": 12,
-      "potassium_mg": 420,
-      "magnesium_mg": 101,
+      "calories": 1904,
+      "fat_g": 68.1,
+      "carbs_g": 261.2,
+      "protein_g": 79.2,
+      "fiber_g": 33.199999999999996,
+      "potassium_mg": 1455,
+      "magnesium_mg": 128,
       "omega3_mg": null,
-      "calcium_mg": 520,
-      "iron_mg": 4.8,
+      "calcium_mg": 703,
+      "iron_mg": 7.9,
       "status": "⚪",
       "notes": "Auto-updated from food_events."
     }
@@ -684,6 +684,309 @@
             "iron_mg": 2
           },
           "notes": "Assumed a typical frosted chocolate layer cake slice. Actual values vary widely by recipe (butter/oil amount, frosting thickness, portion size)."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "5ff20eb1-0337-4d46-b97d-17e20d1dd47b",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T17:33:35-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Subway turkey sandwich (assumed 6-inch standard build)",
+      "input_text": "I had a turkey sandwich from subway",
+      "notes": "",
+      "nutrients": {
+        "calories": 280,
+        "fat_g": 3.5,
+        "carbs_g": 46,
+        "protein_g": 18,
+        "fiber_g": 5,
+        "potassium_mg": 450,
+        "magnesium_mg": null,
+        "omega3_mg": null,
+        "calcium_mg": 150,
+        "iron_mg": 2.5
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.45,
+        "notes": "Low-moderate confidence because 'turkey sandwich from Subway' lacks size (6-inch vs footlong), bread type, cheese, and sauce. Estimate is anchored to common Subway nutrition for a 6-inch turkey breast on wheat with veggies and no cheese/mayo/oil. Micronutrients (K, Ca, Fe) are rough; magnesium and omega-3 not estimated due to high variability/insufficient detail."
+      },
+      "items": [
+        {
+          "name": "Subway turkey sandwich (6-inch)",
+          "portion": "1 sandwich (assumed 6-inch on wheat, turkey breast, standard veggies, no cheese, no mayo/oil)",
+          "nutrients": {
+            "calories": 280,
+            "fat_g": 3.5,
+            "carbs_g": 46,
+            "protein_g": 18,
+            "fiber_g": 5,
+            "potassium_mg": 450,
+            "magnesium_mg": null,
+            "omega3_mg": null,
+            "calcium_mg": 150,
+            "iron_mg": 2.5
+          },
+          "notes": "Assumed a typical 6-inch turkey sub with bread + turkey + common veggies; sauces/cheese can change calories substantially."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "68069687-f00d-46b2-b5ae-3b34e25a9c83",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T17:47:13-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Turkey sandwich (estimated)",
+      "input_text": "I had another turkey sandwich",
+      "notes": "",
+      "nutrients": {
+        "calories": 469,
+        "fat_g": 22.7,
+        "carbs_g": 34,
+        "protein_g": 30.7,
+        "fiber_g": 3,
+        "potassium_mg": null,
+        "magnesium_mg": null,
+        "omega3_mg": null,
+        "calcium_mg": null,
+        "iron_mg": null
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.35,
+        "notes": "Low confidence because the sandwich details weren’t provided (bread type, turkey amount, cheese, condiments, veggies). I assumed a typical deli turkey sandwich: 2 slices bread, ~3 oz turkey, 1 Tbsp mayo, 1 slice cheese, small lettuce/tomato. Micronutrients vary substantially by brand and portion; omega-3 not estimated without specific ingredients (e.g., seeded bread, avocado, etc.)."
+      },
+      "items": [
+        {
+          "name": "Sandwich bread",
+          "portion": "2 slices (assumed standard sandwich bread)",
+          "nutrients": {
+            "calories": 160,
+            "fat_g": 2.5,
+            "carbs_g": 28,
+            "protein_g": 6,
+            "fiber_g": 2,
+            "potassium_mg": 110,
+            "magnesium_mg": 20,
+            "omega3_mg": null,
+            "calcium_mg": 90,
+            "iron_mg": 1.8
+          },
+          "notes": "Assumed ~80 kcal per slice; type (white vs whole wheat) not specified."
+        },
+        {
+          "name": "Deli turkey",
+          "portion": "3 oz (assumed)",
+          "nutrients": {
+            "calories": 90,
+            "fat_g": 1,
+            "carbs_g": 2,
+            "protein_g": 17,
+            "fiber_g": 0,
+            "potassium_mg": 200,
+            "magnesium_mg": 20,
+            "omega3_mg": null,
+            "calcium_mg": 20,
+            "iron_mg": 1
+          },
+          "notes": "Assumed sliced deli turkey; brand/leanness varies widely."
+        },
+        {
+          "name": "Mayonnaise",
+          "portion": "1 Tbsp (assumed)",
+          "nutrients": {
+            "calories": 94,
+            "fat_g": 10,
+            "carbs_g": 0,
+            "protein_g": 0,
+            "fiber_g": 0,
+            "potassium_mg": null,
+            "magnesium_mg": null,
+            "omega3_mg": null,
+            "calcium_mg": null,
+            "iron_mg": null
+          },
+          "notes": "Included as a common sandwich condiment; if none used, subtract."
+        },
+        {
+          "name": "Cheese slice",
+          "portion": "1 slice (assumed, ~1 oz)",
+          "nutrients": {
+            "calories": 110,
+            "fat_g": 9,
+            "carbs_g": 1,
+            "protein_g": 7,
+            "fiber_g": 0,
+            "potassium_mg": 30,
+            "magnesium_mg": 7,
+            "omega3_mg": null,
+            "calcium_mg": 200,
+            "iron_mg": 0.2
+          },
+          "notes": "Assumed one slice cheddar/American-style; omit if no cheese."
+        },
+        {
+          "name": "Lettuce + tomato",
+          "portion": "Small amount (assumed)",
+          "nutrients": {
+            "calories": 15,
+            "fat_g": 0.2,
+            "carbs_g": 3,
+            "protein_g": 0.7,
+            "fiber_g": 1,
+            "potassium_mg": 120,
+            "magnesium_mg": 8,
+            "omega3_mg": null,
+            "calcium_mg": 15,
+            "iron_mg": 0.3
+          },
+          "notes": "Assumed basic veggies; amounts not specified."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "32098a56-485b-484f-9c5d-f84fca33092b",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T18:06:33-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Apple",
+      "input_text": "I had an apple",
+      "notes": "",
+      "nutrients": {
+        "calories": 95,
+        "fat_g": 0.3,
+        "carbs_g": 25.1,
+        "protein_g": 0.5,
+        "fiber_g": 4.4,
+        "potassium_mg": 195,
+        "magnesium_mg": 9,
+        "omega3_mg": null,
+        "calcium_mg": 11,
+        "iron_mg": 0.2
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.7,
+        "notes": "Reasonably confident if it was a typical medium apple. Nutrition varies with apple size/variety (small vs large can change calories and carbs notably). Omega-3 not estimated (negligible in apples)."
+      },
+      "items": [
+        {
+          "name": "Apple (with skin)",
+          "portion": "1 medium (~182 g)",
+          "nutrients": {
+            "calories": 95,
+            "fat_g": 0.3,
+            "carbs_g": 25.1,
+            "protein_g": 0.5,
+            "fiber_g": 4.4,
+            "potassium_mg": 195,
+            "magnesium_mg": 9,
+            "omega3_mg": null,
+            "calcium_mg": 11,
+            "iron_mg": 0.2
+          },
+          "notes": "Assumed 1 medium raw apple with skin; no added toppings."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "b4c757fa-3244-4c54-a5ba-7079d8f06943",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T18:09:38-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Apple",
+      "input_text": "I had an apple",
+      "notes": "",
+      "nutrients": {
+        "calories": 95,
+        "fat_g": 0.3,
+        "carbs_g": 25,
+        "protein_g": 0.5,
+        "fiber_g": 4.4,
+        "potassium_mg": 195,
+        "magnesium_mg": 9,
+        "omega3_mg": null,
+        "calcium_mg": 11,
+        "iron_mg": 0.2
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.7,
+        "notes": "Portion size is the main uncertainty (small vs large apple can vary ~60–120+ kcal). Micronutrients are typical for a raw apple; omega-3 is negligible and not reliably quantifiable from the description, so set to null."
+      },
+      "items": [
+        {
+          "name": "Apple (with skin)",
+          "portion": "1 medium (~182 g)",
+          "nutrients": {
+            "calories": 95,
+            "fat_g": 0.3,
+            "carbs_g": 25,
+            "protein_g": 0.5,
+            "fiber_g": 4.4,
+            "potassium_mg": 195,
+            "magnesium_mg": 9,
+            "omega3_mg": null,
+            "calcium_mg": 11,
+            "iron_mg": 0.2
+          },
+          "notes": "Assumed 1 medium raw apple with skin; no added sugar/toppings."
+        }
+      ],
+      "applied_to_food_log": true
+    },
+    {
+      "id": "b6804c7b-cbef-4112-8153-8bad33a17841",
+      "date": "2026-02-06",
+      "logged_at": "2026-02-06T18:12:25-08:00",
+      "rollover_applied": false,
+      "source": "manual",
+      "description": "Apple",
+      "input_text": "I had an apple",
+      "notes": "",
+      "nutrients": {
+        "calories": 95,
+        "fat_g": 0.3,
+        "carbs_g": 25.1,
+        "protein_g": 0.5,
+        "fiber_g": 4.4,
+        "potassium_mg": 195,
+        "magnesium_mg": 9,
+        "omega3_mg": null,
+        "calcium_mg": 11,
+        "iron_mg": 0.2
+      },
+      "model": "gpt-5.2",
+      "confidence": {
+        "overall": 0.7,
+        "notes": "Fairly standard nutrition for a medium apple; actual values vary with apple size/variety (small vs large can shift calories/carbs/fiber notably). Micronutrients are approximate; omega-3 is typically negligible and not reliably quantified here, so set to null."
+      },
+      "items": [
+        {
+          "name": "Apple (with skin)",
+          "portion": "1 medium (~182 g)",
+          "nutrients": {
+            "calories": 95,
+            "fat_g": 0.3,
+            "carbs_g": 25.1,
+            "protein_g": 0.5,
+            "fiber_g": 4.4,
+            "potassium_mg": 195,
+            "magnesium_mg": 9,
+            "omega3_mg": null,
+            "calcium_mg": 11,
+            "iron_mg": 0.2
+          },
+          "notes": "Assumed 1 medium raw apple with skin."
         }
       ],
       "applied_to_food_log": true

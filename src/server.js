@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { askAssistant, decideIngestAction } from "./assistant.js";
+import { askAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
@@ -154,19 +154,69 @@ function resolveActivitySelections(selections, currentWeek) {
   return { resolved, errors };
 }
 
+function formatPlainText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function fmtNutrient(value, unit, { round = false } = {}) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const n = round ? Math.round(value) : Number.isInteger(value) ? value : Number(value.toFixed(1));
+  return `${n} ${unit}`;
+}
+
+function formatMealEntryAssistantMessage(sections) {
+  const lines = [sections?.confirmation, sections?.nutrition_summary, sections?.day_fit_summary]
+    .map((value) => (typeof value === "string" ? value.replace(/\r\n/g, "\n").trim() : ""))
+    .filter(Boolean);
+  return lines.join("\n\n");
+}
+
 function summarizeFoodResult(payload) {
-  const title = payload?.estimate?.meal_title ?? "Meal logged";
+  const title = formatPlainText(payload?.estimate?.meal_title) || "meal";
+  const date = formatPlainText(payload?.date);
   const totals = payload?.estimate?.totals ?? {};
-  const calories = typeof totals.calories === "number" ? `${Math.round(totals.calories)} kcal` : null;
-  const protein = typeof totals.protein_g === "number" ? `${totals.protein_g} g protein` : null;
-  const parts = [calories, protein].filter(Boolean);
-  return parts.length ? `Logged meal: ${title}. ${parts.join(" • ")}.` : `Logged meal: ${title}.`;
+  const dayTotals = payload?.day_totals_from_events ?? {};
+
+  const calories = fmtNutrient(totals.calories, "kcal", { round: true });
+  const carbs = fmtNutrient(totals.carbs_g, "g carbs");
+  const fat = fmtNutrient(totals.fat_g, "g fat");
+  const protein = fmtNutrient(totals.protein_g, "g protein");
+  const fiber = fmtNutrient(totals.fiber_g, "g fiber");
+
+  const dayCalories = fmtNutrient(dayTotals.calories, "kcal", { round: true });
+  const dayCarbs = fmtNutrient(dayTotals.carbs_g, "g carbs");
+  const dayFat = fmtNutrient(dayTotals.fat_g, "g fat");
+  const dayProtein = fmtNutrient(dayTotals.protein_g, "g protein");
+  const dayFiber = fmtNutrient(dayTotals.fiber_g, "g fiber");
+
+  const confirmation = date ? `Logged **${title}** for ${date}.` : `Logged **${title}**.`;
+  const mealParts = [calories, carbs, fat, protein, fiber].filter(Boolean);
+  const dayParts = [dayCalories, dayCarbs, dayFat, dayProtein, dayFiber].filter(Boolean);
+  const nutritionSummary = [
+    mealParts.length ? `- Meal: ${mealParts.join(", ")}` : "- Meal: estimate saved",
+    dayParts.length ? `- Day so far: ${dayParts.join(", ")}` : "- Day so far: awaiting more entries",
+  ].join("\n");
+  const dayFitSummary =
+    "This supports consistency best when the rest of today stays aligned with your planned activity and calm-surplus targets.";
+
+  return {
+    assistant_message: [confirmation, nutritionSummary, dayFitSummary].join("\n\n"),
+    followup_question: null,
+  };
 }
 
 function summarizeActivityUpdates(updates) {
   if (!updates.length) return "Logged activity.";
   const parts = updates.map((u) => (u.details ? `${u.label} (${u.details})` : u.label));
   return `Logged activity: ${parts.join("; ")}.`;
+}
+
+function isExistingActivityEntry(currentWeek, update) {
+  const item = currentWeek?.[update?.category]?.[update?.index];
+  if (!item || typeof item !== "object") return false;
+  const hasDetails = typeof item.details === "string" && item.details.trim().length > 0;
+  return Boolean(item.checked) || hasDetails;
 }
 
 app.get("/api/context", async (_req, res) => {
@@ -254,11 +304,28 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
 
     if (intent === "food") {
       const payload = await logFoodFromInputs({ file, descriptionText: message, notes: "", date });
+      let mealResponse = summarizeFoodResult(payload);
+      try {
+        const generated = await composeMealEntryResponse({
+          payload,
+          date: payload?.date ?? date,
+          messages,
+        });
+        const assistantMessage = formatMealEntryAssistantMessage(generated);
+        mealResponse = {
+          assistant_message: assistantMessage || summarizeFoodResult(payload).assistant_message,
+          followup_question: generated?.followup_question ?? null,
+        };
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("Meal response generation failed, using fallback summary.", err);
+      }
+
       return res.json({
         ok: true,
         action: "food",
-        assistant_message: summarizeFoodResult(payload),
-        followup_question: null,
+        assistant_message: mealResponse.assistant_message,
+        followup_question: mealResponse.followup_question,
         food_result: payload,
         activity_updates: null,
         answer: null,
@@ -290,12 +357,14 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         checked: true,
         details: u.details,
       }));
+      const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
 
       await updateCurrentWeekItems(updates);
 
       return res.json({
         ok: true,
         action: "activity",
+        activity_log_state: hasExistingEntries ? "updated" : "saved",
         assistant_message: summarizeActivityUpdates(resolved),
         followup_question: decision?.activity?.followup_question ?? null,
         food_result: null,
