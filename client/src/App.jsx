@@ -24,6 +24,7 @@ import DietView from "./views/DietView.jsx";
 import SidebarView from "./views/SidebarView.jsx";
 import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
+import AppNavbar from "./components/AppNavbar.jsx";
 
 function useDebouncedKeyedCallback(fn, ms) {
   const fnRef = useRef(fn);
@@ -303,6 +304,21 @@ export default function App() {
     }
   };
 
+  const onSignOut = async () => {
+    setAuthActionLoading(true);
+    setAuthStatus("");
+    try {
+      const { error } = await signOut();
+      if (error) {
+        setAuthStatus(error.message || "Could not sign out.");
+      }
+    } catch (err) {
+      setAuthStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
+
   const onSubmitFood = async (e) => {
     e.preventDefault();
     if (composerLoading) return;
@@ -563,11 +579,6 @@ export default function App() {
   return (
     <div className="appShell">
       <SidebarView
-        authEnabled={authEnabled}
-        authStatus={authStatus}
-        authSession={authSession}
-        onSignIn={onSignIn}
-        onSignOut={() => signOut()}
         activeView={view}
         onChangeView={setView}
         foodDate={foodDate}
@@ -585,6 +596,16 @@ export default function App() {
       />
 
       <main className="mainColumn">
+        <AppNavbar
+          title="🍑 Get fit and hot"
+          authEnabled={authEnabled}
+          authSession={authSession}
+          authStatus={authStatus}
+          authActionLoading={authActionLoading}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+        />
+
         {view === "chat" ? (
           <ChatView
             chatMessagesRef={chatMessagesRef}

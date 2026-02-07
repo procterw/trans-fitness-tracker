@@ -4,11 +4,6 @@ import TabButton from "../components/TabButton.jsx";
 import { getFitnessCategories } from "../fitnessChecklist.js";
 
 export default function SidebarView({
-  authEnabled,
-  authStatus,
-  authSession,
-  onSignIn,
-  onSignOut,
   activeView,
   onChangeView,
   foodDate,
@@ -28,44 +23,24 @@ export default function SidebarView({
 
   return (
     <aside className="sidebar">
-      <div>
-        <h2 className="appTitle">🍑 Get fit and hot</h2>
-      </div>
-
-      {authEnabled ? (
-        <section className="sidebarCard authCard">
-          <div className="sidebarSectionHeader">
-            <h2 className="sidebarHeading">Account</h2>
-          </div>
-          {authStatus ? <p className="muted">{authStatus}</p> : null}
-          {authSession?.user ? (
-            <div className="authMeta">
-              <div className="muted">Signed in as</div>
-              <div className="authEmail">{authSession.user.email || "Google user"}</div>
-              <button type="button" className="secondary" onClick={onSignOut}>
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <div className="authMeta">
-              <p className="muted">Sign in to sync your data.</p>
-              <button type="button" onClick={onSignIn}>
-                Sign in with Google
-              </button>
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      <nav className="tabs sidebarTabs" aria-label="Sections">
+      <nav className="sidebarTabs" aria-label="Sections">
         <TabButton active={activeView === "chat"} onClick={() => onChangeView("chat")}>
-          Chat
+          <span className="tabIcon" aria-hidden="true">
+            💬
+          </span>
+          <span>Chat</span>
         </TabButton>
         <TabButton active={activeView === "workouts"} onClick={() => onChangeView("workouts")}>
-          Workouts
+          <span className="tabIcon" aria-hidden="true">
+            ⚖️
+          </span>
+          <span>Workouts</span>
         </TabButton>
         <TabButton active={activeView === "diet"} onClick={() => onChangeView("diet")}>
-          Diet
+          <span className="tabIcon" aria-hidden="true">
+            🍎
+          </span>
+          <span>Diet</span>
         </TabButton>
       </nav>
 
