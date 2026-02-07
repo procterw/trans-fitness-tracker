@@ -407,26 +407,12 @@ export default function App() {
 
   const debouncedSaveFitnessItem = useDebouncedKeyedCallback(saveFitnessItem, 450);
 
-  const saveFitnessSummary = (summaryText) => {
-    setFitnessError("");
-    setFitnessStatus("Saving…");
-    enqueueFitnessSave(async () => {
-      const json = await updateFitnessSummary(summaryText ?? "");
-      setFitnessWeek(json.current_week);
-      setFitnessStatus("Saved.");
-    }).catch((e) => {
-      setFitnessError(e instanceof Error ? e.message : String(e));
-      setFitnessStatus("");
-    });
-  };
-
-  const debouncedSaveFitnessSummary = useDebouncedCallback(saveFitnessSummary, 650);
-
   const onToggleFitness = (category, index, checked) => {
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next[category][index].checked = checked;
+      if (!checked) next[category][index].details = "";
       debouncedSaveFitnessItem(`${category}:${index}`, {
         category,
         index,
@@ -450,10 +436,6 @@ export default function App() {
       });
       return next;
     });
-  };
-
-  const onSaveFitnessSummary = () => {
-    saveFitnessSummary(fitnessWeek?.summary ?? "");
   };
 
   const onRollupDash = async () => {
@@ -535,15 +517,17 @@ export default function App() {
                   <label htmlFor={checkboxId} className="fitnessChecklistLabel">
                     {it.item}
                   </label>
-                  <AutoGrowTextarea
-                    rows={1}
-                    className="fitnessChecklistDetails"
-                    value={it.details ?? ""}
-                    disabled={fitnessLoading}
-                    placeholder="Details…"
-                    onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
-                    aria-label={`${it.item} details`}
-                  />
+                  {it.checked ? (
+                    <AutoGrowTextarea
+                      rows={1}
+                      className="fitnessChecklistDetails"
+                      value={it.details ?? ""}
+                      disabled={fitnessLoading}
+                      placeholder="Details…"
+                      onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
+                      aria-label={`${it.item} details`}
+                    />
+                  ) : null}
                 </div>
               );
             })
@@ -677,7 +661,7 @@ export default function App() {
                         const list = Array.isArray(week?.[catKey]) ? week[catKey] : [];
                         const it = list[itemIdx];
                         const checked = Boolean(it?.checked);
-                        const details = (it?.details ?? "").trim();
+                        const details = checked ? (it?.details ?? "").trim() : "";
                         return (
                           <td
                             key={`${week?.week_start ?? weekIdx}_${catKey}_${itemIdx}`}
@@ -963,47 +947,27 @@ export default function App() {
 
         {tab === "fitness" ? (
           <div className="mainScroll">
-            <section className="card">
-              <h2>Fitness</h2>
+            <section className="card fitnessCard">
+              <h2>
+                Workouts this week
+                {fitnessWeek ? (
+                  <span className="muted fitnessWeekLabel">
+                    Sun <code>{fitnessWeek.week_label}</code>
+                  </span>
+                ) : null}
+              </h2>
 
-              <div className="status">
-                {fitnessError ? <span className="error">{fitnessError}</span> : fitnessStatus}
-              </div>
+              <blockquote className="fitnessSummary">
+                {fitnessWeek.summary ? fitnessWeek.summary : "No summary yet."}
+              </blockquote>
 
               {fitnessWeek ? (
                 <>
-                  <div className="fitnessTop">
-                    <div className="fitnessTopRow">
-                      <div>
-                        <div className="muted">
-                          Current week: <code>{fitnessWeek.week_label}</code> • Starts: <code>{fitnessWeek.week_start}</code>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
                   {renderFitnessCategory("Cardio", "cardio")}
                   {renderFitnessCategory("Strength", "strength")}
                   {renderFitnessCategory("Mobility", "mobility")}
                   {renderFitnessCategory("Other", "other")}
-
-                  <h3>Summary</h3>
-                  <textarea
-                    rows={3}
-                    value={fitnessWeek.summary ?? ""}
-                    disabled={fitnessLoading}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setFitnessWeek((prev) => (prev ? { ...prev, summary: v } : prev));
-                      debouncedSaveFitnessSummary(v);
-                    }}
-                    placeholder="Weekly summary…"
-                  />
-                  <div className="buttonRow">
-                    <button type="button" className="secondary" disabled={fitnessLoading} onClick={onSaveFitnessSummary}>
-                      Save summary
-                    </button>
-                  </div>
 
                   <section className="fitnessHistory">
                     <h3>History</h3>
@@ -1021,7 +985,7 @@ export default function App() {
 
         {tab === "dashboard" ? (
           <div className="mainScroll">
-            <section className="card">
+            <section className="card fitnessCard">
               <h2 ref={dashHeadingRef} tabIndex={-1}>
                 Dashboard
               </h2>

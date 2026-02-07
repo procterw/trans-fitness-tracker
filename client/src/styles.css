@@ -859,7 +859,7 @@ ul {
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
 }
 
 .fitnessCategoryTitle {
@@ -882,12 +882,8 @@ ul {
   grid-template-columns: 18px minmax(140px, 220px) 1fr;
   gap: 8px;
   padding: 4px 0;
-  border-bottom: 1px solid var(--border);
-  align-items: start;
-}
-
-.fitnessChecklistItem:last-child {
   border-bottom: none;
+  align-items: start;
 }
 
 .fitnessChecklistCheckbox {
@@ -967,7 +963,7 @@ ul {
 }
 
 .fitnessHistoryTableScroll {
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 0;
   overflow: auto;
   background: transparent;
@@ -982,7 +978,7 @@ ul {
 .fitnessHistoryTable th,
 .fitnessHistoryTable td {
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: none;
   vertical-align: top;
   background: transparent;
 }
@@ -1069,4 +1065,28 @@ ul {
     height: auto;
     overflow: visible;
   }
+}
+
+
+.fitnessWeekLabel {
+  font-size: 14px;
+  margin-left: 8px;
+  font-weight: 500;
+}
+
+
+.fitnessCard {
+  border: none;
+}
+
+
+.fitnessSummary {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--card) 80%, white);
+  border-left: 3px solid var(--border);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--muted);
+  white-space: pre-wrap;
 }
