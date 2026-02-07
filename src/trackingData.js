@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+import { getFitnessCategoryKeys, resolveFitnessCategoryKey } from "./fitnessChecklist.js";
 import { readTrackingDataPostgres, writeTrackingDataPostgres } from "./trackingDataPostgres.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -89,6 +90,59 @@ export function getSuggestedLogDate(now = new Date()) {
 
 function isIsoDateString(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function normalizeChecklistCategory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+      if (!item) return null;
+      return {
+        item,
+        checked: entry?.checked === true,
+        details: typeof entry?.details === "string" ? entry.details : "",
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeFitnessWeekShape(value, { requireWeekStart = true } = {}) {
+  const week = asObject(value);
+  const weekStart = isIsoDateString(week.week_start) ? week.week_start : null;
+  if (requireWeekStart && !weekStart) return null;
+
+  const weekLabelRaw = typeof week.week_label === "string" ? week.week_label.trim() : "";
+  const normalized = {
+    ...(weekStart ? { week_start: weekStart } : {}),
+    week_label: weekLabelRaw || (weekStart ? weekLabelFromStart(weekStart) : ""),
+    summary: typeof week.summary === "string" ? week.summary : "",
+  };
+
+  const categoryOrder = getFitnessCategoryKeys(week);
+  for (const key of categoryOrder) {
+    normalized[key] = normalizeChecklistCategory(week[key]);
+  }
+  if (categoryOrder.length) normalized.category_order = categoryOrder;
+
+  return normalized;
+}
+
+function sanitizeActivityDataPayload(data) {
+  if (!data || typeof data !== "object") return data;
+
+  data.current_week = normalizeFitnessWeekShape(data.current_week, { requireWeekStart: false });
+
+  const fitnessWeeks = Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [];
+  data.fitness_weeks = fitnessWeeks
+    .map((week) => normalizeFitnessWeekShape(week, { requireWeekStart: true }))
+    .filter(Boolean);
+
+  return data;
 }
 
 function parseIsoDateAsUtcNoon(dateStr) {
@@ -204,6 +258,20 @@ async function writeSplitFiles(split) {
   ]);
 }
 
+function normalizeLocalRules(rulesData) {
+  return splitTrackingData(asObject(rulesData)).rules;
+}
+
+async function readLocalRulesData() {
+  const rawRules = await readJsonOrDefault(TRACKING_RULES_FILE, {});
+  return normalizeLocalRules(rawRules);
+}
+
+async function writeLocalRulesData(data) {
+  const split = splitTrackingData(asObject(data));
+  await atomicWriteJson(TRACKING_RULES_FILE, split.rules);
+}
+
 async function ensureSplitFiles() {
   const [foodExists, activityExists, profileExists, rulesExists] = await Promise.all([
     fileExists(TRACKING_FOOD_FILE),
@@ -240,12 +308,20 @@ async function ensureSplitFiles() {
 
 export async function readTrackingData() {
   if (USE_POSTGRES_BACKEND) {
-    return readTrackingDataPostgres();
+    const [userData, localRules] = await Promise.all([readTrackingDataPostgres(), readLocalRulesData()]);
+    const merged = {
+      ...asObject(userData),
+      ...asObject(localRules),
+    };
+    sanitizeActivityDataPayload(merged);
+    return merged;
   }
 
   if (USE_LEGACY_FILE) {
     const raw = await fs.readFile(LEGACY_TRACKING_FILE, "utf8");
-    return JSON.parse(raw);
+    const parsed = asObject(JSON.parse(raw));
+    sanitizeActivityDataPayload(parsed);
+    return parsed;
   }
   await ensureSplitFiles();
   const [food, activity, profile, rules] = await Promise.all([
@@ -254,21 +330,27 @@ export async function readTrackingData() {
     readJsonOrDefault(TRACKING_PROFILE_FILE, {}),
     readJsonOrDefault(TRACKING_RULES_FILE, {}),
   ]);
-  return mergeTrackingData({ food, activity, profile, rules });
+  const merged = mergeTrackingData({ food, activity, profile, rules });
+  sanitizeActivityDataPayload(merged);
+  return merged;
 }
 
 export async function writeTrackingData(data) {
+  const payload = asObject(data);
+  sanitizeActivityDataPayload(payload);
+
   if (USE_POSTGRES_BACKEND) {
-    await writeTrackingDataPostgres(data);
+    await writeTrackingDataPostgres(payload);
+    await writeLocalRulesData(payload);
     return;
   }
 
   if (USE_LEGACY_FILE) {
-    await atomicWriteJson(LEGACY_TRACKING_FILE, data);
+    await atomicWriteJson(LEGACY_TRACKING_FILE, payload);
     return;
   }
   await ensureSplitFiles();
-  const split = splitTrackingData(data);
+  const split = splitTrackingData(payload);
   await writeSplitFiles(split);
 }
 
@@ -288,7 +370,8 @@ function ensureCurrentWeekInData(data, now = new Date()) {
     data.fitness_weeks.push(prevCurrent);
   }
 
-  const template = prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {};
+  const template = asObject(prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {});
+  const categoryOrder = getFitnessCategoryKeys(template);
   const resetCategory = (key) => {
     const arr = Array.isArray(template[key]) ? template[key] : [];
     return arr
@@ -300,15 +383,17 @@ function ensureCurrentWeekInData(data, now = new Date()) {
       .filter((it) => it.item);
   };
 
-  data.current_week = {
+  const nextWeek = {
     week_start: weekStart,
     week_label: weekLabelFromStart(weekStart),
-    cardio: resetCategory("cardio"),
-    strength: resetCategory("strength"),
-    mobility: resetCategory("mobility"),
-    other: resetCategory("other"),
     summary: "",
   };
+  for (const key of categoryOrder) {
+    nextWeek[key] = resetCategory(key);
+  }
+  if (categoryOrder.length) nextWeek.category_order = categoryOrder;
+
+  data.current_week = nextWeek;
 
   return { current_week: data.current_week, changed: true };
 }
@@ -496,15 +581,16 @@ export async function getFoodEventsForDate(date) {
 }
 
 export async function updateCurrentWeekItem({ category, index, checked, details }) {
-  const allowed = new Set(["cardio", "strength", "mobility", "other"]);
-  if (!allowed.has(category)) throw new Error(`Invalid category: ${category}`);
+  if (typeof category !== "string" || !category.trim()) throw new Error(`Invalid category: ${category}`);
   if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid index: ${index}`);
   if (typeof checked !== "boolean") throw new Error("Invalid checked value");
   if (typeof details !== "string") throw new Error("Invalid details value");
 
   const data = await readTrackingData();
   const { current_week } = ensureCurrentWeekInData(data, new Date());
-  const list = Array.isArray(current_week[category]) ? current_week[category] : [];
+  const categoryKey = resolveFitnessCategoryKey(current_week, category);
+  if (!categoryKey) throw new Error(`Invalid category: ${category}`);
+  const list = Array.isArray(current_week[categoryKey]) ? current_week[categoryKey] : [];
   if (!list[index]) throw new Error("Item not found");
 
   list[index] = {
@@ -512,7 +598,8 @@ export async function updateCurrentWeekItem({ category, index, checked, details 
     checked,
     details,
   };
-  current_week[category] = list;
+  current_week[categoryKey] = list;
+  current_week.category_order = getFitnessCategoryKeys(current_week);
 
   if (data.metadata && typeof data.metadata === "object") {
     data.metadata.last_updated = formatSeattleIso(new Date());
@@ -524,27 +611,37 @@ export async function updateCurrentWeekItem({ category, index, checked, details 
 export async function updateCurrentWeekItems(updates) {
   if (!Array.isArray(updates) || updates.length === 0) throw new Error("Missing updates");
 
-  const allowed = new Set(["cardio", "strength", "mobility", "other"]);
+  const validatedUpdates = [];
   for (const update of updates) {
-    if (!allowed.has(update?.category)) throw new Error(`Invalid category: ${update?.category}`);
+    if (typeof update?.category !== "string" || !update.category.trim()) {
+      throw new Error(`Invalid category: ${update?.category}`);
+    }
     if (!Number.isInteger(update?.index) || update.index < 0) throw new Error(`Invalid index: ${update?.index}`);
     if (typeof update?.checked !== "boolean") throw new Error("Invalid checked value");
     if (typeof update?.details !== "string") throw new Error("Invalid details value");
+    validatedUpdates.push(update);
   }
 
   const data = await readTrackingData();
   const { current_week } = ensureCurrentWeekInData(data, new Date());
 
-  for (const update of updates) {
-    const list = Array.isArray(current_week[update.category]) ? current_week[update.category] : [];
+  const resolvedUpdates = validatedUpdates.map((update) => {
+    const categoryKey = resolveFitnessCategoryKey(current_week, update.category);
+    if (!categoryKey) throw new Error(`Invalid category: ${update.category}`);
+    return { ...update, categoryKey };
+  });
+
+  for (const update of resolvedUpdates) {
+    const list = Array.isArray(current_week[update.categoryKey]) ? current_week[update.categoryKey] : [];
     if (!list[update.index]) throw new Error("Item not found");
     list[update.index] = {
       ...list[update.index],
       checked: update.checked,
       details: update.details,
     };
-    current_week[update.category] = list;
+    current_week[update.categoryKey] = list;
   }
+  current_week.category_order = getFitnessCategoryKeys(current_week);
 
   if (data.metadata && typeof data.metadata === "object") {
     data.metadata.last_updated = formatSeattleIso(new Date());

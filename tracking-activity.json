@@ -100,23 +100,6 @@
         "checked": false,
         "details": ""
       }
-    ],
-    "nutrition": [
-      {
-        "item": "Calorie consistency",
-        "checked": false,
-        "details": "Aim most days 2600–2900. Floors: ≥2500 on training days, ≥2400 absolute. Soft ceiling: <3200 most days. Use add-ons (+200 easy aerobic; +300–500 long/hard)."
-      },
-      {
-        "item": "Fiber floor",
-        "checked": false,
-        "details": "Aim fiber ≥28g most days (quality proxy). If a day is low-fiber, try to add one plant-forward meal."
-      },
-      {
-        "item": "Healthy-day flag",
-        "checked": false,
-        "details": "At end of day, set healthy: 🟢 / 🟡 / ❌ (⚪ if incomplete). 🟢 = at least one plant-forward meal and snacks/takeout not dominant; 🟡 = mixed; ❌ = mostly takeout/snacks/heavy meat with little plant-forward food."
-      }
     ]
   },
   "fitness_weeks": [

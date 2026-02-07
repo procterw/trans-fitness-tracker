@@ -422,13 +422,15 @@ export default function App() {
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
-      next[category][index].checked = checked;
-      if (!checked) next[category][index].details = "";
+      const list = Array.isArray(next?.[category]) ? next[category] : [];
+      if (!list[index]) return prev;
+      list[index].checked = checked;
+      if (!checked) list[index].details = "";
       debouncedSaveFitnessItem(`${category}:${index}`, {
         category,
         index,
         checked,
-        details: next[category][index].details ?? "",
+        details: list[index].details ?? "",
       });
       return next;
     });
@@ -438,11 +440,13 @@ export default function App() {
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
-      next[category][index].details = details;
+      const list = Array.isArray(next?.[category]) ? next[category] : [];
+      if (!list[index]) return prev;
+      list[index].details = details;
       debouncedSaveFitnessItem(`${category}:${index}`, {
         category,
         index,
-        checked: Boolean(next[category][index].checked),
+        checked: Boolean(list[index].checked),
         details,
       });
       return next;

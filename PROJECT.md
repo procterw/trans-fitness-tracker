@@ -16,9 +16,11 @@ Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `food_log` + `food_events`
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
 - `tracking-profile.json` — `transition_context` (user profile)
-- `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy` (parsing/interpretation rules)
+- `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (local parsing/prompt configuration)
 
 `tracking-data.json` is treated as a legacy single-file format (still readable if configured), but new writes go to the split files by default.
+
+`tracking-rules.json` is always local-file backed (including when `TRACKING_BACKEND=postgres`).
 
 ### Conventions
 - **Timezone:** Seattle, WA (Pacific Time).
@@ -88,7 +90,7 @@ This repo includes a minimal local web app that supports:
   - Adds existing `food_events` totals into the matching `food_log` row (useful for events created before auto-sync existed)
   - Marks synced events with `applied_to_food_log: true` to avoid double counting
 - `GET /api/fitness/current` → current week checklist (rollover-aware)
-- `POST /api/fitness/current/item` → JSON body: `category` (`cardio|strength|mobility|other`), `index`, `checked`, `details`
+- `POST /api/fitness/current/item` → JSON body: `category` (any key present in the user’s current-week checklist), `index`, `checked`, `details`
 - `POST /api/fitness/current/summary` → JSON body: `summary`
 - `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
   - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)
@@ -122,7 +124,7 @@ Implementation: `src/visionNutrition.js`
 - `tracking-food.json` — food events + daily food log
 - `tracking-activity.json` — weekly fitness checklist data
 - `tracking-profile.json` — user profile / transition context
-- `tracking-rules.json` — metadata + diet/fitness philosophy + parsing rules
+- `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules
 - `tracking-data.json` — legacy single-file tracking data (optional)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups

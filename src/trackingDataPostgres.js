@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
 
+import { fromFitnessChecklistStorage, toFitnessChecklistStorage } from "./fitnessChecklist.js";
 import { getCurrentTrackingUserId } from "./trackingUser.js";
 
 const PAGE_SIZE = 1000;
@@ -57,6 +58,10 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function toNumberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -110,26 +115,30 @@ function mapFoodLogFromRow(row) {
 
 function mapCurrentWeekFromRow(row) {
   if (!row) return null;
+  const checklist = fromFitnessChecklistStorage({
+    checklist: asObject(row.checklist),
+    categoryOrder: asArray(row.category_order),
+  });
+
   return {
     week_start: toDateString(row.week_start),
-    week_label: row.week_label,
+    week_label: row.week_label ?? "",
     summary: row.summary ?? "",
-    cardio: asArray(row.cardio),
-    strength: asArray(row.strength),
-    mobility: asArray(row.mobility),
-    other: asArray(row.other),
+    ...checklist,
   };
 }
 
 function mapFitnessWeekFromRow(row) {
+  const checklist = fromFitnessChecklistStorage({
+    checklist: asObject(row.checklist),
+    categoryOrder: asArray(row.category_order),
+  });
+
   return {
     week_start: toDateString(row.week_start),
-    week_label: row.week_label,
+    week_label: row.week_label ?? "",
     summary: row.summary ?? "",
-    cardio: asArray(row.cardio),
-    strength: asArray(row.strength),
-    mobility: asArray(row.mobility),
-    other: asArray(row.other),
+    ...checklist,
   };
 }
 
@@ -177,22 +186,6 @@ async function replaceRowsForUser({ client, table, userId, rows }) {
   }
 }
 
-function normalizeRulesPayload(data) {
-  const metadata = data?.metadata && typeof data.metadata === "object" ? data.metadata : {};
-  const diet = data?.diet_philosophy && typeof data.diet_philosophy === "object" ? data.diet_philosophy : {};
-  const fitness = data?.fitness_philosophy && typeof data.fitness_philosophy === "object" ? data.fitness_philosophy : {};
-
-  const extra = {};
-  for (const [key, value] of Object.entries(data ?? {})) {
-    if (key === "metadata" || key === "diet_philosophy" || key === "fitness_philosophy") continue;
-    if (key === "food_log" || key === "food_events" || key === "current_week" || key === "fitness_weeks") continue;
-    if (key === "transition_context") continue;
-    extra[key] = value;
-  }
-
-  return { metadata, diet, fitness, extra };
-}
-
 export async function readTrackingDataPostgres() {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
@@ -219,17 +212,17 @@ export async function readTrackingDataPostgres() {
     fetchAllRowsForUser({
       client,
       table: "fitness_weeks",
-      columns: "id,user_id,week_start,week_label,summary,cardio,strength,mobility,other,created_at",
+      columns: "id,user_id,week_start,week_label,summary,checklist,category_order,created_at",
       userId,
       orderBy: "week_start",
       ascending: true,
     }),
   ]);
 
-  const [fitnessCurrentResult, profileResult, rulesResult] = await Promise.all([
+  const [fitnessCurrentResult, profileResult] = await Promise.all([
     client
       .from("fitness_current")
-      .select("user_id,week_start,week_label,summary,cardio,strength,mobility,other,updated_at")
+      .select("user_id,week_start,week_label,summary,checklist,category_order,updated_at")
       .eq("user_id", userId)
       .maybeSingle(),
     client
@@ -237,29 +230,12 @@ export async function readTrackingDataPostgres() {
       .select("user_id,transition_context,updated_at")
       .eq("user_id", userId)
       .maybeSingle(),
-    client
-      .from("user_rules")
-      .select("user_id,metadata,diet_philosophy,fitness_philosophy,extra,updated_at")
-      .eq("user_id", userId)
-      .maybeSingle(),
   ]);
 
   assertNoError("select from fitness_current", fitnessCurrentResult.error);
   assertNoError("select from user_profiles", profileResult.error);
-  assertNoError("select from user_rules", rulesResult.error);
-
-  const rulesRow = rulesResult.data ?? null;
-  const rulesExtra = rulesRow?.extra && typeof rulesRow.extra === "object" ? rulesRow.extra : {};
 
   return {
-    ...rulesExtra,
-    metadata: rulesRow?.metadata && typeof rulesRow.metadata === "object" ? rulesRow.metadata : {},
-    diet_philosophy:
-      rulesRow?.diet_philosophy && typeof rulesRow.diet_philosophy === "object" ? rulesRow.diet_philosophy : {},
-    fitness_philosophy:
-      rulesRow?.fitness_philosophy && typeof rulesRow.fitness_philosophy === "object"
-        ? rulesRow.fitness_philosophy
-        : {},
     food_log: foodLogRows.map(mapFoodLogFromRow),
     food_events: foodEventsRows.map(mapFoodEventFromRow),
     current_week: mapCurrentWeekFromRow(fitnessCurrentResult.data),
@@ -326,23 +302,23 @@ export async function writeTrackingDataPostgres(data) {
 
   const fitnessWeeks = asArray(data?.fitness_weeks)
     .filter((row) => row && typeof row === "object" && row.week_start)
-    .map((row) => ({
-      user_id: userId,
-      week_start: toDateString(row.week_start),
-      week_label: row.week_label ?? "",
-      summary: row.summary ?? "",
-      cardio: asArray(row.cardio),
-      strength: asArray(row.strength),
-      mobility: asArray(row.mobility),
-      other: asArray(row.other),
-    }));
+    .map((row) => {
+      const { checklist, categoryOrder } = toFitnessChecklistStorage(row);
+      return {
+        user_id: userId,
+        week_start: toDateString(row.week_start),
+        week_label: row.week_label ?? "",
+        summary: row.summary ?? "",
+        checklist,
+        category_order: categoryOrder,
+      };
+    });
 
   const currentWeek = data?.current_week && typeof data.current_week === "object" ? data.current_week : null;
   const transitionContext =
     data?.transition_context && typeof data.transition_context === "object" ? data.transition_context : {};
-  const rulesPayload = normalizeRulesPayload(data);
 
-  const profileUpsert = client.from("user_profiles").upsert(
+  const profileResult = await client.from("user_profiles").upsert(
     {
       user_id: userId,
       transition_context: transitionContext,
@@ -350,34 +326,18 @@ export async function writeTrackingDataPostgres(data) {
     },
     { onConflict: "user_id" },
   );
-
-  const rulesUpsert = client.from("user_rules").upsert(
-    {
-      user_id: userId,
-      metadata: rulesPayload.metadata,
-      diet_philosophy: rulesPayload.diet,
-      fitness_philosophy: rulesPayload.fitness,
-      extra: rulesPayload.extra,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
-
-  const [profileResult, rulesResult] = await Promise.all([profileUpsert, rulesUpsert]);
   assertNoError("upsert user_profiles", profileResult.error);
-  assertNoError("upsert user_rules", rulesResult.error);
 
   if (currentWeek && currentWeek.week_start) {
+    const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);
     const { error } = await client.from("fitness_current").upsert(
       {
         user_id: userId,
         week_start: toDateString(currentWeek.week_start),
         week_label: currentWeek.week_label ?? "",
         summary: currentWeek.summary ?? "",
-        cardio: asArray(currentWeek.cardio),
-        strength: asArray(currentWeek.strength),
-        mobility: asArray(currentWeek.mobility),
-        other: asArray(currentWeek.other),
+        checklist,
+        category_order: categoryOrder,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },

@@ -1,18 +1,24 @@
 import React from "react";
 
 import AutoGrowTextarea from "../components/AutoGrowTextarea.jsx";
+import { getFitnessCategories } from "../fitnessChecklist.js";
 
 function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
   const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
   if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
 
-  const template = fitnessWeek ?? weeks[0] ?? {};
-  const categories = [
-    ["cardio", "Cardio"],
-    ["strength", "Strength"],
-    ["mobility", "Mobility"],
-    ["other", "Other"],
-  ];
+  const categoriesByKey = new Map();
+  const collectCategories = (week) => {
+    for (const category of getFitnessCategories(week)) {
+      if (!categoriesByKey.has(category.key)) categoriesByKey.set(category.key, category);
+      else if (!categoriesByKey.get(category.key).items.length && category.items.length) categoriesByKey.set(category.key, category);
+    }
+  };
+  collectCategories(fitnessWeek);
+  for (const week of weeks) collectCategories(week);
+
+  const categories = Array.from(categoriesByKey.values());
+  if (!categories.length) return <p className="muted">No checklist categories in history yet.</p>;
 
   return (
     <div className="tableScroll fitnessHistoryTableScroll" role="region" aria-label="Fitness history table">
@@ -31,8 +37,7 @@ function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
           </tr>
         </thead>
         <tbody>
-          {categories.map(([catKey, catLabel]) => {
-            const items = Array.isArray(template?.[catKey]) ? template[catKey] : [];
+          {categories.map(({ key: catKey, label: catLabel, items }) => {
             if (!items.length) return null;
             return (
               <React.Fragment key={catKey}>
@@ -130,6 +135,8 @@ export default function WorkoutsView({
   onToggleFitness,
   onEditFitnessDetails,
 }) {
+  const categories = getFitnessCategories(fitnessWeek);
+
   return (
     <div className="mainScroll">
       <section className="card fitnessCard">
@@ -146,38 +153,21 @@ export default function WorkoutsView({
 
         {fitnessWeek ? (
           <>
-            <FitnessCategory
-              title="Cardio"
-              category="cardio"
-              fitnessWeek={fitnessWeek}
-              fitnessLoading={fitnessLoading}
-              onToggleFitness={onToggleFitness}
-              onEditFitnessDetails={onEditFitnessDetails}
-            />
-            <FitnessCategory
-              title="Strength"
-              category="strength"
-              fitnessWeek={fitnessWeek}
-              fitnessLoading={fitnessLoading}
-              onToggleFitness={onToggleFitness}
-              onEditFitnessDetails={onEditFitnessDetails}
-            />
-            <FitnessCategory
-              title="Mobility"
-              category="mobility"
-              fitnessWeek={fitnessWeek}
-              fitnessLoading={fitnessLoading}
-              onToggleFitness={onToggleFitness}
-              onEditFitnessDetails={onEditFitnessDetails}
-            />
-            <FitnessCategory
-              title="Other"
-              category="other"
-              fitnessWeek={fitnessWeek}
-              fitnessLoading={fitnessLoading}
-              onToggleFitness={onToggleFitness}
-              onEditFitnessDetails={onEditFitnessDetails}
-            />
+            {categories.length ? (
+              categories.map((category) => (
+                <FitnessCategory
+                  key={category.key}
+                  title={category.label}
+                  category={category.key}
+                  fitnessWeek={fitnessWeek}
+                  fitnessLoading={fitnessLoading}
+                  onToggleFitness={onToggleFitness}
+                  onEditFitnessDetails={onEditFitnessDetails}
+                />
+              ))
+            ) : (
+              <p className="muted">No checklist categories yet.</p>
+            )}
 
             <section className="fitnessHistory">
               <h3>History</h3>

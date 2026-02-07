@@ -1,13 +1,7 @@
 import React from "react";
 
 import TabButton from "../components/TabButton.jsx";
-
-const SIDEBAR_FITNESS_CATEGORIES = [
-  { key: "cardio", label: "Cardio" },
-  { key: "strength", label: "Strength" },
-  { key: "mobility", label: "Mobility" },
-  { key: "other", label: "Other" },
-];
+import { getFitnessCategories } from "../fitnessChecklist.js";
 
 export default function SidebarView({
   authEnabled,
@@ -30,6 +24,8 @@ export default function SidebarView({
   fitnessWeek,
   fmt,
 }) {
+  const fitnessCategories = getFitnessCategories(fitnessWeek);
+
   return (
     <aside className="sidebar">
       <div>
@@ -112,9 +108,8 @@ export default function SidebarView({
           <p className="muted">Loading week…</p>
         ) : (
           <div className="sidebarChecklist">
-            {SIDEBAR_FITNESS_CATEGORIES.map(({ key, label }) => {
-              const items = Array.isArray(fitnessWeek?.[key]) ? fitnessWeek[key] : [];
-              return (
+            {fitnessCategories.length ? (
+              fitnessCategories.map(({ key, label, items }) => (
                 <div key={key} className="sidebarChecklistGroup">
                   <h3 className="sidebarChecklistHeader">{label}</h3>
                   <div className="sidebarChecklistItems">
@@ -132,8 +127,10 @@ export default function SidebarView({
                     )}
                   </div>
                 </div>
-              );
-            })}
+              ))
+            ) : (
+              <div className="sidebarChecklistItem muted">No checklist categories yet.</div>
+            )}
           </div>
         )}
       </section>

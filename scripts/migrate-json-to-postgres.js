@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createClient } from "@supabase/supabase-js";
+import { toFitnessChecklistStorage } from "../src/fitnessChecklist.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,9 +24,6 @@ const TRACKING_ACTIVITY_FILE = process.env.TRACKING_ACTIVITY_FILE
 const TRACKING_PROFILE_FILE = process.env.TRACKING_PROFILE_FILE
   ? path.resolve(process.env.TRACKING_PROFILE_FILE)
   : path.resolve(repoRoot, "tracking-profile.json");
-const TRACKING_RULES_FILE = process.env.TRACKING_RULES_FILE
-  ? path.resolve(process.env.TRACKING_RULES_FILE)
-  : path.resolve(repoRoot, "tracking-rules.json");
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -127,22 +125,6 @@ async function insertInChunks({ client, table, rows }) {
   }
 }
 
-function normalizeRulesPayload(data) {
-  const metadata = asObject(data?.metadata);
-  const diet = asObject(data?.diet_philosophy);
-  const fitness = asObject(data?.fitness_philosophy);
-  const extra = {};
-
-  for (const [key, value] of Object.entries(asObject(data))) {
-    if (key === "metadata" || key === "diet_philosophy" || key === "fitness_philosophy") continue;
-    if (key === "food_log" || key === "food_events" || key === "current_week" || key === "fitness_weeks") continue;
-    if (key === "transition_context") continue;
-    extra[key] = value;
-  }
-
-  return { metadata, diet, fitness, extra };
-}
-
 function mapFoodLogRow(userId, row) {
   const micronutrients = asObject(row?.micronutrients);
   const legacyMicros = asObject(row?.micronutrients_legacy);
@@ -230,16 +212,15 @@ function mapFoodEventRow(userId, row, index) {
 function mapFitnessWeekRow(userId, row) {
   const weekStart = toDateString(row?.week_start);
   if (!weekStart) return null;
+  const { checklist, categoryOrder } = toFitnessChecklistStorage(asObject(row));
 
   return {
     user_id: userId,
     week_start: weekStart,
     week_label: row?.week_label ?? "",
     summary: row?.summary ?? "",
-    cardio: asArray(row?.cardio),
-    strength: asArray(row?.strength),
-    mobility: asArray(row?.mobility),
-    other: asArray(row?.other),
+    checklist,
+    category_order: categoryOrder,
   };
 }
 
@@ -255,53 +236,35 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const [foodData, activityData, profileData, rulesData] = await Promise.all([
+  const [foodData, activityData, profileData] = await Promise.all([
     readJsonOrDefault(TRACKING_FOOD_FILE, {}),
     readJsonOrDefault(TRACKING_ACTIVITY_FILE, {}),
     readJsonOrDefault(TRACKING_PROFILE_FILE, {}),
-    readJsonOrDefault(TRACKING_RULES_FILE, {}),
   ]);
 
   const transitionContext = asObject(profileData.transition_context);
-  const rulesPayload = normalizeRulesPayload(rulesData);
   const currentWeek = asObject(activityData.current_week);
 
-  const [profileUpsert, rulesUpsert] = await Promise.all([
-    client.from("user_profiles").upsert(
-      {
-        user_id: userId,
-        transition_context: transitionContext,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    ),
-    client.from("user_rules").upsert(
-      {
-        user_id: userId,
-        metadata: rulesPayload.metadata,
-        diet_philosophy: rulesPayload.diet,
-        fitness_philosophy: rulesPayload.fitness,
-        extra: rulesPayload.extra,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    ),
-  ]);
-
+  const profileUpsert = await client.from("user_profiles").upsert(
+    {
+      user_id: userId,
+      transition_context: transitionContext,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
   if (profileUpsert.error) throw new Error(`Supabase upsert user_profiles failed: ${profileUpsert.error.message}`);
-  if (rulesUpsert.error) throw new Error(`Supabase upsert user_rules failed: ${rulesUpsert.error.message}`);
 
   if (currentWeek.week_start) {
+    const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);
     const { error } = await client.from("fitness_current").upsert(
       {
         user_id: userId,
         week_start: toDateString(currentWeek.week_start),
         week_label: currentWeek.week_label ?? "",
         summary: currentWeek.summary ?? "",
-        cardio: asArray(currentWeek.cardio),
-        strength: asArray(currentWeek.strength),
-        mobility: asArray(currentWeek.mobility),
-        other: asArray(currentWeek.other),
+        checklist,
+        category_order: categoryOrder,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
@@ -392,7 +355,6 @@ async function main() {
     fitness_weeks_skipped_existing: skippedFitnessWeeks,
     current_week_upserted: Boolean(currentWeek.week_start),
     profile_upserted: true,
-    rules_upserted: true,
   };
 
   console.log("JSON -> Postgres migration complete.");

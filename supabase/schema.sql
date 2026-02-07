@@ -54,10 +54,8 @@ create table if not exists public.fitness_current (
   week_start date not null,
   week_label text not null,
   summary text,
-  cardio jsonb not null default '[]'::jsonb,
-  strength jsonb not null default '[]'::jsonb,
-  mobility jsonb not null default '[]'::jsonb,
-  other jsonb not null default '[]'::jsonb,
+  checklist jsonb not null default '{}'::jsonb,
+  category_order jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
 );
 
@@ -67,29 +65,89 @@ create table if not exists public.fitness_weeks (
   week_start date not null,
   week_label text not null,
   summary text,
-  cardio jsonb not null default '[]'::jsonb,
-  strength jsonb not null default '[]'::jsonb,
-  mobility jsonb not null default '[]'::jsonb,
-  other jsonb not null default '[]'::jsonb,
+  checklist jsonb not null default '{}'::jsonb,
+  category_order jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
 create index if not exists fitness_weeks_user_start on public.fitness_weeks(user_id, week_start);
+
+-- Add flexible checklist columns for existing installs and backfill from legacy fixed columns when present.
+alter table public.fitness_current add column if not exists checklist jsonb not null default '{}'::jsonb;
+alter table public.fitness_current add column if not exists category_order jsonb not null default '[]'::jsonb;
+alter table public.fitness_weeks add column if not exists checklist jsonb not null default '{}'::jsonb;
+alter table public.fitness_weeks add column if not exists category_order jsonb not null default '[]'::jsonb;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'fitness_current' and column_name = 'cardio'
+  ) then
+    execute $sql$
+      update public.fitness_current
+      set checklist = jsonb_strip_nulls(
+            jsonb_build_object(
+              'cardio', cardio,
+              'strength', strength,
+              'mobility', mobility,
+              'other', other
+            )
+          ),
+          category_order = case
+            when jsonb_typeof(category_order) = 'array' and jsonb_array_length(category_order) > 0 then category_order
+            else '["cardio","strength","mobility","other"]'::jsonb
+          end
+      where checklist = '{}'::jsonb
+        and (
+          coalesce(jsonb_array_length(cardio), 0) +
+          coalesce(jsonb_array_length(strength), 0) +
+          coalesce(jsonb_array_length(mobility), 0) +
+          coalesce(jsonb_array_length(other), 0)
+        ) > 0
+    $sql$;
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'fitness_weeks' and column_name = 'cardio'
+  ) then
+    execute $sql$
+      update public.fitness_weeks
+      set checklist = jsonb_strip_nulls(
+            jsonb_build_object(
+              'cardio', cardio,
+              'strength', strength,
+              'mobility', mobility,
+              'other', other
+            )
+          ),
+          category_order = case
+            when jsonb_typeof(category_order) = 'array' and jsonb_array_length(category_order) > 0 then category_order
+            else '["cardio","strength","mobility","other"]'::jsonb
+          end
+      where checklist = '{}'::jsonb
+        and (
+          coalesce(jsonb_array_length(cardio), 0) +
+          coalesce(jsonb_array_length(strength), 0) +
+          coalesce(jsonb_array_length(mobility), 0) +
+          coalesce(jsonb_array_length(other), 0)
+        ) > 0
+    $sql$;
+  end if;
+end $$;
 
 create table if not exists public.user_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   transition_context jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-
-create table if not exists public.user_rules (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  metadata jsonb not null default '{}'::jsonb,
-  diet_philosophy jsonb not null default '{}'::jsonb,
-  fitness_philosophy jsonb not null default '{}'::jsonb,
-  extra jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now()
-);
+-- Global assistant/rules configuration remains local in tracking-rules.json.
 
 -- RLS
 alter table public.food_events enable row level security;
@@ -97,7 +155,6 @@ alter table public.food_log enable row level security;
 alter table public.fitness_current enable row level security;
 alter table public.fitness_weeks enable row level security;
 alter table public.user_profiles enable row level security;
-alter table public.user_rules enable row level security;
 
 create policy "food_events_select" on public.food_events
   for select using (auth.uid() = user_id);
@@ -142,13 +199,4 @@ create policy "user_profiles_insert" on public.user_profiles
 create policy "user_profiles_update" on public.user_profiles
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "user_profiles_delete" on public.user_profiles
-  for delete using (auth.uid() = user_id);
-
-create policy "user_rules_select" on public.user_rules
-  for select using (auth.uid() = user_id);
-create policy "user_rules_insert" on public.user_rules
-  for insert with check (auth.uid() = user_id);
-create policy "user_rules_update" on public.user_rules
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "user_rules_delete" on public.user_rules
   for delete using (auth.uid() = user_id);

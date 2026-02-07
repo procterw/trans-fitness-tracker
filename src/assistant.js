@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
+import { getFitnessCategories } from "./fitnessChecklist.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import {
   ensureCurrentWeek,
@@ -37,8 +38,62 @@ function sanitizeMessages(messages) {
   return safe.slice(-12);
 }
 
+const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
+  "You classify a user's message for a health & fitness tracker.",
+  "The user has a single input box that can be used to log food, log an activity, or ask a question.",
+  "Choose exactly one intent: food, activity, question, or clarify.",
+  "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
+  "If there is an attached image and no clear question, prefer intent=food.",
+  "For activity intent, select one or more checklist items using the provided category + index.",
+  "For activity intent, category must exactly match one of the checklist category keys in the context JSON.",
+  "If multiple activities are mentioned, return multiple selections.",
+  "For activity details, standardize to minutes and optional intensity.",
+  "If duration is unknown, set duration_min to null. If intensity is not mentioned, set it to null.",
+  "Put any remaining specifics (distance, location, modifiers) into notes.",
+  "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
+  "Return only the JSON that matches the provided schema.",
+];
+
+const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
+  "You are a helpful assistant for a personal health & fitness tracker.",
+  "The user is tracking trans feminization goals with a calm-surplus diet and endurance-biased fitness.",
+  "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
+  "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
+  "When referencing numbers, use the units as shown (kcal, g, mg).",
+  "Be concise and supportive; prefer short actionable next steps.",
+];
+
+const DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS = [
+  "You write the assistant response immediately after a meal entry is logged.",
+  "Return only JSON matching the schema.",
+  "The final chat response supports markdown.",
+  "Do not literally repeat or quote the user's raw meal description text.",
+  "Use bold markdown for food names and gram/portion amounts when available, for example **salmon (120 g)**.",
+  "confirmation: clearly confirm the entry was logged (date/source). Keep it concise.",
+  "nutrition_summary: use a short markdown bullet list with calories and macros (carbs, fat, protein) and fiber for both the logged meal and current day totals.",
+  "day_fit_summary: briefly explain how this fits into the day using available goals, activity context, and what else has been eaten.",
+  "nutrition_summary and day_fit_summary must read as separate paragraphs in the final message.",
+  "Tone must be helpful, concise, and non-judgmental.",
+  "Set followup_question only if one specific answer is required to materially improve nutrition accuracy.",
+  "Do not ask routine or optional follow-up questions; if accuracy would not meaningfully change, set followup_question to null.",
+  "Do not invent missing data. If data is missing, say so briefly in day_fit_summary.",
+];
+
+function normalizeInstructionList(value, fallback) {
+  if (!Array.isArray(value)) return fallback;
+  const cleaned = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+  return cleaned.length ? cleaned : fallback;
+}
+
+function readAssistantRuleInstructions(tracking, sectionKey, fallback) {
+  const configured = tracking?.assistant_rules?.[sectionKey]?.instructions;
+  return normalizeInstructionList(configured, fallback);
+}
+
 const ActivitySelectionSchema = z.object({
-  category: z.enum(["cardio", "strength", "mobility", "other"]),
+  category: z.string().min(1),
   index: z.number().int().nonnegative(),
   label: z.string(),
   duration_min: z.number().int().positive().nullable(),
@@ -71,16 +126,14 @@ const MealEntryResponseSchema = z.object({
 const MealEntryResponseFormat = zodTextFormat(MealEntryResponseSchema, "meal_entry_response");
 
 function buildChecklistSnapshot(currentWeek) {
-  const categories = ["cardio", "strength", "mobility", "other"];
-  const snapshot = {};
-  for (const category of categories) {
-    const list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
-    snapshot[category] = list.map((item, index) => ({
+  return getFitnessCategories(currentWeek).map((category) => ({
+    key: category.key,
+    label: category.label,
+    items: category.items.map((item, index) => ({
       index,
       label: typeof item?.item === "string" ? item.item : "",
-    }));
-  }
-  return snapshot;
+    })),
+  }));
 }
 
 export async function decideIngestAction({ message, hasImage = false, date = null, messages = [] }) {
@@ -91,28 +144,17 @@ export async function decideIngestAction({ message, hasImage = false, date = nul
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
-  const checklist = buildChecklistSnapshot(tracking.current_week ?? null);
+  const checklistCategories = buildChecklistSnapshot(tracking.current_week ?? null);
 
-  const system = [
-    "You classify a user's message for a health & fitness tracker.",
-    "The user has a single input box that can be used to log food, log an activity, or ask a question.",
-    "Choose exactly one intent: food, activity, question, or clarify.",
-    "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
-    "If there is an attached image and no clear question, prefer intent=food.",
-    "For activity intent, select one or more checklist items using the provided category + index.",
-    "If multiple activities are mentioned, return multiple selections.",
-    "For activity details, standardize to minutes and optional intensity.",
-    "If duration is unknown, set duration_min to null. If intensity is not mentioned, set it to null.",
-    "Put any remaining specifics (distance, location, modifiers) into notes.",
-    "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
-    "Return only the JSON that matches the provided schema.",
-  ].join(" ");
+  const system = readAssistantRuleInstructions(tracking, "ingest_classifier", DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS).join(
+    " ",
+  );
 
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
     has_image: hasImage,
-    checklist,
+    checklist_categories: checklistCategories,
   };
 
   const input = [
@@ -165,14 +207,7 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     current_week: tracking.current_week ?? null,
   };
 
-  const system = [
-    "You are a helpful assistant for a personal health & fitness tracker.",
-    "The user is tracking trans feminization goals with a calm-surplus diet and endurance-biased fitness.",
-    "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
-    "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
-    "When referencing numbers, use the units as shown (kcal, g, mg).",
-    "Be concise and supportive; prefer short actionable next steps.",
-  ].join(" ");
+  const system = readAssistantRuleInstructions(tracking, "qa_assistant", DEFAULT_QA_ASSISTANT_INSTRUCTIONS).join(" ");
 
   const input = [
     { role: "system", content: system },
@@ -248,21 +283,11 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     },
   };
 
-  const system = [
-    "You write the assistant response immediately after a meal entry is logged.",
-    "Return only JSON matching the schema.",
-    "The final chat response supports markdown.",
-    "Do not literally repeat or quote the user's raw meal description text.",
-    "Use bold markdown for food names and gram/portion amounts when available, for example **salmon (120 g)**.",
-    "confirmation: clearly confirm the entry was logged (date/source). Keep it concise.",
-    "nutrition_summary: use a short markdown bullet list with calories and macros (carbs, fat, protein) and fiber for both the logged meal and current day totals.",
-    "day_fit_summary: briefly explain how this fits into the day using available goals, activity context, and what else has been eaten.",
-    "nutrition_summary and day_fit_summary must read as separate paragraphs in the final message.",
-    "Tone must be helpful, concise, and non-judgmental.",
-    "Set followup_question only if one specific answer is required to materially improve nutrition accuracy.",
-    "Do not ask routine or optional follow-up questions; if accuracy would not meaningfully change, set followup_question to null.",
-    "Do not invent missing data. If data is missing, say so briefly in day_fit_summary.",
-  ].join(" ");
+  const system = readAssistantRuleInstructions(
+    tracking,
+    "meal_entry_response",
+    DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS,
+  ).join(" ");
 
   const input = [
     { role: "system", content: system },

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { askAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
+import { getFitnessCategoryKeys, resolveFitnessCategoryKey } from "./fitnessChecklist.js";
 import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
@@ -117,21 +118,42 @@ function formatActivityDetails(selection) {
   return parts.join(" • ") || "Logged";
 }
 
+function findActivityByLabel(currentWeek, targetLabel) {
+  const normalized = normalizeLabel(targetLabel);
+  if (!normalized) return null;
+
+  for (const categoryKey of getFitnessCategoryKeys(currentWeek)) {
+    const list = Array.isArray(currentWeek?.[categoryKey]) ? currentWeek[categoryKey] : [];
+    const index = list.findIndex((it) => normalizeLabel(it?.item) === normalized);
+    if (index >= 0) return { categoryKey, list, index };
+  }
+
+  return null;
+}
+
 function resolveActivitySelections(selections, currentWeek) {
   const resolved = [];
   const errors = [];
   const dedupe = new Map();
+  const categoryKeys = getFitnessCategoryKeys(currentWeek);
 
   if (!Array.isArray(selections) || selections.length === 0) {
     return { resolved, errors: ["No activity selections."] };
   }
 
   for (const sel of selections) {
-    const category = sel?.category;
-    const list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
+    let category = resolveFitnessCategoryKey(currentWeek, sel?.category);
+    let list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
     if (!list.length) {
-      errors.push(`No items found for category: ${category}`);
-      continue;
+      const fallbackByLabel = findActivityByLabel(currentWeek, sel?.label);
+      if (fallbackByLabel) {
+        category = fallbackByLabel.categoryKey;
+        list = fallbackByLabel.list;
+      } else {
+        const categoryHint = categoryKeys.length ? ` Available categories: ${categoryKeys.join(", ")}.` : "";
+        errors.push(`No items found for category: ${sel?.category}.${categoryHint}`);
+        continue;
+      }
     }
 
     let index = Number.isInteger(sel?.index) ? sel.index : -1;
@@ -140,6 +162,14 @@ function resolveActivitySelections(selections, currentWeek) {
       if (target) {
         const foundIndex = list.findIndex((it) => normalizeLabel(it?.item) === target);
         if (foundIndex >= 0) index = foundIndex;
+        else {
+          const fallbackByLabel = findActivityByLabel(currentWeek, target);
+          if (fallbackByLabel) {
+            category = fallbackByLabel.categoryKey;
+            list = fallbackByLabel.list;
+            index = fallbackByLabel.index;
+          }
+        }
       }
     }
 
