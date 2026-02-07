@@ -113,7 +113,7 @@ export default function ChatView({
                 e.preventDefault();
                 foodFormRef.current?.requestSubmit();
               }}
-              placeholder="Ask a question or log food/activity… (Shift+Enter for newline)"
+              placeholder="Ask a question or log food/activity"
               aria-label="Unified input"
             />
 

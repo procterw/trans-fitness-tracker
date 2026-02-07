@@ -33,7 +33,7 @@ export default function SidebarView({
   return (
     <aside className="sidebar">
       <div>
-        <h2 className="appTitle">Get fit and hot</h2>
+        <h2 className="appTitle">🍑 Get fit and hot</h2>
       </div>
 
       {authEnabled ? (
@@ -121,8 +121,8 @@ export default function SidebarView({
                     {items.length ? (
                       items.map((it, idx) => (
                         <div key={idx} className={`sidebarChecklistItem ${it.checked ? "done" : "todo"}`}>
-                          <span className="sidebarChecklistEmoji" aria-hidden="true">
-                            {it.checked ? "✅" : "⬜️"}
+                          <span className={`sidebarChecklistMark ${it.checked ? "checked" : "unchecked"}`} aria-hidden="true">
+                            {it.checked ? "✓" : ""}
                           </span>
                           <span>{it.item}</span>
                         </div>
