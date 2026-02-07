@@ -98,6 +98,43 @@ a {
   overflow: hidden;
 }
 
+.signedOutShell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.signedOutCard {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.signedOutTitle {
+  margin: 0;
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1;
+}
+
+.signedOutDescription {
+  margin: 16px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 52ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.signedOutActions {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
+}
+
 .mainScroll {
   flex: 1;
   overflow: auto;

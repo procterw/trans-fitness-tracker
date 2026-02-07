@@ -22,6 +22,7 @@ import {
 import ChatView from "./views/ChatView.jsx";
 import DietView from "./views/DietView.jsx";
 import SidebarView from "./views/SidebarView.jsx";
+import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 
 function useDebouncedKeyedCallback(fn, ms) {
@@ -112,6 +113,8 @@ export default function App() {
   const [authEnabled] = useState(isSupabaseEnabled());
   const [authSession, setAuthSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("");
+  const [authActionLoading, setAuthActionLoading] = useState(false);
+  const signedOut = authEnabled && !authSession?.user;
 
   const fmt = (n) => {
     if (n === null || n === undefined) return "—";
@@ -120,6 +123,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (signedOut) return;
     getContext()
       .then((json) => {
         const date = json?.suggested_date ?? "";
@@ -128,7 +132,7 @@ export default function App() {
         setDashDate((prev) => prev || date);
       })
       .catch(() => {});
-  }, []);
+  }, [signedOut]);
 
   useEffect(() => {
     if (!authEnabled) return;
@@ -215,6 +219,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (signedOut) return;
     if (view === "workouts") {
       loadFitness();
       loadFitnessHistory();
@@ -223,12 +228,13 @@ export default function App() {
       loadDashboardFoodLog();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, signedOut]);
 
   useEffect(() => {
+    if (signedOut) return;
     loadFitness();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [signedOut]);
 
   const loadSidebarDaySummary = async (date) => {
     if (!date) return;
@@ -253,10 +259,11 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (signedOut) return;
     if (!foodDate) return;
     loadSidebarDaySummary(foodDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [foodDate]);
+  }, [foodDate, signedOut]);
 
   useEffect(() => {
     const el = chatMessagesRef.current;
@@ -270,6 +277,7 @@ export default function App() {
   }, [composerLoading]);
 
   useEffect(() => {
+    if (signedOut) return;
     if (view !== "diet") return;
     if (!dashDate) return;
     if (dashSkipNextAutoLoadRef.current) {
@@ -278,7 +286,22 @@ export default function App() {
     }
     loadDashboard(dashDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dashDate, view]);
+  }, [dashDate, view, signedOut]);
+
+  const onSignIn = async () => {
+    setAuthActionLoading(true);
+    setAuthStatus("");
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setAuthStatus(error.message || "Could not start Google sign-in.");
+      }
+    } catch (err) {
+      setAuthStatus(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthActionLoading(false);
+    }
+  };
 
   const onSubmitFood = async (e) => {
     e.preventDefault();
@@ -527,13 +550,19 @@ export default function App() {
 
   const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
 
+  if (signedOut) {
+    return (
+      <SignedOutView authStatus={authStatus} authActionLoading={authActionLoading} onSignIn={onSignIn} />
+    );
+  }
+
   return (
     <div className="appShell">
       <SidebarView
         authEnabled={authEnabled}
         authStatus={authStatus}
         authSession={authSession}
-        onSignIn={() => signInWithGoogle()}
+        onSignIn={onSignIn}
         onSignOut={() => signOut()}
         activeView={view}
         onChangeView={setView}
