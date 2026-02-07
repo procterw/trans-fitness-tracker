@@ -14,13 +14,14 @@ After this change, the tracker supports multiple users with Google login via Sup
 - [x] (2026-02-06 19:20Z) Add Supabase auth wiring in the client behind a feature flag.
 - [x] (2026-02-06 19:24Z) Add Supabase JWT verification middleware in the server with a feature flag to require auth.
 - [x] (2026-02-06 19:32Z) Create Postgres schema with per-user tables and RLS policies.
-- [ ] Implement Postgres data access alongside JSON helpers and add migration script.
-- [ ] Switch runtime reads/writes to Postgres when enabled and validate end-to-end.
+- [x] (2026-02-07 18:03Z) Implement Postgres data access alongside JSON helpers and add migration script.
+- [x] (2026-02-07 18:03Z) Switch runtime reads/writes to Postgres when enabled and validate end-to-end with configured env values.
 - [x] (2026-02-06 19:34Z) Update documentation and environment examples.
 
 ## Surprises & Discoveries
 
-None yet.
+- Observation: Postgres mode needs a concrete user id even when auth enforcement is disabled, because all tables are keyed by `user_id`.
+  Evidence: `GET /api/context` with `TRACKING_BACKEND=postgres` and no Supabase env returns `{\"ok\":false,\"error\":\"SUPABASE_URL is required when TRACKING_BACKEND=postgres.\"}`.
 
 ## Decision Log
 
@@ -36,10 +37,16 @@ None yet.
 - Decision: Gate client auth UI with `VITE_SUPABASE_ENABLED` and server enforcement with `SUPABASE_AUTH_REQUIRED`.
   Rationale: Allows the login wiring to ship while keeping auth disabled until Supabase is configured.
   Date/Author: 2026-02-06 / Codex
+- Decision: Route Postgres through `readTrackingData`/`writeTrackingData` adapters while leaving existing tracker business logic unchanged.
+  Rationale: This keeps behavior parity and minimizes regression risk by changing storage plumbing only.
+  Date/Author: 2026-02-07 / Codex
+- Decision: Add request-scoped tracking user context and `TRACKING_DEFAULT_USER_ID` fallback for Postgres mode.
+  Rationale: It enables the same APIs to work both with authenticated requests and during local backend bring-up when auth is temporarily off.
+  Date/Author: 2026-02-07 / Codex
 
 ## Outcomes & Retrospective
 
-Not started.
+Completed for backend scope. The backend now reads and writes through Postgres when `TRACKING_BACKEND=postgres`, with request-scoped user context and a local fallback user for bring-up. A new migration script (`scripts/migrate-json-to-postgres.js`) safely backfills split JSON files into Supabase and is idempotent on re-run. Live checks in this workspace confirmed Postgres reads and writes through existing API endpoints after migration.
 
 ## Context and Orientation
 
@@ -101,7 +108,60 @@ The migration script should be safe to run multiple times without duplicating ro
 
 ## Artifacts and Notes
 
-None yet.
+Build output (2026-02-07 17:44Z):
+
+    > npm run build
+    vite v7.3.1 building client environment for production...
+    ✓ 333 modules transformed.
+    ✓ built in 1.11s
+
+JSON-mode API smoke check (2026-02-07 17:44Z):
+
+    GET http://localhost:3101/api/context
+    {"ok":true,...}
+
+Postgres-mode configuration guard check (2026-02-07 17:44Z):
+
+    TRACKING_BACKEND=postgres GET http://localhost:3102/api/context
+    {"ok":false,"error":"SUPABASE_URL is required when TRACKING_BACKEND=postgres."}
+
+Migration script run (2026-02-07 18:01Z):
+
+    > npm run migrate:postgres
+    JSON -> Postgres migration complete.
+    {
+      "food_log_source": 18,
+      "food_log_upserted": 18,
+      "food_events_source": 11,
+      "food_events_inserted": 11,
+      "food_events_skipped_existing": 0,
+      "fitness_weeks_source": 2,
+      "fitness_weeks_inserted": 2,
+      "fitness_weeks_skipped_existing": 0,
+      ...
+    }
+
+Migration idempotence re-run (2026-02-07 18:01Z):
+
+    > npm run migrate:postgres
+    JSON -> Postgres migration complete.
+    {
+      "food_events_inserted": 0,
+      "food_events_skipped_existing": 11,
+      "fitness_weeks_inserted": 0,
+      "fitness_weeks_skipped_existing": 2,
+      ...
+    }
+
+Post-migration Postgres API read check (2026-02-07 18:02Z):
+
+    GET http://localhost:3113/api/food/log?limit=5
+    {"ok":true,"rows":[...]}
+
+Post-migration Postgres API write check (2026-02-07 18:03Z):
+
+    POST http://localhost:3114/api/fitness/current/item
+    {"ok":true,"current_week":{...}}
 
 ## Interfaces and Dependencies
 
@@ -117,3 +177,5 @@ Supabase environment variables:
 
 Plan change note (2026-02-06 19:00Z): Initial ExecPlan created to describe Supabase multi-user auth, Postgres migration, and feature flags.
 Plan change note (2026-02-06 19:34Z): Marked client auth wiring, server JWT middleware, schema SQL, and documentation updates as complete after implementation.
+Plan change note (2026-02-07 17:44Z): Added Postgres read/write adapter, backend switch, tracking user context, and validation artifacts; left migration script and live Postgres verification as remaining work.
+Plan change note (2026-02-07 18:03Z): Added idempotent JSON-to-Postgres migration script, ran backfill, verified idempotence on re-run, and validated Postgres read/write API behavior with configured env.

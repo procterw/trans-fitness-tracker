@@ -29,3 +29,10 @@ You can enable Google login + Postgres storage via Supabase. The React login UI 
 Required env vars:
 - Client: `VITE_SUPABASE_ENABLED`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 - Server: `SUPABASE_AUTH_REQUIRED`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- Tracking backend switch: `TRACKING_BACKEND=json|postgres`
+- Optional local fallback user when auth is off: `TRACKING_DEFAULT_USER_ID`
+
+Backfill existing local JSON data into Postgres:
+1. Set `TRACKING_DEFAULT_USER_ID` (or pass `USER_ID=...` inline).
+2. Run `npm run migrate:postgres`.
+3. Re-run the same command safely; it is idempotent.

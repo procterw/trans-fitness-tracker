@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { askAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
+import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
@@ -35,6 +36,9 @@ const supabaseAuth = createSupabaseAuth({
   required: authRequired,
 });
 app.use("/api", supabaseAuth);
+app.use("/api", (req, _res, next) => {
+  runWithTrackingUser(req.user?.id ?? null, () => next());
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),

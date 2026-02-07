@@ -3,9 +3,13 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
+import { readTrackingDataPostgres, writeTrackingDataPostgres } from "./trackingDataPostgres.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_DATA_DIR = path.resolve(__dirname, "..");
+const TRACKING_BACKEND = String(process.env.TRACKING_BACKEND || "json").toLowerCase();
+const USE_POSTGRES_BACKEND = TRACKING_BACKEND === "postgres";
 const LEGACY_TRACKING_FILE = process.env.TRACKING_DATA_FILE
   ? path.resolve(process.env.TRACKING_DATA_FILE)
   : path.resolve(DEFAULT_DATA_DIR, "tracking-data.json");
@@ -235,6 +239,10 @@ async function ensureSplitFiles() {
 }
 
 export async function readTrackingData() {
+  if (USE_POSTGRES_BACKEND) {
+    return readTrackingDataPostgres();
+  }
+
   if (USE_LEGACY_FILE) {
     const raw = await fs.readFile(LEGACY_TRACKING_FILE, "utf8");
     return JSON.parse(raw);
@@ -250,6 +258,11 @@ export async function readTrackingData() {
 }
 
 export async function writeTrackingData(data) {
+  if (USE_POSTGRES_BACKEND) {
+    await writeTrackingDataPostgres(data);
+    return;
+  }
+
   if (USE_LEGACY_FILE) {
     await atomicWriteJson(LEGACY_TRACKING_FILE, data);
     return;

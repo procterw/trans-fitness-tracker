@@ -16,18 +16,19 @@ export function createSupabaseAuth({ supabaseUrl, required = false }) {
   const jwks = jwksUrl ? createRemoteJWKSet(new URL(jwksUrl)) : null;
 
   return async function supabaseAuth(req, res, next) {
-    if (!required) {
+    const authHeader = req.headers.authorization || "";
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    const token = match ? match[1] : null;
+
+    if (!token && !required) {
       req.user = null;
       return next();
     }
 
     if (!jwks) {
-      return res.status(500).json({ ok: false, error: "SUPABASE_URL is not configured." });
+      const status = required ? 500 : 401;
+      return res.status(status).json({ ok: false, error: "SUPABASE_URL is not configured." });
     }
-
-    const authHeader = req.headers.authorization || "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    const token = match ? match[1] : null;
 
     if (!token) {
       return res.status(401).json({ ok: false, error: "Missing Authorization bearer token." });
@@ -45,7 +46,11 @@ export function createSupabaseAuth({ supabaseUrl, required = false }) {
       };
 
       return next();
-    } catch (err) {
+    } catch {
+      if (!required) {
+        req.user = null;
+        return next();
+      }
       return res.status(401).json({ ok: false, error: "Invalid or expired token." });
     }
   };
