@@ -4,11 +4,12 @@ import express from "express";
 import multer from "multer";
 import path from "node:path";
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { askAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
+import { askAssistant, askSettingsAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
-import { getFitnessCategoryKeys, resolveFitnessCategoryKey } from "./fitnessChecklist.js";
+import { getFitnessCategoryKeys, resolveFitnessCategoryKey, toFitnessCategoryLabel } from "./fitnessChecklist.js";
 import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
@@ -17,6 +18,7 @@ import {
   getFoodEventsForDate,
   getFoodLogForDate,
   getDailyFoodEventTotals,
+  getSeattleDateString,
   getSuggestedLogDate,
   listFitnessWeeks,
   listFoodLog,
@@ -26,6 +28,8 @@ import {
   updateCurrentWeekItems,
   updateCurrentWeekItem,
   updateCurrentWeekSummary,
+  formatSeattleIso,
+  writeTrackingData,
 } from "./trackingData.js";
 
 const app = express();
@@ -253,6 +257,260 @@ function isExistingActivityEntry(currentWeek, update) {
   return Boolean(item.checked) || hasDetails;
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeObjectPatch(base, patch) {
+  if (!isPlainObject(base)) return structuredClone(patch);
+  const out = structuredClone(base);
+  for (const [key, value] of Object.entries(patch)) {
+    if (isPlainObject(value) && isPlainObject(out[key])) out[key] = mergeObjectPatch(out[key], value);
+    else out[key] = structuredClone(value);
+  }
+  return out;
+}
+
+function normalizeChecklistCategoryKey(raw) {
+  const normalized = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+  return normalized || "category";
+}
+
+function normalizeItemToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function applyChecklistCategories(currentWeek, categories) {
+  const safeWeek = currentWeek && typeof currentWeek === "object" ? currentWeek : {};
+  const oldKeys = getFitnessCategoryKeys(safeWeek);
+  const oldLabels = isPlainObject(safeWeek.category_labels) ? safeWeek.category_labels : {};
+
+  const oldByCategoryAndItem = new Map();
+  for (const key of oldKeys) {
+    const list = Array.isArray(safeWeek[key]) ? safeWeek[key] : [];
+    const itemMap = new Map();
+    for (const item of list) {
+      const label = typeof item?.item === "string" ? item.item.trim() : "";
+      if (!label) continue;
+      const token = normalizeItemToken(label);
+      if (!token || itemMap.has(token)) continue;
+      itemMap.set(token, {
+        checked: item?.checked === true,
+        details: typeof item?.details === "string" ? item.details : "",
+      });
+    }
+    oldByCategoryAndItem.set(key, itemMap);
+  }
+
+  const nextWeek = {
+    week_start: typeof safeWeek.week_start === "string" ? safeWeek.week_start : "",
+    week_label: typeof safeWeek.week_label === "string" ? safeWeek.week_label : "",
+    summary: typeof safeWeek.summary === "string" ? safeWeek.summary : "",
+  };
+
+  const usedKeys = new Set();
+  const categoryOrder = [];
+  const categoryLabels = {};
+  for (const category of categories) {
+    const baseKey = normalizeChecklistCategoryKey(category?.key);
+    let key = baseKey;
+    let i = 2;
+    while (usedKeys.has(key)) {
+      key = `${baseKey}_${i}`;
+      i += 1;
+    }
+    usedKeys.add(key);
+
+    const oldItemMap = oldByCategoryAndItem.get(key) ?? new Map();
+    const seenItems = new Set();
+    const itemRows = [];
+    const items = Array.isArray(category?.items) ? category.items : [];
+    for (const itemLabelRaw of items) {
+      const itemLabel = typeof itemLabelRaw === "string" ? itemLabelRaw.trim() : "";
+      if (!itemLabel) continue;
+      const token = normalizeItemToken(itemLabel);
+      if (!token || seenItems.has(token)) continue;
+      seenItems.add(token);
+      const existing = oldItemMap.get(token);
+      itemRows.push({
+        item: itemLabel,
+        checked: Boolean(existing?.checked),
+        details: typeof existing?.details === "string" ? existing.details : "",
+      });
+    }
+    if (!itemRows.length) continue;
+
+    categoryOrder.push(key);
+    nextWeek[key] = itemRows;
+    const labelRaw = typeof category?.label === "string" ? category.label.trim() : "";
+    const fallbackLabel = typeof oldLabels[key] === "string" ? oldLabels[key] : toFitnessCategoryLabel(key);
+    categoryLabels[key] = labelRaw || fallbackLabel;
+  }
+
+  nextWeek.category_order = categoryOrder;
+  nextWeek.category_labels = categoryLabels;
+  return nextWeek;
+}
+
+function extractChecklistTemplate(week) {
+  if (!isPlainObject(week)) return null;
+  const keys = getFitnessCategoryKeys(week);
+  if (!keys.length) return null;
+  const labels = isPlainObject(week.category_labels) ? week.category_labels : {};
+  const template = {
+    category_order: [],
+    category_labels: {},
+  };
+  for (const key of keys) {
+    const list = Array.isArray(week[key]) ? week[key] : [];
+    const items = list
+      .map((entry) => (typeof entry?.item === "string" ? entry.item.trim() : ""))
+      .filter(Boolean)
+      .map((item) => ({ item }));
+    if (!items.length) continue;
+    template.category_order.push(key);
+    template[key] = items;
+    const label = typeof labels[key] === "string" ? labels[key].trim() : "";
+    if (label) template.category_labels[key] = label;
+  }
+  if (!template.category_order.length) return null;
+  if (!Object.keys(template.category_labels).length) delete template.category_labels;
+  return template;
+}
+
+function hasPendingSettingsChanges(changes) {
+  return Boolean(
+    changes?.user_profile_patch ||
+    changes?.transition_context_patch ||
+      changes?.diet_philosophy_patch ||
+      changes?.fitness_philosophy_patch ||
+      changes?.checklist_categories,
+  );
+}
+
+function isValidSettingsProposal(value) {
+  if (!isPlainObject(value)) return false;
+  const keys = [
+    "user_profile_patch",
+    "transition_context_patch",
+    "diet_philosophy_patch",
+    "fitness_philosophy_patch",
+    "checklist_categories",
+  ];
+  for (const key of Object.keys(value)) {
+    if (!keys.includes(key)) return false;
+  }
+  if (value.user_profile_patch !== null && value.user_profile_patch !== undefined && !isPlainObject(value.user_profile_patch)) return false;
+  if (value.transition_context_patch !== null && value.transition_context_patch !== undefined && !isPlainObject(value.transition_context_patch)) return false;
+  if (value.diet_philosophy_patch !== null && value.diet_philosophy_patch !== undefined && !isPlainObject(value.diet_philosophy_patch)) return false;
+  if (value.fitness_philosophy_patch !== null && value.fitness_philosophy_patch !== undefined && !isPlainObject(value.fitness_philosophy_patch)) return false;
+  if (value.checklist_categories !== null && value.checklist_categories !== undefined && !Array.isArray(value.checklist_categories)) return false;
+  return true;
+}
+
+async function applySettingsChanges({ proposal, applyMode = "now" }) {
+  if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
+  const mode = applyMode === "next_week" ? "next_week" : "now";
+
+  await ensureCurrentWeek();
+  const data = await readTrackingData();
+  const changesApplied = [];
+
+  if (proposal.user_profile_patch) {
+    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, proposal.user_profile_patch);
+    changesApplied.push("Updated generic user profile.");
+  }
+
+  if (proposal.transition_context_patch) {
+    const nextTransitionContext = mergeObjectPatch(data.transition_context ?? {}, proposal.transition_context_patch);
+    data.transition_context = nextTransitionContext;
+    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, {
+      modules: { trans_care: nextTransitionContext },
+    });
+    changesApplied.push("Updated user profile context.");
+  }
+  if (proposal.diet_philosophy_patch) {
+    data.diet_philosophy = mergeObjectPatch(data.diet_philosophy ?? {}, proposal.diet_philosophy_patch);
+    changesApplied.push("Updated diet goals/philosophy.");
+  }
+  if (proposal.fitness_philosophy_patch) {
+    data.fitness_philosophy = mergeObjectPatch(data.fitness_philosophy ?? {}, proposal.fitness_philosophy_patch);
+    changesApplied.push("Updated fitness goals/philosophy.");
+  }
+
+  if (proposal.checklist_categories) {
+    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, proposal.checklist_categories);
+    const template = extractChecklistTemplate(remappedWeek);
+    if (template) {
+      const metadata = isPlainObject(data.metadata) ? data.metadata : {};
+      metadata.checklist_template = template;
+      data.metadata = metadata;
+      if (mode === "now") {
+        data.current_week = remappedWeek;
+        changesApplied.push("Updated checklist template for current week and future weeks.");
+      } else {
+        changesApplied.push("Scheduled checklist template update for next week.");
+      }
+    }
+  }
+
+  if (changesApplied.length) {
+    const metadata = isPlainObject(data.metadata) ? data.metadata : {};
+    const appliedAt = formatSeattleIso(new Date());
+    const effectiveFrom = proposal.checklist_categories && mode === "next_week"
+      ? "next_week_rollover"
+      : getSeattleDateString(new Date());
+    const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
+    const nextVersion = currentVersion + 1;
+    const domains = [];
+    if (proposal.user_profile_patch) domains.push("user_profile");
+    if (proposal.transition_context_patch) domains.push("transition_context");
+    if (proposal.diet_philosophy_patch) domains.push("diet_philosophy");
+    if (proposal.fitness_philosophy_patch) domains.push("fitness_philosophy");
+    if (proposal.checklist_categories) domains.push("checklist_template");
+    const event = {
+      version: nextVersion,
+      applied_at: appliedAt,
+      effective_from: effectiveFrom,
+      checklist_apply_mode: proposal.checklist_categories ? mode : null,
+      domains,
+    };
+    const previous = Array.isArray(metadata.settings_history) ? metadata.settings_history : [];
+    metadata.settings_version = nextVersion;
+    metadata.settings_history = [...previous.slice(-19), event];
+    metadata.last_updated = appliedAt;
+    data.metadata = metadata;
+    await writeTrackingData(data);
+    return {
+      changesApplied,
+      updated: {
+        current_week: data.current_week ?? null,
+        user_profile: data.user_profile ?? null,
+        transition_context: data.transition_context ?? null,
+        diet_philosophy: data.diet_philosophy ?? null,
+        fitness_philosophy: data.fitness_philosophy ?? null,
+      },
+      settingsVersion: nextVersion,
+      effectiveFrom,
+    };
+  }
+
+  return {
+    changesApplied,
+    updated: null,
+    settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+    effectiveFrom: null,
+  };
+}
+
 app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
@@ -278,6 +536,60 @@ app.post("/api/assistant/ask", async (req, res) => {
 
     const answer = await askAssistant({ question, date, messages });
     res.json({ ok: true, answer });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/settings/chat", async (req, res) => {
+  try {
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const result = await askSettingsAssistant({ message, messages });
+
+    const changes = result?.changes ?? {};
+    const hasProposal = hasPendingSettingsChanges(changes);
+    const proposalId = hasProposal ? crypto.randomUUID() : null;
+
+    const assistantMessage =
+      hasProposal && result.assistant_message
+        ? `${result.assistant_message}\n\nProposed settings changes are ready. Confirm to apply.`
+        : result.assistant_message;
+
+    res.json({
+      ok: true,
+      assistant_message: assistantMessage,
+      followup_question: result.followup_question ?? null,
+      requires_confirmation: hasProposal,
+      proposal_id: proposalId,
+      proposal: hasProposal ? changes : null,
+      changes_applied: [],
+      updated: null,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/settings/confirm", async (req, res) => {
+  try {
+    const proposal = req.body?.proposal;
+    if (!isValidSettingsProposal(proposal) || !hasPendingSettingsChanges(proposal)) {
+      return res.status(400).json({ ok: false, error: "Missing or invalid proposal." });
+    }
+    const applyModeRaw = typeof req.body?.apply_mode === "string" ? req.body.apply_mode.trim() : "now";
+    const applyMode = applyModeRaw === "next_week" ? "next_week" : "now";
+
+    const applied = await applySettingsChanges({ proposal, applyMode });
+    res.json({
+      ok: true,
+      changes_applied: applied.changesApplied,
+      updated: applied.updated,
+      settings_version: applied.settingsVersion,
+      effective_from: applied.effectiveFrom,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }

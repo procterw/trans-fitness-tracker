@@ -18,6 +18,8 @@ function getAvatarText(userLabel) {
 
 export default function AppNavbar({
   title,
+  activeView,
+  onChangeView,
   authEnabled,
   authSession,
   authStatus,
@@ -60,6 +62,31 @@ export default function AppNavbar({
       </div>
 
       <div className="appNavbarSide appNavbarSideRight">
+        <button
+          type="button"
+          className={`navbarIconButton ${activeView === "settings" ? "active" : ""}`}
+          aria-label="Open settings"
+          aria-pressed={activeView === "settings"}
+          onClick={() => onChangeView("settings")}
+        >
+          <svg className="settingsIcon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 9.25a2.75 2.75 0 1 0 0 5.5 2.75 2.75 0 0 0 0-5.5Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M19.4 13.2a1.2 1.2 0 0 0 .24 1.33l.05.05a1.45 1.45 0 1 1-2.05 2.05l-.05-.05a1.2 1.2 0 0 0-1.33-.24 1.2 1.2 0 0 0-.73 1.1V17.6a1.45 1.45 0 1 1-2.9 0v-.08a1.2 1.2 0 0 0-.73-1.1 1.2 1.2 0 0 0-1.33.24l-.05.05a1.45 1.45 0 1 1-2.05-2.05l.05-.05a1.2 1.2 0 0 0 .24-1.33 1.2 1.2 0 0 0-1.1-.73H6.4a1.45 1.45 0 1 1 0-2.9h.08a1.2 1.2 0 0 0 1.1-.73 1.2 1.2 0 0 0-.24-1.33l-.05-.05a1.45 1.45 0 1 1 2.05-2.05l.05.05a1.2 1.2 0 0 0 1.33.24h.01a1.2 1.2 0 0 0 .72-1.1V6.4a1.45 1.45 0 1 1 2.9 0v.08a1.2 1.2 0 0 0 .73 1.1h.01a1.2 1.2 0 0 0 1.33-.24l.05-.05a1.45 1.45 0 1 1 2.05 2.05l-.05.05a1.2 1.2 0 0 0-.24 1.33v.01a1.2 1.2 0 0 0 1.1.72h.08a1.45 1.45 0 1 1 0 2.9h-.08a1.2 1.2 0 0 0-1.1.73Z"
+              stroke="currentColor"
+              strokeWidth="1.55"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+
         <div ref={menuRef} className="accountMenu">
           <button
             ref={triggerRef}

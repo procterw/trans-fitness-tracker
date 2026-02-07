@@ -70,6 +70,25 @@ export async function ingestAssistant({ message = "", file = null, date = "", me
   return fetchJson("/api/assistant/ingest", { method: "POST", body: fd });
 }
 
+export async function settingsChat({ message = "", messages = [] }) {
+  return fetchJson("/api/settings/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, messages }),
+  });
+}
+
+export async function confirmSettingsChanges({ proposal, applyMode = "now" }) {
+  return fetchJson("/api/settings/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      proposal,
+      apply_mode: applyMode === "next_week" ? "next_week" : "now",
+    }),
+  });
+}
+
 export async function getFoodForDate(date) {
   return fetchJson(`/api/food/events?date=${encodeURIComponent(date)}`);
 }

@@ -96,6 +96,109 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function asStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeCycleHormonalContext(value) {
+  const safe = asObject(value);
+  return {
+    relevant: safe.relevant === true,
+    context_type: typeof safe.context_type === "string" ? safe.context_type : "",
+    phase_or_cycle_day: typeof safe.phase_or_cycle_day === "string" ? safe.phase_or_cycle_day : null,
+    symptom_patterns: asStringArray(safe.symptom_patterns),
+    training_nutrition_adjustments: asStringArray(safe.training_nutrition_adjustments),
+  };
+}
+
+function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
+  const safe = asObject(value);
+  const safeModules = asObject(safe.modules);
+  const transFromProfile = asObject(safeModules.trans_care);
+  const fallbackTrans = asObject(fallbackTransitionContext);
+  const transCare = Object.keys(transFromProfile).length ? transFromProfile : fallbackTrans;
+
+  return {
+    ...safe,
+    schema_version: Number.isInteger(safe.schema_version) ? safe.schema_version : 1,
+    general: asObject(safe.general),
+    medical: {
+      ...asObject(safe.medical),
+      history: asStringArray(asObject(safe.medical).history),
+      medications: asStringArray(asObject(safe.medical).medications),
+      surgeries: asStringArray(asObject(safe.medical).surgeries),
+      allergies: asStringArray(asObject(safe.medical).allergies),
+      cycle_hormonal_context: normalizeCycleHormonalContext(asObject(asObject(safe.medical).cycle_hormonal_context)),
+    },
+    nutrition: {
+      ...asObject(safe.nutrition),
+      food_restrictions: asStringArray(asObject(safe.nutrition).food_restrictions),
+      food_allergies: asStringArray(asObject(safe.nutrition).food_allergies),
+      preferences: asStringArray(asObject(safe.nutrition).preferences),
+      recipes_refs: asStringArray(asObject(safe.nutrition).recipes_refs),
+    },
+    fitness: {
+      ...asObject(safe.fitness),
+      experience_level: typeof asObject(safe.fitness).experience_level === "string" ? asObject(safe.fitness).experience_level : "",
+      injuries_limitations: asStringArray(asObject(safe.fitness).injuries_limitations),
+      equipment_access: asStringArray(asObject(safe.fitness).equipment_access),
+    },
+    goals: {
+      ...asObject(safe.goals),
+      diet_goals: asStringArray(asObject(safe.goals).diet_goals),
+      fitness_goals: asStringArray(asObject(safe.goals).fitness_goals),
+      health_goals: asStringArray(asObject(safe.goals).health_goals),
+    },
+    behavior: {
+      ...asObject(safe.behavior),
+      motivation_barriers: asStringArray(asObject(safe.behavior).motivation_barriers),
+      adherence_triggers: asStringArray(asObject(safe.behavior).adherence_triggers),
+    },
+    modules: {
+      ...safeModules,
+      trans_care: transCare,
+    },
+    assistant_preferences: {
+      ...asObject(safe.assistant_preferences),
+      tone: typeof asObject(safe.assistant_preferences).tone === "string" ? asObject(safe.assistant_preferences).tone : "supportive",
+      verbosity:
+        typeof asObject(safe.assistant_preferences).verbosity === "string"
+          ? asObject(safe.assistant_preferences).verbosity
+          : "concise",
+    },
+    metadata: {
+      ...asObject(safe.metadata),
+      updated_at: typeof asObject(safe.metadata).updated_at === "string" ? asObject(safe.metadata).updated_at : null,
+      settings_version: Number.isInteger(asObject(safe.metadata).settings_version)
+        ? asObject(safe.metadata).settings_version
+        : 1,
+    },
+  };
+}
+
+function getTransitionContextFromUserProfile(userProfile) {
+  return asObject(asObject(asObject(userProfile).modules).trans_care);
+}
+
+function normalizeProfileDataPayload(data) {
+  if (!data || typeof data !== "object") return data;
+
+  const legacyTransitionContext = asObject(data.transition_context);
+  const userProfile = normalizeUserProfile(data.user_profile, {
+    fallbackTransitionContext: legacyTransitionContext,
+  });
+  const transitionFromProfile = getTransitionContextFromUserProfile(userProfile);
+
+  data.user_profile = userProfile;
+  data.transition_context = Object.keys(transitionFromProfile).length
+    ? transitionFromProfile
+    : legacyTransitionContext;
+  return data;
+}
+
 function normalizeChecklistCategory(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -124,12 +227,50 @@ function normalizeFitnessWeekShape(value, { requireWeekStart = true } = {}) {
   };
 
   const categoryOrder = getFitnessCategoryKeys(week);
+  const labelsRaw = asObject(week.category_labels);
+  const categoryLabels = {};
   for (const key of categoryOrder) {
     normalized[key] = normalizeChecklistCategory(week[key]);
+    const label = typeof labelsRaw[key] === "string" ? labelsRaw[key].trim() : "";
+    if (label) categoryLabels[key] = label;
   }
   if (categoryOrder.length) normalized.category_order = categoryOrder;
+  if (Object.keys(categoryLabels).length) normalized.category_labels = categoryLabels;
 
   return normalized;
+}
+
+function normalizeChecklistTemplate(value) {
+  const safe = asObject(value);
+  const categoryOrder = Array.isArray(safe.category_order)
+    ? safe.category_order.filter((key) => typeof key === "string" && key.trim())
+    : [];
+  if (!categoryOrder.length) return null;
+
+  const labelsRaw = asObject(safe.category_labels);
+  const out = {
+    category_order: [],
+    category_labels: {},
+  };
+
+  for (const keyRaw of categoryOrder) {
+    const key = keyRaw.trim();
+    if (!key || out.category_order.includes(key)) continue;
+    const list = Array.isArray(safe[key]) ? safe[key] : [];
+    const items = list
+      .map((entry) => (typeof entry?.item === "string" ? entry.item.trim() : ""))
+      .filter(Boolean)
+      .map((item) => ({ item }));
+    if (!items.length) continue;
+    out.category_order.push(key);
+    out[key] = items;
+    const label = typeof labelsRaw[key] === "string" ? labelsRaw[key].trim() : "";
+    if (label) out.category_labels[key] = label;
+  }
+
+  if (!out.category_order.length) return null;
+  if (!Object.keys(out.category_labels).length) delete out.category_labels;
+  return out;
 }
 
 function sanitizeActivityDataPayload(data) {
@@ -141,6 +282,12 @@ function sanitizeActivityDataPayload(data) {
   data.fitness_weeks = fitnessWeeks
     .map((week) => normalizeFitnessWeekShape(week, { requireWeekStart: true }))
     .filter(Boolean);
+
+  const metadata = asObject(data.metadata);
+  const template = normalizeChecklistTemplate(metadata.checklist_template);
+  if (template) metadata.checklist_template = template;
+  else delete metadata.checklist_template;
+  data.metadata = metadata;
 
   return data;
 }
@@ -205,6 +352,7 @@ function splitTrackingData(data) {
     diet_philosophy,
     fitness_philosophy,
     transition_context,
+    user_profile,
     ...rest
   } = data ?? {};
 
@@ -230,6 +378,7 @@ function splitTrackingData(data) {
     },
     profile: {
       transition_context: transition_context && typeof transition_context === "object" ? transition_context : {},
+      user_profile: user_profile && typeof user_profile === "object" ? user_profile : {},
     },
     rules: {
       metadata: rulesMeta,
@@ -296,6 +445,7 @@ async function ensureSplitFiles() {
         diet_philosophy: {},
         fitness_philosophy: {},
         transition_context: {},
+        user_profile: {},
       }),
     );
     return;
@@ -314,6 +464,7 @@ export async function readTrackingData() {
       ...asObject(localRules),
     };
     sanitizeActivityDataPayload(merged);
+    normalizeProfileDataPayload(merged);
     return merged;
   }
 
@@ -321,6 +472,7 @@ export async function readTrackingData() {
     const raw = await fs.readFile(LEGACY_TRACKING_FILE, "utf8");
     const parsed = asObject(JSON.parse(raw));
     sanitizeActivityDataPayload(parsed);
+    normalizeProfileDataPayload(parsed);
     return parsed;
   }
   await ensureSplitFiles();
@@ -332,12 +484,14 @@ export async function readTrackingData() {
   ]);
   const merged = mergeTrackingData({ food, activity, profile, rules });
   sanitizeActivityDataPayload(merged);
+  normalizeProfileDataPayload(merged);
   return merged;
 }
 
 export async function writeTrackingData(data) {
   const payload = asObject(data);
   sanitizeActivityDataPayload(payload);
+  normalizeProfileDataPayload(payload);
 
   if (USE_POSTGRES_BACKEND) {
     await writeTrackingDataPostgres(payload);
@@ -370,8 +524,11 @@ function ensureCurrentWeekInData(data, now = new Date()) {
     data.fitness_weeks.push(prevCurrent);
   }
 
-  const template = asObject(prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {});
+  const metadata = asObject(data.metadata);
+  const persistedTemplate = normalizeChecklistTemplate(metadata.checklist_template);
+  const template = asObject(persistedTemplate ?? prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {});
   const categoryOrder = getFitnessCategoryKeys(template);
+  const templateLabels = asObject(template.category_labels);
   const resetCategory = (key) => {
     const arr = Array.isArray(template[key]) ? template[key] : [];
     return arr
@@ -392,6 +549,7 @@ function ensureCurrentWeekInData(data, now = new Date()) {
     nextWeek[key] = resetCategory(key);
   }
   if (categoryOrder.length) nextWeek.category_order = categoryOrder;
+  if (Object.keys(templateLabels).length) nextWeek.category_labels = templateLabels;
 
   data.current_week = nextWeek;
 

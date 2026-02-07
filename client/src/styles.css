@@ -98,6 +98,7 @@ a {
 
 .appNavbarSideRight {
   margin-left: auto;
+  gap: 8px;
 }
 
 .appNavbarTitle {
@@ -114,6 +115,29 @@ a {
 
 .accountMenu {
   position: relative;
+}
+
+.navbarIconButton {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  display: inline-grid;
+  place-items: center;
+}
+
+.settingsIcon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.navbarIconButton:hover:not(:disabled),
+.navbarIconButton.active {
+  background: color-mix(in srgb, var(--chat-bubble) 24%, transparent);
 }
 
 .accountMenuTrigger {
@@ -1347,4 +1371,51 @@ ul {
   font-style: italic;
   color: var(--muted);
   white-space: pre-wrap;
+}
+
+.settingsSection + .settingsSection {
+  margin-top: 20px;
+}
+
+.settingsMeta {
+  display: grid;
+  gap: 8px;
+}
+
+.settingsRow {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.settingsLabel {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.settingsConfirmRow {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settingsQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--composer-border);
+  background: color-mix(in srgb, var(--chat-bg) 90%, transparent);
+}
+
+.settingsQuickButton {
+  white-space: nowrap;
+}
+
+.settingsComposerBar {
+  border-top: none;
 }

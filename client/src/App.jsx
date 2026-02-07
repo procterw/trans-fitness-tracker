@@ -7,8 +7,10 @@ import {
   getFitnessHistory,
   getFoodForDate,
   getFoodLog,
+  confirmSettingsChanges,
   ingestAssistant,
   rollupFoodForDate,
+  settingsChat,
   syncFoodForDate,
   updateFitnessItem,
 } from "./api.js";
@@ -25,6 +27,7 @@ import SidebarView from "./views/SidebarView.jsx";
 import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
+import SettingsView from "./views/SettingsView.jsx";
 
 function useDebouncedKeyedCallback(fn, ms) {
   const fnRef = useRef(fn);
@@ -76,6 +79,9 @@ export default function App() {
   const foodFileInputRef = useRef(null);
   const composerInputRef = useRef(null);
   const chatMessagesRef = useRef(null);
+  const settingsFormRef = useRef(null);
+  const settingsInputRef = useRef(null);
+  const settingsMessagesRef = useRef(null);
 
   // Chat view state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
@@ -85,6 +91,11 @@ export default function App() {
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerMessages, setComposerMessages] = useState([]);
   const composerMessageIdRef = useRef(0);
+  const [settingsInput, setSettingsInput] = useState("");
+  const [settingsMessages, setSettingsMessages] = useState([]);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsError, setSettingsError] = useState("");
+  const settingsMessageIdRef = useRef(0);
   const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
   const [sidebarDayStatus, setSidebarDayStatus] = useState("");
   const [sidebarDayError, setSidebarDayError] = useState("");
@@ -273,9 +284,21 @@ export default function App() {
   }, [composerMessages, composerLoading]);
 
   useEffect(() => {
+    const el = settingsMessagesRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [settingsMessages, settingsLoading]);
+
+  useEffect(() => {
     if (composerLoading) return;
     composerInputRef.current?.focus();
   }, [composerLoading]);
+
+  useEffect(() => {
+    if (view !== "settings") return;
+    if (settingsLoading) return;
+    settingsInputRef.current?.focus();
+  }, [settingsLoading, view]);
 
   useEffect(() => {
     if (signedOut) return;
@@ -415,6 +438,149 @@ export default function App() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  };
+
+  const sendSettingsMessage = async (rawMessage) => {
+    if (settingsLoading) return;
+    setSettingsError("");
+
+    const messageText = typeof rawMessage === "string" ? rawMessage.trim() : "";
+    if (!messageText) {
+      setSettingsError("Type a settings request.");
+      return;
+    }
+
+    setSettingsLoading(true);
+    const previous = settingsMessages;
+
+    settingsMessageIdRef.current += 1;
+    const userMessage = {
+      id: settingsMessageIdRef.current,
+      role: "user",
+      content: messageText,
+      format: "plain",
+    };
+    setSettingsMessages((prev) => [...prev, userMessage]);
+    if (messageText === settingsInput.trim()) {
+      setSettingsInput("");
+    }
+    requestAnimationFrame(() => autosizeComposerTextarea(settingsInputRef.current));
+
+    try {
+      const json = await settingsChat({ message: messageText, messages: previous });
+      const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
+      const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
+      const normalizeForCompare = (text) =>
+        String(text || "")
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .replace(/[?.!]+$/g, "")
+          .trim();
+      const isDuplicateFollowup =
+        Boolean(assistantText && followupText) &&
+        normalizeForCompare(assistantText) === normalizeForCompare(followupText);
+
+      if (assistantText) {
+        settingsMessageIdRef.current += 1;
+        setSettingsMessages((prev) => [
+          ...prev,
+          {
+            id: settingsMessageIdRef.current,
+            role: "assistant",
+            content: assistantText,
+            format: "markdown",
+            requiresConfirmation: Boolean(json?.requires_confirmation),
+            proposalId: json?.proposal_id ?? null,
+            proposal: json?.proposal ?? null,
+          },
+        ]);
+      }
+
+      if (followupText && !isDuplicateFollowup) {
+        settingsMessageIdRef.current += 1;
+        setSettingsMessages((prev) => [
+          ...prev,
+          {
+            id: settingsMessageIdRef.current,
+            role: "assistant",
+            content: followupText,
+            format: "plain",
+          },
+        ]);
+      }
+
+      if (json?.updated?.current_week) {
+        setFitnessWeek(json.updated.current_week);
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const onSubmitSettings = async (e) => {
+    e.preventDefault();
+    await sendSettingsMessage(settingsInput);
+  };
+
+  const onQuickSettingsPrompt = async (prompt) => {
+    await sendSettingsMessage(prompt);
+  };
+
+  const onConfirmSettingsProposal = async (messageId, applyMode = "now") => {
+    if (settingsLoading) return;
+    setSettingsError("");
+
+    const target = settingsMessages.find((msg) => msg.id === messageId);
+    const proposal = target?.proposal ?? null;
+    if (!proposal) return;
+
+    setSettingsLoading(true);
+    try {
+      const json = await confirmSettingsChanges({ proposal, applyMode });
+
+      setSettingsMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                requiresConfirmation: false,
+                proposal: null,
+                proposalId: null,
+              }
+            : msg,
+        ),
+      );
+
+      if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
+        settingsMessageIdRef.current += 1;
+        const versionLabel =
+          typeof json?.settings_version === "number" ? ` (settings v${json.settings_version})` : "";
+        const effectiveLabel =
+          typeof json?.effective_from === "string" && json.effective_from
+            ? ` Effective: ${json.effective_from}.`
+            : "";
+        setSettingsMessages((prev) => [
+          ...prev,
+          {
+            id: settingsMessageIdRef.current,
+            role: "assistant",
+            content: `✓ ${json.changes_applied.join(" ")}${versionLabel}.${effectiveLabel}`,
+            format: "plain",
+            tone: "status",
+          },
+        ]);
+      }
+
+      if (json?.updated?.current_week) {
+        setFitnessWeek(json.updated.current_week);
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsLoading(false);
+    }
   };
 
   const enqueueFitnessSave = useSerialQueue();
@@ -598,6 +764,8 @@ export default function App() {
       <main className="mainColumn">
         <AppNavbar
           title="🍑 Get fit and hot"
+          activeView={view}
+          onChangeView={setView}
           authEnabled={authEnabled}
           authSession={authSession}
           authStatus={authStatus}
@@ -658,6 +826,23 @@ export default function App() {
             onRollupDash={onRollupDash}
             onPickDashDateFromAllDays={onPickDashDateFromAllDays}
             fmt={fmt}
+          />
+        ) : null}
+
+        {view === "settings" ? (
+          <SettingsView
+            settingsMessagesRef={settingsMessagesRef}
+            settingsFormRef={settingsFormRef}
+            settingsInputRef={settingsInputRef}
+            settingsMessages={settingsMessages}
+            settingsInput={settingsInput}
+            settingsLoading={settingsLoading}
+            settingsError={settingsError}
+            onSubmitSettings={onSubmitSettings}
+            onConfirmSettingsProposal={onConfirmSettingsProposal}
+            onQuickSettingsPrompt={onQuickSettingsPrompt}
+            onSettingsInputChange={setSettingsInput}
+            onSettingsInputAutoSize={autosizeComposerTextarea}
           />
         ) : null}
       </main>

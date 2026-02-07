@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
-import { getFitnessCategories } from "./fitnessChecklist.js";
+import { getFitnessCategories, getFitnessCategoryLabel, getFitnessCategoryKeys } from "./fitnessChecklist.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import {
   ensureCurrentWeek,
@@ -79,6 +79,22 @@ const DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS = [
   "Do not invent missing data. If data is missing, say so briefly in day_fit_summary.",
 ];
 
+const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
+  "You are a settings assistant for a health and fitness tracker.",
+  "The user can update their checklist template, diet goals, fitness goals, and profile context.",
+  "Always return JSON matching the schema.",
+  "If the request is unclear, keep changes as null and ask one concise follow-up question.",
+  "Use minimal patches: include only fields that should change.",
+  "For user_profile_patch, transition_context_patch, diet_philosophy_patch, and fitness_philosophy_patch: return either null or a valid JSON object string.",
+  "Prefer user_profile_patch for profile updates. Use transition_context_patch only for legacy compatibility.",
+  "Never include markdown code fences in assistant_message.",
+  "For checklist edits, return the full desired checklist_categories array when making checklist changes.",
+  "Checklist category keys should be short snake_case strings.",
+  "Checklist item strings should be concise and action-oriented.",
+  "If the user asks a pure question (no settings change), provide guidance and keep all changes null.",
+  "If the user asks to view/show/list their current goals, rules, checklist, or profile settings, include a followup_question asking if they want to make any changes.",
+];
+
 function normalizeInstructionList(value, fallback) {
   if (!Array.isArray(value)) return fallback;
   const cleaned = value
@@ -125,6 +141,30 @@ const MealEntryResponseSchema = z.object({
 
 const MealEntryResponseFormat = zodTextFormat(MealEntryResponseSchema, "meal_entry_response");
 
+const JsonPatchStringSchema = z.string().nullable();
+
+const SettingsChecklistCategorySchema = z.object({
+  key: z.string().min(1),
+  label: z.string().nullable(),
+  items: z.array(z.string().min(1)),
+});
+
+const SettingsChangesSchema = z.object({
+  user_profile_patch: JsonPatchStringSchema,
+  transition_context_patch: JsonPatchStringSchema,
+  diet_philosophy_patch: JsonPatchStringSchema,
+  fitness_philosophy_patch: JsonPatchStringSchema,
+  checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
+});
+
+const SettingsAssistantResponseSchema = z.object({
+  assistant_message: z.string(),
+  followup_question: z.string().nullable(),
+  changes: SettingsChangesSchema,
+});
+
+const SettingsAssistantResponseFormat = zodTextFormat(SettingsAssistantResponseSchema, "settings_assistant_response");
+
 function buildChecklistSnapshot(currentWeek) {
   return getFitnessCategories(currentWeek).map((category) => ({
     key: category.key,
@@ -134,6 +174,21 @@ function buildChecklistSnapshot(currentWeek) {
       label: typeof item?.item === "string" ? item.item : "",
     })),
   }));
+}
+
+function buildChecklistTemplateSnapshot(currentWeek) {
+  const safeWeek = currentWeek && typeof currentWeek === "object" ? currentWeek : {};
+  const keys = getFitnessCategoryKeys(safeWeek);
+  return keys.map((key) => {
+    const list = Array.isArray(safeWeek[key]) ? safeWeek[key] : [];
+    return {
+      key,
+      label: getFitnessCategoryLabel(safeWeek, key),
+      items: list
+        .map((item) => (typeof item?.item === "string" ? item.item.trim() : ""))
+        .filter(Boolean),
+    };
+  });
 }
 
 export async function decideIngestAction({ message, hasImage = false, date = null, messages = [] }) {
@@ -317,5 +372,154 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     nutrition_summary: cleanRichText(parsed.nutrition_summary),
     day_fit_summary: cleanRichText(parsed.day_fit_summary),
     followup_question: followup || null,
+  };
+}
+
+function normalizeSettingsPatch(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSettingsCategories(value) {
+  if (!Array.isArray(value)) return null;
+  const cleaned = value
+    .map((entry) => {
+      const key = typeof entry?.key === "string" ? entry.key.trim() : "";
+      if (!key) return null;
+      const labelRaw = typeof entry?.label === "string" ? entry.label.trim() : "";
+      const items = Array.isArray(entry?.items)
+        ? entry.items
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter(Boolean)
+        : [];
+      if (!items.length) return null;
+      return {
+        key,
+        label: labelRaw || null,
+        items,
+      };
+    })
+    .filter(Boolean);
+  return cleaned.length ? cleaned : null;
+}
+
+function messageLooksLikeSettingsReadRequest(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return false;
+
+  const asksToView = /(show|see|list|view|display|what are|what's|current)/.test(text);
+  const settingsTopic =
+    /(diet|nutrition|rules?|goals?|checklist|fitness|profile|settings)/.test(text);
+  return asksToView && settingsTopic;
+}
+
+function messageLooksLikeChecklistReadRequest(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return false;
+  const asksToView = /(show|see|list|view|display|what are|what's|current)/.test(text);
+  const checklistTopic = /(checklist|workout checklist|activity checklist|routine)/.test(text);
+  return asksToView && checklistTopic;
+}
+
+function formatChecklistTemplateMarkdown(checklistTemplate) {
+  const categories = Array.isArray(checklistTemplate) ? checklistTemplate : [];
+  if (!categories.length) return "I don't have a checklist template yet.";
+
+  const lines = ["Here is your current workout checklist structure:"];
+  for (const category of categories) {
+    const label = typeof category?.label === "string" && category.label.trim() ? category.label.trim() : category?.key || "Category";
+    lines.push(`- **${label}**`);
+    const items = Array.isArray(category?.items) ? category.items : [];
+    if (!items.length) {
+      lines.push("  - [ ] (no items)");
+      continue;
+    }
+    for (const item of items) {
+      const itemText = typeof item === "string" ? item.trim() : "";
+      if (!itemText) continue;
+      lines.push(`  - [ ] ${itemText}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+export async function askSettingsAssistant({ message, messages = [] }) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+
+  await ensureCurrentWeek();
+  const tracking = await readTrackingData();
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: tracking.user_profile ?? null,
+    transition_context: tracking.transition_context ?? null,
+    diet_philosophy: tracking.diet_philosophy ?? null,
+    fitness_philosophy: tracking.fitness_philosophy ?? null,
+    checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
+  };
+
+  const system = readAssistantRuleInstructions(
+    tracking,
+    "settings_assistant",
+    DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
+  ).join(" ");
+
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `Settings context JSON:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+  input.push({ role: "user", content: typeof message === "string" ? message.trim() : "" });
+
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format: SettingsAssistantResponseFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed settings output.");
+
+  const changes = {
+    user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
+    transition_context_patch: normalizeSettingsPatch(parsed?.changes?.transition_context_patch),
+    diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
+    fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
+    checklist_categories: normalizeSettingsCategories(parsed?.changes?.checklist_categories),
+  };
+
+  const hasChanges = Boolean(
+    changes.user_profile_patch ||
+    changes.transition_context_patch ||
+      changes.diet_philosophy_patch ||
+      changes.fitness_philosophy_patch ||
+      changes.checklist_categories,
+  );
+
+  let assistantMessage = cleanRichText(parsed.assistant_message);
+  if (!hasChanges && messageLooksLikeChecklistReadRequest(message)) {
+    assistantMessage = formatChecklistTemplateMarkdown(context.checklist_template);
+  }
+
+  let followupQuestion = cleanText(parsed.followup_question ?? "") || null;
+  if (!hasChanges && !followupQuestion && messageLooksLikeSettingsReadRequest(message)) {
+    followupQuestion = "Would you like me to make any changes to these settings?";
+  }
+
+  return {
+    assistant_message: assistantMessage,
+    followup_question: followupQuestion,
+    changes,
   };
 }

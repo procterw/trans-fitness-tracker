@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-07T09:45:48-08:00",
+    "last_updated": "2026-02-07T12:12:20-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json (legacy)",
@@ -111,52 +111,92 @@
       "activity": "tracking-activity.json",
       "profile": "tracking-profile.json",
       "rules": "tracking-rules.json"
-    }
-  },
-  "assistant_rules": {
-    "ingest_classifier": {
-      "instructions": [
-        "You classify a user's message for a health & fitness tracker.",
-        "The user has a single input box that can be used to log food, log an activity, or ask a question.",
-        "Choose exactly one intent: food, activity, question, or clarify.",
-        "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
-        "If there is an attached image and no clear question, prefer intent=food.",
-        "For activity intent, select one or more checklist items using the provided category + index.",
-        "If multiple activities are mentioned, return multiple selections.",
-        "For activity details, standardize to minutes and optional intensity.",
-        "If duration is unknown, set duration_min to null. If intensity is not mentioned, set it to null.",
-        "Put any remaining specifics (distance, location, modifiers) into notes.",
-        "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
-        "Return only the JSON that matches the provided schema."
+    },
+    "checklist_template": {
+      "category_order": [
+        "cardio",
+        "strength",
+        "mobility",
+        "other"
+      ],
+      "category_labels": {
+        "cardio": "Cardio",
+        "strength": "Strength",
+        "mobility": "Mobility",
+        "other": "Other"
+      },
+      "cardio": [
+        {
+          "item": "Quality run"
+        },
+        {
+          "item": "Long aerobic"
+        },
+        {
+          "item": "Bike / cross-training"
+        },
+        {
+          "item": "Easy aerobic #1"
+        },
+        {
+          "item": "Easy aerobic #2"
+        },
+        {
+          "item": "Recovery / very easy #1"
+        },
+        {
+          "item": "Recovery / very easy #2"
+        },
+        {
+          "item": "Timing: protect glute recovery"
+        }
+      ],
+      "strength": [
+        {
+          "item": "Glutes — hard"
+        },
+        {
+          "item": "Glutes — easy"
+        },
+        {
+          "item": "Glute med micro-dose (10–15 min)"
+        },
+        {
+          "item": "Extra glutes (outlier)"
+        }
+      ],
+      "mobility": [
+        {
+          "item": "Mobility micro-dose #1 (10 min)"
+        },
+        {
+          "item": "Mobility micro-dose #2 (10 min)"
+        }
+      ],
+      "other": [
+        {
+          "item": "Rock climbing"
+        },
+        {
+          "item": "Ballet #1"
+        },
+        {
+          "item": "Ballet #2"
+        }
       ]
     },
-    "qa_assistant": {
-      "instructions": [
-        "You are a helpful assistant for a personal health & fitness tracker.",
-        "The user is tracking trans feminization goals with a calm-surplus diet and endurance-biased fitness.",
-        "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
-        "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
-        "When referencing numbers, use the units as shown (kcal, g, mg).",
-        "Be concise and supportive; prefer short actionable next steps."
-      ]
-    },
-    "meal_entry_response": {
-      "instructions": [
-        "You write the assistant response immediately after a meal entry is logged.",
-        "Return only JSON matching the schema.",
-        "The final chat response supports markdown.",
-        "Do not literally repeat or quote the user's raw meal description text.",
-        "Use bold markdown for food names and gram/portion amounts when available, for example **salmon (120 g)**.",
-        "confirmation: clearly confirm the entry was logged (date/source). Keep it concise.",
-        "nutrition_summary: use a short markdown bullet list with calories and macros (carbs, fat, protein) and fiber for both the logged meal and current day totals.",
-        "day_fit_summary: briefly explain how this fits into the day using available goals, activity context, and what else has been eaten.",
-        "nutrition_summary and day_fit_summary must read as separate paragraphs in the final message.",
-        "Tone must be helpful, concise, and non-judgmental.",
-        "Set followup_question only if one specific answer is required to materially improve nutrition accuracy.",
-        "Do not ask routine or optional follow-up questions; if accuracy would not meaningfully change, set followup_question to null.",
-        "Do not invent missing data. If data is missing, say so briefly in day_fit_summary."
-      ]
-    }
+    "settings_version": 1,
+    "settings_history": [
+      {
+        "version": 1,
+        "applied_at": "2026-02-07T12:12:20-08:00",
+        "effective_from": "2026-02-07",
+        "checklist_apply_mode": "now",
+        "domains": [
+          "checklist_template"
+        ]
+      }
+    ]
   },
   "diet_philosophy": {
     "goals": [
@@ -278,5 +318,50 @@
       "Mental health: routine, non-punitive rules, not tying self-worth to metrics",
       "Hormonal environment: adequate energy, dietary fat, avoiding chronic stress"
     ]
+  },
+  "assistant_rules": {
+    "ingest_classifier": {
+      "instructions": [
+        "You classify a user's message for a health & fitness tracker.",
+        "The user has a single input box that can be used to log food, log an activity, or ask a question.",
+        "Choose exactly one intent: food, activity, question, or clarify.",
+        "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
+        "If there is an attached image and no clear question, prefer intent=food.",
+        "For activity intent, select one or more checklist items using the provided category + index.",
+        "If multiple activities are mentioned, return multiple selections.",
+        "For activity details, standardize to minutes and optional intensity.",
+        "If duration is unknown, set duration_min to null. If intensity is not mentioned, set it to null.",
+        "Put any remaining specifics (distance, location, modifiers) into notes.",
+        "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
+        "Return only the JSON that matches the provided schema."
+      ]
+    },
+    "qa_assistant": {
+      "instructions": [
+        "You are a helpful assistant for a personal health & fitness tracker.",
+        "The user is tracking trans feminization goals with a calm-surplus diet and endurance-biased fitness.",
+        "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
+        "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
+        "When referencing numbers, use the units as shown (kcal, g, mg).",
+        "Be concise and supportive; prefer short actionable next steps."
+      ]
+    },
+    "meal_entry_response": {
+      "instructions": [
+        "You write the assistant response immediately after a meal entry is logged.",
+        "Return only JSON matching the schema.",
+        "The final chat response supports markdown.",
+        "Do not literally repeat or quote the user's raw meal description text.",
+        "Use bold markdown for food names and gram/portion amounts when available, for example **salmon (120 g)**.",
+        "confirmation: clearly confirm the entry was logged (date/source). Keep it concise.",
+        "nutrition_summary: use a short markdown bullet list with calories and macros (carbs, fat, protein) and fiber for both the logged meal and current day totals.",
+        "day_fit_summary: briefly explain how this fits into the day using available goals, activity context, and what else has been eaten.",
+        "nutrition_summary and day_fit_summary must read as separate paragraphs in the final message.",
+        "Tone must be helpful, concise, and non-judgmental.",
+        "Set followup_question only if one specific answer is required to materially improve nutrition accuracy.",
+        "Do not ask routine or optional follow-up questions; if accuracy would not meaningfully change, set followup_question to null.",
+        "Do not invent missing data. If data is missing, say so briefly in day_fit_summary."
+      ]
+    }
   }
 }

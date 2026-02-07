@@ -15,7 +15,7 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `food_log` + `food_events`
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
-- `tracking-profile.json` — `transition_context` (user profile)
+- `tracking-profile.json` — `user_profile` (generic profile) + legacy `transition_context` mirror
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (local parsing/prompt configuration)
 
 `tracking-data.json` is treated as a legacy single-file format (still readable if configured), but new writes go to the split files by default.
@@ -44,6 +44,7 @@ This repo includes a minimal local web app that supports:
 - Asking questions in-app (OpenAI assistant, contextualized by the split tracking files)
 - A unified chat-style input that routes food/activity/questions via GPT‑5.2
 - Weekly fitness checklist updates (`current_week`)
+- Settings chat for editing profile context, checklist template, and diet/fitness philosophy
 - A basic dashboard for browsing:
   - food events + daily totals for a selected date
   - a full `food_log` table across all days (including each day’s notes)
@@ -96,6 +97,16 @@ This repo includes a minimal local web app that supports:
   - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)
 - `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
   - GPT‑5.2 decides if the input is food, activity, or a question; logs the result or answers/clarifies
+- `POST /api/settings/chat` → JSON body: `message` + optional `messages`
+  - GPT‑5.2 settings assistant that can answer settings questions and propose structured updates to:
+    - `user_profile` (generic profile)
+    - `transition_context` (profile)
+    - `diet_philosophy` and `fitness_philosophy` (goals/philosophy)
+    - `current_week` checklist categories/items template
+  - Returns `requires_confirmation` + proposal payload when high-impact changes are requested
+- `POST /api/settings/confirm` → JSON body: `proposal` + optional `apply_mode` (`"now"` or `"next_week"`)
+  - Applies a previously proposed settings change with explicit user confirmation
+  - Checklist changes can be applied immediately or staged for next week rollover
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format
@@ -123,7 +134,7 @@ Implementation: `src/visionNutrition.js`
 ## File layout
 - `tracking-food.json` — food events + daily food log
 - `tracking-activity.json` — weekly fitness checklist data
-- `tracking-profile.json` — user profile / transition context
+- `tracking-profile.json` — generic user profile + legacy transition-context mirror
 - `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules
 - `tracking-data.json` — legacy single-file tracking data (optional)
 - `src/server.js` — Express server (API + serves React)
