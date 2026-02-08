@@ -15,10 +15,12 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `food_log` + `food_events`
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
-- `tracking-profile.json` — `user_profile` (generic profile) + legacy `transition_context` mirror
+- `tracking-profile.json` — `user_profile` (generic profile)
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (local parsing/prompt configuration)
 
 `tracking-data.json` is treated as a legacy single-file format (still readable if configured), but new writes go to the split files by default.
+
+To backfill existing profile payloads into the generic shape and remove legacy keys, run `npm run migrate:profile` (idempotent). This migrates both `tracking-profile.json` and legacy `tracking-data.json` (if present).
 
 `tracking-rules.json` is always local-file backed (including when `TRACKING_BACKEND=postgres`).
 
@@ -100,7 +102,6 @@ This repo includes a minimal local web app that supports:
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
   - GPT‑5.2 settings assistant that can answer settings questions and propose structured updates to:
     - `user_profile` (generic profile)
-    - `transition_context` (profile)
     - `diet_philosophy` and `fitness_philosophy` (goals/philosophy)
     - `current_week` checklist categories/items template
   - Returns `requires_confirmation` + proposal payload when high-impact changes are requested

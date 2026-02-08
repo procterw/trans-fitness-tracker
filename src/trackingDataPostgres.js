@@ -62,30 +62,10 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function isMissingColumnError(error, columnName) {
-  if (!error) return false;
-  const code = String(error.code || "");
-  const msg = String(error.message || "").toLowerCase();
-  return code === "42703" || (msg.includes("column") && msg.includes(columnName.toLowerCase()) && msg.includes("does not exist"));
-}
-
-function getTransitionContextFromUserProfile(userProfile) {
-  return asObject(asObject(asObject(userProfile).modules).trans_care);
-}
-
 async function fetchUserProfileRow({ client, userId }) {
-  const preferred = await client
-    .from("user_profiles")
-    .select("user_id,user_profile,transition_context,updated_at")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!preferred.error) return preferred;
-  if (!isMissingColumnError(preferred.error, "user_profile")) return preferred;
-
   return client
     .from("user_profiles")
-    .select("user_id,transition_context,updated_at")
+    .select("user_id,user_profile,updated_at")
     .eq("user_id", userId)
     .maybeSingle();
 }
@@ -264,10 +244,6 @@ export async function readTrackingDataPostgres() {
     food_events: foodEventsRows.map(mapFoodEventFromRow),
     current_week: mapCurrentWeekFromRow(fitnessCurrentResult.data),
     fitness_weeks: fitnessWeeksRows.map(mapFitnessWeekFromRow),
-    transition_context:
-      profileResult.data?.transition_context && typeof profileResult.data.transition_context === "object"
-        ? profileResult.data.transition_context
-        : {},
     user_profile:
       profileResult.data?.user_profile && typeof profileResult.data.user_profile === "object"
         ? profileResult.data.user_profile
@@ -344,30 +320,13 @@ export async function writeTrackingDataPostgres(data) {
 
   const currentWeek = data?.current_week && typeof data.current_week === "object" ? data.current_week : null;
   const userProfile = data?.user_profile && typeof data.user_profile === "object" ? data.user_profile : {};
-  const transitionContextRaw =
-    data?.transition_context && typeof data.transition_context === "object" ? data.transition_context : {};
-  const transitionContext = Object.keys(transitionContextRaw).length
-    ? transitionContextRaw
-    : getTransitionContextFromUserProfile(userProfile);
-
-  const profilePayloadWithUserProfile = {
+  const profilePayload = {
     user_id: userId,
     user_profile: userProfile,
-    transition_context: transitionContext,
     updated_at: new Date().toISOString(),
   };
 
-  let profileResult = await client.from("user_profiles").upsert(profilePayloadWithUserProfile, { onConflict: "user_id" });
-  if (isMissingColumnError(profileResult.error, "user_profile")) {
-    profileResult = await client.from("user_profiles").upsert(
-      {
-        user_id: userId,
-        transition_context: transitionContext,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
-  }
+  const profileResult = await client.from("user_profiles").upsert(profilePayload, { onConflict: "user_id" });
   assertNoError("upsert user_profiles", profileResult.error);
 
   if (currentWeek && currentWeek.week_start) {

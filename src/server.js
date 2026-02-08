@@ -389,7 +389,6 @@ function extractChecklistTemplate(week) {
 function hasPendingSettingsChanges(changes) {
   return Boolean(
     changes?.user_profile_patch ||
-    changes?.transition_context_patch ||
       changes?.diet_philosophy_patch ||
       changes?.fitness_philosophy_patch ||
       changes?.checklist_categories,
@@ -400,7 +399,6 @@ function isValidSettingsProposal(value) {
   if (!isPlainObject(value)) return false;
   const keys = [
     "user_profile_patch",
-    "transition_context_patch",
     "diet_philosophy_patch",
     "fitness_philosophy_patch",
     "checklist_categories",
@@ -409,7 +407,6 @@ function isValidSettingsProposal(value) {
     if (!keys.includes(key)) return false;
   }
   if (value.user_profile_patch !== null && value.user_profile_patch !== undefined && !isPlainObject(value.user_profile_patch)) return false;
-  if (value.transition_context_patch !== null && value.transition_context_patch !== undefined && !isPlainObject(value.transition_context_patch)) return false;
   if (value.diet_philosophy_patch !== null && value.diet_philosophy_patch !== undefined && !isPlainObject(value.diet_philosophy_patch)) return false;
   if (value.fitness_philosophy_patch !== null && value.fitness_philosophy_patch !== undefined && !isPlainObject(value.fitness_philosophy_patch)) return false;
   if (value.checklist_categories !== null && value.checklist_categories !== undefined && !Array.isArray(value.checklist_categories)) return false;
@@ -429,14 +426,6 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
     changesApplied.push("Updated generic user profile.");
   }
 
-  if (proposal.transition_context_patch) {
-    const nextTransitionContext = mergeObjectPatch(data.transition_context ?? {}, proposal.transition_context_patch);
-    data.transition_context = nextTransitionContext;
-    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, {
-      modules: { trans_care: nextTransitionContext },
-    });
-    changesApplied.push("Updated user profile context.");
-  }
   if (proposal.diet_philosophy_patch) {
     data.diet_philosophy = mergeObjectPatch(data.diet_philosophy ?? {}, proposal.diet_philosophy_patch);
     changesApplied.push("Updated diet goals/philosophy.");
@@ -472,7 +461,6 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
     const nextVersion = currentVersion + 1;
     const domains = [];
     if (proposal.user_profile_patch) domains.push("user_profile");
-    if (proposal.transition_context_patch) domains.push("transition_context");
     if (proposal.diet_philosophy_patch) domains.push("diet_philosophy");
     if (proposal.fitness_philosophy_patch) domains.push("fitness_philosophy");
     if (proposal.checklist_categories) domains.push("checklist_template");
@@ -494,7 +482,6 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
       updated: {
         current_week: data.current_week ?? null,
         user_profile: data.user_profile ?? null,
-        transition_context: data.transition_context ?? null,
         diet_philosophy: data.diet_philosophy ?? null,
         fitness_philosophy: data.fitness_philosophy ?? null,
       },

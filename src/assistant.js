@@ -27,6 +27,48 @@ function pickTransitionContext(ctx) {
   };
 }
 
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function pickUserProfileSummary(profile) {
+  const userProfile = asObject(profile);
+  const general = asObject(userProfile.general);
+  const goals = asObject(userProfile.goals);
+  const behavior = asObject(userProfile.behavior);
+  const medical = asObject(userProfile.medical);
+  const cycle = asObject(medical.cycle_hormonal_context);
+  const transContext = asObject(asObject(userProfile.modules).trans_care);
+
+  return {
+    general: {
+      age: typeof general.age === "number" ? general.age : null,
+      height_cm: typeof general.height_cm === "number" ? general.height_cm : null,
+      weight_lb_baseline: typeof general.weight_lb_baseline === "number" ? general.weight_lb_baseline : null,
+      timezone: typeof general.timezone === "string" ? general.timezone : null,
+    },
+    goals: {
+      diet_goals: Array.isArray(goals.diet_goals) ? goals.diet_goals : [],
+      fitness_goals: Array.isArray(goals.fitness_goals) ? goals.fitness_goals : [],
+      health_goals: Array.isArray(goals.health_goals) ? goals.health_goals : [],
+    },
+    behavior: {
+      motivation_barriers: Array.isArray(behavior.motivation_barriers) ? behavior.motivation_barriers : [],
+      adherence_triggers: Array.isArray(behavior.adherence_triggers) ? behavior.adherence_triggers : [],
+    },
+    cycle_hormonal_context: {
+      relevant: cycle.relevant === true,
+      context_type: typeof cycle.context_type === "string" ? cycle.context_type : "",
+      phase_or_cycle_day: typeof cycle.phase_or_cycle_day === "string" ? cycle.phase_or_cycle_day : null,
+      symptom_patterns: Array.isArray(cycle.symptom_patterns) ? cycle.symptom_patterns : [],
+      training_nutrition_adjustments: Array.isArray(cycle.training_nutrition_adjustments)
+        ? cycle.training_nutrition_adjustments
+        : [],
+    },
+    trans_care: Object.keys(transContext).length ? pickTransitionContext(transContext) : null,
+  };
+}
+
 function sanitizeMessages(messages) {
   const safe = [];
   for (const m of messages) {
@@ -56,7 +98,8 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
 
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a helpful assistant for a personal health & fitness tracker.",
-  "The user is tracking trans feminization goals with a calm-surplus diet and endurance-biased fitness.",
+  "Use the user_profile context as primary for personalization. Not all users are trans, so avoid assumptions.",
+  "If trans_care context exists, incorporate it; otherwise stay generic.",
   "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
   "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
   "When referencing numbers, use the units as shown (kcal, g, mg).",
@@ -85,8 +128,8 @@ const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "Always return JSON matching the schema.",
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
   "Use minimal patches: include only fields that should change.",
-  "For user_profile_patch, transition_context_patch, diet_philosophy_patch, and fitness_philosophy_patch: return either null or a valid JSON object string.",
-  "Prefer user_profile_patch for profile updates. Use transition_context_patch only for legacy compatibility.",
+  "For user_profile_patch, diet_philosophy_patch, and fitness_philosophy_patch: return either null or a valid JSON object string.",
+  "Use user_profile_patch for profile updates.",
   "Never include markdown code fences in assistant_message.",
   "For checklist edits, return the full desired checklist_categories array when making checklist changes.",
   "Checklist category keys should be short snake_case strings.",
@@ -151,7 +194,6 @@ const SettingsChecklistCategorySchema = z.object({
 
 const SettingsChangesSchema = z.object({
   user_profile_patch: JsonPatchStringSchema,
-  transition_context_patch: JsonPatchStringSchema,
   diet_philosophy_patch: JsonPatchStringSchema,
   fitness_philosophy_patch: JsonPatchStringSchema,
   checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
@@ -248,13 +290,12 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     getDailyFoodEventTotals(selectedDate),
     listFoodLog({ limit: 14 }),
   ]);
-
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
+    user_profile: pickUserProfileSummary(tracking.user_profile),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
-    transition_context: pickTransitionContext(tracking.transition_context),
     food_log_for_date: foodLogRow,
     food_events_for_date: eventsForDate,
     day_totals_from_events: totalsForDate,
@@ -309,13 +350,12 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     getDailyFoodEventTotals(selectedDate),
     listFoodLog({ limit: 14 }),
   ]);
-
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
+    user_profile: pickUserProfileSummary(tracking.user_profile),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
-    transition_context: pickTransitionContext(tracking.transition_context),
     current_week: tracking.current_week ?? null,
     food_log_for_date: foodLogRow,
     food_events_for_date: eventsForDate,
@@ -461,7 +501,6 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     user_profile: tracking.user_profile ?? null,
-    transition_context: tracking.transition_context ?? null,
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
     checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
@@ -493,7 +532,6 @@ export async function askSettingsAssistant({ message, messages = [] }) {
 
   const changes = {
     user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
-    transition_context_patch: normalizeSettingsPatch(parsed?.changes?.transition_context_patch),
     diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
     fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
     checklist_categories: normalizeSettingsCategories(parsed?.changes?.checklist_categories),
@@ -501,7 +539,6 @@ export async function askSettingsAssistant({ message, messages = [] }) {
 
   const hasChanges = Boolean(
     changes.user_profile_patch ||
-    changes.transition_context_patch ||
       changes.diet_philosophy_patch ||
       changes.fitness_philosophy_patch ||
       changes.checklist_categories,

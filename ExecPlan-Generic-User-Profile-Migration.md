@@ -1,4 +1,4 @@
-# Generic User Profile Migration (Phase 1)
+# Generic User Profile Migration (Phase 1 + Phase 2)
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
@@ -6,7 +6,7 @@ This repository includes `PLANS.md` at the root, and this document is maintained
 
 ## Purpose / Big Picture
 
-After this phase, profile storage supports a generic `user_profile` object while preserving compatibility with existing `transition_context` readers and data. This allows non-trans users to have a neutral profile shape while keeping trans-specific data in an optional module. Existing endpoints and assistant behavior continue to work.
+After these phases, profile storage is fully `user_profile`-first and no longer keeps `transition_context` in active app contracts. This allows non-trans users to have a neutral profile shape while keeping trans-specific data in an optional module (`user_profile.modules.trans_care`) without carrying a parallel legacy field.
 
 ## Progress
 
@@ -15,6 +15,13 @@ After this phase, profile storage supports a generic `user_profile` object while
 - [x] (2026-02-07 20:43Z) Added Postgres schema/data access support for `user_profile` with fallback when the DB column is not yet present.
 - [x] (2026-02-07 20:43Z) Extended settings assistant/confirm pipeline to accept `user_profile_patch` while preserving legacy `transition_context_patch`.
 - [x] (2026-02-07 20:43Z) Updated project docs and validated syntax/build checks.
+- [x] (2026-02-07 20:49Z) Updated assistant QA/meal context to prefer generic `user_profile` summary with optional `trans_care` module fallback.
+- [x] (2026-02-07 20:49Z) Added and ran one-time `migrate:profile` script to write `user_profile` into `tracking-profile.json`.
+- [x] (2026-02-07 21:03Z) Removed top-level `transition_context` from model-facing assistant contexts (QA, meal response, settings chat) while keeping server-side legacy patch compatibility.
+- [x] (2026-02-07 21:18Z) Removed server-side legacy `transition_context` compatibility from settings apply/validation and Postgres/JSON persistence paths; data migration now drops legacy field.
+- [x] (2026-02-07 21:31Z) Removed runtime transition-context fallback shim from `src/trackingData.js`; migration handling is now explicit via migration script/SQL only.
+- [x] (2026-02-07 21:31Z) Extended `migrate:profile` to migrate both `tracking-profile.json` and legacy `tracking-data.json`.
+- [x] (2026-02-07 21:43Z) Cleaned `supabase/schema.sql` to the `user_profile` steady-state by removing the one-time `transition_context` migration block after successful apply.
 
 ## Surprises & Discoveries
 
@@ -42,9 +49,25 @@ After this phase, profile storage supports a generic `user_profile` object while
   Rationale: Allows staged rollout where code can deploy before SQL migration is applied.
   Date/Author: 2026-02-07 / Codex
 
+- Decision: Stop sending top-level `transition_context` in assistant prompt context; keep only `user_profile` (with optional `modules.trans_care`).
+  Rationale: Keeps user-facing prompts generic and avoids surfacing legacy shape while preserving backend compatibility.
+  Date/Author: 2026-02-07 / Codex
+
+- Decision: Remove `transition_context` compatibility entirely from active runtime contracts.
+  Rationale: User explicitly confirmed backward compatibility is not required; removing the parallel field reduces schema complexity and duplicate patch paths.
+  Date/Author: 2026-02-07 / Codex
+
+- Decision: Keep legacy `transition_context` handling only in explicit migration paths (script + SQL), not in runtime normalization.
+  Rationale: Avoid hidden compatibility logic in production code while still providing a safe one-time upgrade path.
+  Date/Author: 2026-02-07 / Codex
+
+- Decision: After successful migration in target DB, remove one-time `transition_context` SQL migration block from `supabase/schema.sql`.
+  Rationale: Keeps the checked-in schema as a clean steady-state definition for new environments.
+  Date/Author: 2026-02-07 / Codex
+
 ## Outcomes & Retrospective
 
-Phase 1 migration is implemented. The app now supports generic `user_profile` storage while preserving legacy `transition_context` compatibility in both JSON and Postgres backends. Settings chat can apply `user_profile_patch` proposals, and transition-context patches are mirrored into `user_profile.modules.trans_care`. This creates a safe base for subsequent phases that move assistant prompting and UI fully to generic profile semantics.
+Phase 1 and Phase 2 are implemented. The app now uses `user_profile` as the only active profile contract in assistant prompt context, settings proposals, and persistence writes. Existing legacy `transition_context` values are migrated into `user_profile.modules.trans_care` through explicit migration paths and then removed from active JSON and Postgres flows.
 
 ## Context and Orientation
 
@@ -56,15 +79,15 @@ Key files:
 - `src/assistant.js`: settings assistant structured output schema.
 - `src/server.js`: settings proposal validation and apply logic.
 
-The migration is additive in Phase 1: add `user_profile`, keep `transition_context` available.
+The migration now includes a deprecation pass: migrate legacy context into `user_profile` and remove `transition_context` from active contracts.
 
 ## Plan of Work
 
 Implement normalization helper(s) that guarantee a generic `user_profile` with default sections (`general`, `medical`, `nutrition`, `fitness`, `goals`, `behavior`, `modules`, `assistant_preferences`, `metadata`) and ensure `modules.trans_care` mirrors legacy trans context when present.
 
-Update read/write code so both JSON and Postgres paths return both fields (`user_profile`, `transition_context`) for compatibility. For Postgres, add `user_profile` column in schema and handle fallback when the column does not yet exist.
+Update read/write code so JSON and Postgres paths persist `user_profile` only. For existing datasets, map legacy `transition_context` to `user_profile.modules.trans_care` during migration and drop the legacy key/column.
 
-Extend settings schema and apply logic to accept and apply `user_profile_patch` in addition to legacy `transition_context_patch`.
+Use `user_profile_patch` as the only profile patch field in settings assistant flow.
 
 ## Concrete Steps
 
@@ -86,14 +109,14 @@ From repo root:
 
 Acceptance criteria:
 
-- `readTrackingData()` returns a generic `user_profile` object and still provides `transition_context` for compatibility.
+- `readTrackingData()` returns a generic `user_profile` object and does not expose `transition_context`.
 - Settings endpoint accepts `user_profile_patch` and persists updates.
-- Existing transition-context based behavior remains functional.
+- Existing legacy `transition_context` data is migrated into `user_profile.modules.trans_care` and no longer actively used.
 - Build/syntax checks pass.
 
 ## Idempotence and Recovery
 
-All schema and code changes are additive. Applying SQL migration repeatedly is safe (`if not exists`). If rollback is needed, code can continue using legacy `transition_context` while ignoring `user_profile`.
+Schema/data migration remains idempotent: repeated runs keep `user_profile` populated and do not reintroduce `transition_context`.
 
 ## Artifacts and Notes
 
@@ -114,4 +137,4 @@ New DB column:
 
 ---
 
-Plan revision note: Updated this plan after implementation to reflect completed migration steps, decisions, and validation outcomes.
+Plan revision note: Updated this plan after implementation to reflect completed migration steps, decisions, validation outcomes, the prompt-context cleanup, and the final removal of runtime `transition_context` compatibility per user direction.

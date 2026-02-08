@@ -114,12 +114,10 @@ function normalizeCycleHormonalContext(value) {
   };
 }
 
-function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
+function normalizeUserProfile(value) {
   const safe = asObject(value);
   const safeModules = asObject(safe.modules);
   const transFromProfile = asObject(safeModules.trans_care);
-  const fallbackTrans = asObject(fallbackTransitionContext);
-  const transCare = Object.keys(transFromProfile).length ? transFromProfile : fallbackTrans;
 
   return {
     ...safe,
@@ -159,7 +157,7 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
     },
     modules: {
       ...safeModules,
-      trans_care: transCare,
+      trans_care: transFromProfile,
     },
     assistant_preferences: {
       ...asObject(safe.assistant_preferences),
@@ -179,23 +177,12 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
   };
 }
 
-function getTransitionContextFromUserProfile(userProfile) {
-  return asObject(asObject(asObject(userProfile).modules).trans_care);
-}
-
 function normalizeProfileDataPayload(data) {
   if (!data || typeof data !== "object") return data;
 
-  const legacyTransitionContext = asObject(data.transition_context);
-  const userProfile = normalizeUserProfile(data.user_profile, {
-    fallbackTransitionContext: legacyTransitionContext,
-  });
-  const transitionFromProfile = getTransitionContextFromUserProfile(userProfile);
-
+  const userProfile = normalizeUserProfile(data.user_profile);
   data.user_profile = userProfile;
-  data.transition_context = Object.keys(transitionFromProfile).length
-    ? transitionFromProfile
-    : legacyTransitionContext;
+  delete data.transition_context;
   return data;
 }
 
@@ -351,7 +338,6 @@ function splitTrackingData(data) {
     fitness_weeks,
     diet_philosophy,
     fitness_philosophy,
-    transition_context,
     user_profile,
     ...rest
   } = data ?? {};
@@ -377,7 +363,6 @@ function splitTrackingData(data) {
       fitness_weeks: Array.isArray(fitness_weeks) ? fitness_weeks : [],
     },
     profile: {
-      transition_context: transition_context && typeof transition_context === "object" ? transition_context : {},
       user_profile: user_profile && typeof user_profile === "object" ? user_profile : {},
     },
     rules: {
@@ -444,7 +429,6 @@ async function ensureSplitFiles() {
         fitness_weeks: [],
         diet_philosophy: {},
         fitness_philosophy: {},
-        transition_context: {},
         user_profile: {},
       }),
     );
@@ -452,6 +436,7 @@ async function ensureSplitFiles() {
   }
 
   const legacyData = await readJsonOrDefault(LEGACY_TRACKING_FILE, {});
+  normalizeProfileDataPayload(legacyData);
   const split = splitTrackingData(legacyData);
   await writeSplitFiles(split);
 }

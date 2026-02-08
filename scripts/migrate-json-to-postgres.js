@@ -224,6 +224,23 @@ function mapFitnessWeekRow(userId, row) {
   };
 }
 
+function mapUserProfile(profileData) {
+  const safe = asObject(profileData);
+  const userProfile = asObject(safe.user_profile);
+  const modules = asObject(userProfile.modules);
+  const transCare = asObject(modules.trans_care);
+  const legacyTrans = asObject(safe.transition_context);
+  const effectiveTransCare = Object.keys(transCare).length ? transCare : legacyTrans;
+
+  return {
+    ...userProfile,
+    modules: {
+      ...modules,
+      trans_care: effectiveTransCare,
+    },
+  };
+}
+
 async function main() {
   const supabaseUrl = requireEnv("SUPABASE_URL");
   const serviceRoleKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -242,13 +259,13 @@ async function main() {
     readJsonOrDefault(TRACKING_PROFILE_FILE, {}),
   ]);
 
-  const transitionContext = asObject(profileData.transition_context);
+  const userProfile = mapUserProfile(profileData);
   const currentWeek = asObject(activityData.current_week);
 
   const profileUpsert = await client.from("user_profiles").upsert(
     {
       user_id: userId,
-      transition_context: transitionContext,
+      user_profile: userProfile,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },

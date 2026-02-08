@@ -36,3 +36,8 @@ Backfill existing local JSON data into Postgres:
 1. Set `TRACKING_DEFAULT_USER_ID` (or pass `USER_ID=...` inline).
 2. Run `npm run migrate:postgres`.
 3. Re-run the same command safely; it is idempotent.
+
+Migrate local profile payloads to include generic `user_profile` and remove legacy `transition_context`:
+1. Run `npm run migrate:profile`.
+2. Re-run safely; it is idempotent.
+   This migrates `tracking-profile.json` and (if present) legacy `tracking-data.json`.

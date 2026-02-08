@@ -145,19 +145,11 @@ end $$;
 create table if not exists public.user_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   user_profile jsonb not null default '{}'::jsonb,
-  transition_context jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
 
 alter table public.user_profiles add column if not exists user_profile jsonb not null default '{}'::jsonb;
 
-update public.user_profiles
-set user_profile = jsonb_build_object(
-  'schema_version', 1,
-  'modules', jsonb_build_object('trans_care', coalesce(transition_context, '{}'::jsonb))
-)
-where coalesce(user_profile, '{}'::jsonb) = '{}'::jsonb
-  and coalesce(transition_context, '{}'::jsonb) <> '{}'::jsonb;
 -- Global assistant/rules configuration remains local in tracking-rules.json.
 
 -- RLS

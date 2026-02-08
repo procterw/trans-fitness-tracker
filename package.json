@@ -6,7 +6,8 @@
     "dev": "node --watch-path=src src/server.js",
     "build": "vite build --config client/vite.config.js",
     "start": "NODE_ENV=production node src/server.js",
-    "migrate:postgres": "node scripts/migrate-json-to-postgres.js"
+    "migrate:postgres": "node scripts/migrate-json-to-postgres.js",
+    "migrate:profile": "node scripts/migrate-profile-to-user-profile.js"
   },
   "keywords": [],
   "author": "",
