@@ -10,15 +10,15 @@ export default function ChatView({
   foodFormRef,
   foodFileInputRef,
   composerInputRef,
-  foodFile,
+  foodAttachments,
   foodDate,
   composerInput,
   onSubmitFood,
-  onPickFoodFile,
+  onPickFoodFiles,
+  onRemoveFoodAttachment,
   onFoodDateChange,
   onComposerInputChange,
   onComposerInputAutoSize,
-  onClearFoodFile,
 }) {
   return (
     <section className="chatPanel">
@@ -30,6 +30,19 @@ export default function ChatView({
                 key={m.id ?? idx}
                 className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
               >
+                {Array.isArray(m.attachments) && m.attachments.length ? (
+                  <div className="chatAttachmentRow" aria-label="Attached photos">
+                    {m.attachments.map((attachment) => (
+                      <figure key={attachment.id ?? attachment.previewUrl ?? attachment.name} className="chatAttachmentCard">
+                        <img
+                          src={attachment.previewUrl}
+                          alt={attachment.name || "Attached photo"}
+                          className="chatAttachmentImage"
+                        />
+                      </figure>
+                    ))}
+                  </div>
+                ) : null}
                 <div
                   className={`chatContent ${
                     m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
@@ -59,16 +72,36 @@ export default function ChatView({
             ref={foodFileInputRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden composerFileInput"
             hidden
-            onChange={(e) => onPickFoodFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => onPickFoodFiles(e.target.files)}
           />
+
+          {foodAttachments.length ? (
+            <div className="composerPreviewRow" aria-label="Selected photos">
+              {foodAttachments.map((attachment) => (
+                <div key={attachment.id} className="composerPreviewCard">
+                  <img src={attachment.previewUrl} alt={attachment.name || "Selected photo"} className="composerPreviewImage" />
+                  <button
+                    type="button"
+                    className="composerPreviewRemove"
+                    aria-label={`Remove ${attachment.name || "photo"}`}
+                    onClick={() => onRemoveFoodAttachment(attachment.id)}
+                    disabled={composerLoading}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <div className="composerBar" aria-label="Unified input">
             <button
               type="button"
               className="iconButton"
-              aria-label={foodFile ? "Change photo" : "Add photo"}
+              aria-label={foodAttachments.length ? "Add more photos" : "Add photo"}
               onClick={() => foodFileInputRef.current?.click()}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -133,27 +166,6 @@ export default function ChatView({
                 />
               </svg>
             </button>
-          </div>
-
-          <div className="composerMetaRow">
-            <div className="composerMetaLeft">
-              {foodFile ? (
-                <span className="filePill" title={foodFile.name}>
-                  <span className="filePillLabel">Photo:</span> {foodFile.name}
-                  <button
-                    type="button"
-                    className="filePillRemove"
-                    aria-label="Remove photo"
-                    onClick={onClearFoodFile}
-                    disabled={composerLoading}
-                  >
-                    ×
-                  </button>
-                </span>
-              ) : null}
-            </div>
-
-            <div className="composerMetaRight" />
           </div>
 
           {composerError ? (

@@ -79,6 +79,8 @@ export default function App() {
   const foodFileInputRef = useRef(null);
   const composerInputRef = useRef(null);
   const chatMessagesRef = useRef(null);
+  const composerAttachmentIdRef = useRef(0);
+  const previewUrlsRef = useRef(new Set());
   const settingsFormRef = useRef(null);
   const settingsInputRef = useRef(null);
   const settingsMessagesRef = useRef(null);
@@ -86,7 +88,7 @@ export default function App() {
   // Chat view state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
   const [composerInput, setComposerInput] = useState("");
-  const [foodFile, setFoodFile] = useState(null);
+  const [foodAttachments, setFoodAttachments] = useState([]);
   const [composerError, setComposerError] = useState("");
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerMessages, setComposerMessages] = useState([]);
@@ -290,6 +292,13 @@ export default function App() {
   }, [settingsMessages, settingsLoading]);
 
   useEffect(() => {
+    return () => {
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     if (composerLoading) return;
     composerInputRef.current?.focus();
   }, [composerLoading]);
@@ -350,18 +359,26 @@ export default function App() {
     setComposerError("");
 
     const messageText = composerInput.trim();
-    if (!foodFile && !messageText) {
+    if (!foodAttachments.length && !messageText) {
       setComposerError("Type a message or add a photo.");
       return;
     }
 
     setComposerLoading(true);
     const previous = composerMessages;
+    const attachmentCopies = foodAttachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      previewUrl: attachment.previewUrl,
+    }));
     composerMessageIdRef.current += 1;
+    const photoLabel =
+      attachmentCopies.length > 1 ? `📷 ${attachmentCopies.length} photos attached.` : "📷 Photo attached.";
     const userMessage = {
       id: composerMessageIdRef.current,
       role: "user",
-      content: messageText || (foodFile ? "📷 Photo attached." : ""),
+      content: messageText || (attachmentCopies.length ? photoLabel : ""),
+      attachments: attachmentCopies,
       format: "plain",
     };
     setComposerMessages((prev) => [...prev, userMessage]);
@@ -373,7 +390,7 @@ export default function App() {
     try {
       const json = await ingestAssistant({
         message: messageText,
-        file: foodFile,
+        file: foodAttachments[0]?.file ?? null,
         date: foodDate,
         messages: previous,
       });
@@ -414,7 +431,7 @@ export default function App() {
         setComposerMessages((prev) => [...prev, ...assistantMessages]);
       }
 
-      clearFoodFile();
+      clearFoodAttachments({ revoke: false });
       const summaryDate = json?.food_result?.date || foodDate;
       if (summaryDate) loadSidebarDaySummary(summaryDate);
     } catch (e2) {
@@ -424,12 +441,58 @@ export default function App() {
     }
   };
 
-  const onPickFoodFile = (file) => {
-    setFoodFile(file ?? null);
+  const onPickFoodFiles = (files) => {
+    const list = Array.from(files || []).filter((file) => file && file.type?.startsWith("image/"));
+    if (!list.length) return;
+    setFoodAttachments((prev) => [
+      ...prev,
+      ...list.map((file) => {
+        const previewUrl = URL.createObjectURL(file);
+        previewUrlsRef.current.add(previewUrl);
+        composerAttachmentIdRef.current += 1;
+        return {
+          id: composerAttachmentIdRef.current,
+          name: file.name || "photo",
+          file,
+          previewUrl,
+        };
+      }),
+    ]);
+    const input = foodFileInputRef.current;
+    if (input) input.value = "";
   };
 
-  const clearFoodFile = () => {
-    setFoodFile(null);
+  const removeFoodAttachment = (attachmentId) => {
+    setFoodAttachments((prev) => {
+      const next = [];
+      for (const attachment of prev) {
+        if (attachment.id !== attachmentId) {
+          next.push(attachment);
+          continue;
+        }
+        if (attachment.previewUrl) {
+          URL.revokeObjectURL(attachment.previewUrl);
+          previewUrlsRef.current.delete(attachment.previewUrl);
+        }
+      }
+      return next;
+    });
+    const input = foodFileInputRef.current;
+    if (input) input.value = "";
+  };
+
+  const clearFoodAttachments = ({ revoke = true } = {}) => {
+    setFoodAttachments((prev) => {
+      if (revoke) {
+        for (const attachment of prev) {
+          if (attachment.previewUrl) {
+            URL.revokeObjectURL(attachment.previewUrl);
+            previewUrlsRef.current.delete(attachment.previewUrl);
+          }
+        }
+      }
+      return [];
+    });
     const input = foodFileInputRef.current;
     if (input) input.value = "";
   };
@@ -783,15 +846,15 @@ export default function App() {
             foodFormRef={foodFormRef}
             foodFileInputRef={foodFileInputRef}
             composerInputRef={composerInputRef}
-            foodFile={foodFile}
+            foodAttachments={foodAttachments}
             foodDate={foodDate}
             composerInput={composerInput}
             onSubmitFood={onSubmitFood}
-            onPickFoodFile={onPickFoodFile}
+            onPickFoodFiles={onPickFoodFiles}
+            onRemoveFoodAttachment={removeFoodAttachment}
             onFoodDateChange={setFoodDate}
             onComposerInputChange={setComposerInput}
             onComposerInputAutoSize={autosizeComposerTextarea}
-            onClearFoodFile={clearFoodFile}
           />
         ) : null}
 
