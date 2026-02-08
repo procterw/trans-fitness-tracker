@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { askAssistant, askSettingsAssistant, composeMealEntryResponse, decideIngestAction } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
 import { getFitnessCategoryKeys, resolveFitnessCategoryKey, toFitnessCategoryLabel } from "./fitnessChecklist.js";
+import { generateWeeklyFitnessSummary } from "./fitnessSummary.js";
 import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
@@ -248,6 +249,13 @@ function summarizeActivityUpdates(updates) {
   if (!updates.length) return "Logged activity.";
   const parts = updates.map((u) => (u.details ? `${u.label} (${u.details})` : u.label));
   return `Logged activity: ${parts.join("; ")}.`;
+}
+
+async function refreshCurrentWeekSummaryForActivity(currentWeek) {
+  const summary = generateWeeklyFitnessSummary(currentWeek);
+  const previous = typeof currentWeek?.summary === "string" ? currentWeek.summary.trim() : "";
+  if (summary.trim() === previous) return currentWeek;
+  return updateCurrentWeekSummary(summary);
 }
 
 function isExistingActivityEntry(currentWeek, update) {
@@ -692,7 +700,8 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       }));
       const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
 
-      await updateCurrentWeekItems(updates);
+      const updatedWeek = await updateCurrentWeekItems(updates);
+      const summarizedWeek = await refreshCurrentWeekSummaryForActivity(updatedWeek);
 
       return res.json({
         ok: true,
@@ -702,6 +711,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         followup_question: decision?.activity?.followup_question ?? null,
         food_result: null,
         activity_updates: resolved,
+        current_week: summarizedWeek,
         answer: null,
       });
     }
@@ -900,7 +910,8 @@ app.post("/api/fitness/current/item", async (req, res) => {
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
     const current = await updateCurrentWeekItem({ category, index, checked, details });
-    res.json({ ok: true, current_week: current });
+    const summarized = await refreshCurrentWeekSummaryForActivity(current);
+    res.json({ ok: true, current_week: summarized });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }

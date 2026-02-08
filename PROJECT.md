@@ -94,6 +94,7 @@ This repo includes a minimal local web app that supports:
   - Marks synced events with `applied_to_food_log: true` to avoid double counting
 - `GET /api/fitness/current` → current week checklist (rollover-aware)
 - `POST /api/fitness/current/item` → JSON body: `category` (any key present in the user’s current-week checklist), `index`, `checked`, `details`
+  - Recomputes `current_week.summary` after each activity change as a workout-only progress summary + rest-of-week plan (no diet guidance).
 - `POST /api/fitness/current/summary` → JSON body: `summary`
 - `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
   - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)

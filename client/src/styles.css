@@ -542,6 +542,26 @@ tr.selectedRow .linkButton {
   text-decoration-thickness: 3px;
 }
 
+.dietRecentTable,
+.dietHistoryTable {
+  font-size: 12px;
+}
+
+.dietRecentTable th,
+.dietRecentTable td,
+.dietHistoryTable th,
+.dietHistoryTable td {
+  padding: 5px 7px;
+}
+
+.dietRecentTable tr.dietDayToday td {
+  background: var(--chat-bg);
+}
+
+.dietRecentTable tr.dietDayOther td {
+  background: color-mix(in srgb, var(--border) 26%, transparent);
+}
+
 code {
   font-family: inherit;
 }
