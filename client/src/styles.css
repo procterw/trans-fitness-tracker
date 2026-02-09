@@ -129,6 +129,10 @@ a {
   place-items: center;
 }
 
+.mobileMenuButton {
+  display: none;
+}
+
 .settingsIcon {
   width: 18px;
   height: 18px;
@@ -240,9 +244,13 @@ a {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.sidebarBackdrop {
+  display: none;
 }
 
 .signedOutShell {
@@ -554,12 +562,19 @@ tr.selectedRow .linkButton {
   padding: 5px 7px;
 }
 
-.dietRecentTable tr.dietDayToday td {
-  background: var(--chat-bg);
+.dietTotalsRow td {
+  font-weight: 800;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.dietRecentTable tr.dietDayOther td {
-  background: color-mix(in srgb, var(--border) 26%, transparent);
+.dietTodaySummary {
+  margin-bottom: 30px;
+}
+
+.dietRecentSection .tableScroll {
+  margin-top: 12px;
 }
 
 code {
@@ -1423,22 +1438,89 @@ ul {
     gap: 8px;
   }
 
+  .mobileMenuButton {
+    display: inline-grid;
+  }
+
   .appShell {
     grid-template-columns: 1fr;
-    height: auto;
+    min-height: 100vh;
+    height: 100dvh;
+    position: relative;
   }
 
   .sidebar {
-    position: relative;
-    height: auto;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100dvh;
+    width: min(84vw, 320px);
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    z-index: 35;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+    padding-top: 54px;
+  }
+
+  .appShell.mobileNavOpen .sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebarTabs {
+    position: static;
+    border-bottom: none;
+  }
+
+  .sidebarCard {
+    display: none;
+  }
+
+  .sidebarBackdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    border: none;
+    background: rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    pointer-events: none;
+    display: block;
+    transition: opacity 180ms ease;
+  }
+
+  .appShell.mobileNavOpen .sidebarBackdrop {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .mainColumn {
     padding: 0;
-    height: auto;
-    overflow: visible;
+    min-height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .chatMessages {
+    padding: 16px 14px 12px;
+    gap: 14px;
+  }
+
+  .chatMsg.user {
+    max-width: 88%;
+  }
+
+  .composerBar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .composerInput {
+    min-width: 110px;
+  }
+
+  .composerDateInput {
+    max-width: 110px;
   }
 }
 
@@ -1455,12 +1537,42 @@ ul {
   margin: 0;
 }
 
+.workoutsCard,
+.dietCard {
+  display: flex;
+  flex-direction: column;
+}
+
+.workoutsWeeklySummarySection {
+  order: 1;
+}
+
+.workoutsChecklistSection {
+  order: 2;
+}
+
+.workoutsHistorySection {
+  order: 3;
+}
+
+.dietWeeklySummarySection {
+  order: 1;
+}
+
+.dietRecentSection {
+  order: 2;
+}
+
+.dietHistorySection {
+  order: 3;
+}
+
 
 .fitnessSummary {
   margin: 8px 0 0;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--card) 80%, white);
-  border-left: 3px solid var(--border);
+  background: color-mix(in srgb, var(--card) 95%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--border) 70%, transparent);
   font-size: 13px;
   font-style: italic;
   color: var(--muted);
@@ -1512,4 +1624,30 @@ ul {
 
 .settingsComposerBar {
   border-top: none;
+}
+
+@media (max-width: 1000px) {
+  .workoutsChecklistSection {
+    order: 1;
+  }
+
+  .workoutsWeeklySummarySection {
+    order: 2;
+  }
+
+  .workoutsHistorySection {
+    order: 3;
+  }
+
+  .dietRecentSection {
+    order: 1;
+  }
+
+  .dietWeeklySummarySection {
+    order: 2;
+  }
+
+  .dietHistorySection {
+    order: 3;
+  }
 }

@@ -139,7 +139,7 @@ export default function WorkoutsView({
 
   return (
     <div className="mainScroll">
-      <section className="card fitnessCard">
+      <section className="card fitnessCard workoutsCard">
         <h2>
           Workouts this week
           {fitnessWeek ? (
@@ -149,27 +149,31 @@ export default function WorkoutsView({
           ) : null}
         </h2>
 
-        <blockquote className="fitnessSummary">{fitnessWeek?.summary ? fitnessWeek.summary : "No summary yet."}</blockquote>
+        <section className="workoutsWeeklySummarySection">
+          <blockquote className="fitnessSummary">{fitnessWeek?.summary ? fitnessWeek.summary : "No summary yet."}</blockquote>
+        </section>
 
         {fitnessWeek ? (
           <>
-            {categories.length ? (
-              categories.map((category) => (
-                <FitnessCategory
-                  key={category.key}
-                  title={category.label}
-                  category={category.key}
-                  fitnessWeek={fitnessWeek}
-                  fitnessLoading={fitnessLoading}
-                  onToggleFitness={onToggleFitness}
-                  onEditFitnessDetails={onEditFitnessDetails}
-                />
-              ))
-            ) : (
-              <p className="muted">No checklist categories yet.</p>
-            )}
+            <section className="workoutsChecklistSection">
+              {categories.length ? (
+                categories.map((category) => (
+                  <FitnessCategory
+                    key={category.key}
+                    title={category.label}
+                    category={category.key}
+                    fitnessWeek={fitnessWeek}
+                    fitnessLoading={fitnessLoading}
+                    onToggleFitness={onToggleFitness}
+                    onEditFitnessDetails={onEditFitnessDetails}
+                  />
+                ))
+              ) : (
+                <p className="muted">No checklist categories yet.</p>
+              )}
+            </section>
 
-            <section className="fitnessHistory">
+            <section className="fitnessHistory workoutsHistorySection">
               <h3>History</h3>
               <div className="fitnessHistoryBody">
                 {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}

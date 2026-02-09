@@ -22,7 +22,7 @@ export default function SidebarView({
   const fitnessCategories = getFitnessCategories(fitnessWeek);
 
   return (
-    <aside className="sidebar">
+    <aside id="app-sidebar-nav" className="sidebar">
       <nav className="sidebarTabs" aria-label="Sections">
         <TabButton active={activeView === "chat"} onClick={() => onChangeView("chat")}>
           <span className="tabIcon" aria-hidden="true">

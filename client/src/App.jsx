@@ -73,6 +73,7 @@ function useSerialQueue() {
 
 export default function App() {
   const [view, setView] = useState("chat");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const [suggestedDate, setSuggestedDate] = useState("");
   const foodFormRef = useRef(null);
@@ -254,7 +255,7 @@ export default function App() {
     setDashRecentEventsLoading(true);
     setDashRecentEventsError("");
     try {
-      const dates = [0, -1, -2].map((offset) => addDaysIso(anchor, offset)).filter(Boolean);
+      const dates = [anchor];
       const perDay = await Promise.all(
         dates.map(async (date) => {
           const json = await getFoodForDate(date);
@@ -330,6 +331,22 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, signedOut, suggestedDate]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [view]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onEscape = (event) => {
+      if (event.key !== "Escape") return;
+      setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [mobileNavOpen]);
 
   useEffect(() => {
     if (signedOut) return;
@@ -989,10 +1006,13 @@ export default function App() {
   }
 
   return (
-    <div className="appShell">
+    <div className={`appShell ${mobileNavOpen ? "mobileNavOpen" : ""}`}>
       <SidebarView
         activeView={view}
-        onChangeView={setView}
+        onChangeView={(nextView) => {
+          setView(nextView);
+          setMobileNavOpen(false);
+        }}
         foodDate={foodDate}
         suggestedDate={suggestedDate}
         sidebarDayError={sidebarDayError}
@@ -1006,6 +1026,12 @@ export default function App() {
         fitnessWeek={fitnessWeek}
         fmt={fmt}
       />
+      <button
+        type="button"
+        className="sidebarBackdrop"
+        aria-label="Close navigation menu"
+        onClick={() => setMobileNavOpen(false)}
+      />
 
       <main className="mainColumn">
         <AppNavbar
@@ -1016,6 +1042,8 @@ export default function App() {
           authActionLoading={authActionLoading}
           onSignIn={onSignIn}
           onSignOut={onSignOut}
+          mobileNavOpen={mobileNavOpen}
+          onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
         />
 
         {view === "chat" ? (
@@ -1058,7 +1086,6 @@ export default function App() {
             dashRecentEventsLoading={dashRecentEventsLoading}
             dashRecentEventsError={dashRecentEventsError}
             dashFoodLogRows={dashFoodLogRows}
-            dietWeeklySummary={dietWeeklySummary}
             fmt={fmt}
           />
         ) : null}
