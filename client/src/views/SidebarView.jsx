@@ -42,6 +42,12 @@ export default function SidebarView({
           </span>
           <span>Diet</span>
         </TabButton>
+        <TabButton active={activeView === "settings"} onClick={() => onChangeView("settings")}>
+          <span className="tabIcon" aria-hidden="true">
+            ⚙️
+          </span>
+          <span>Settings</span>
+        </TabButton>
       </nav>
 
       <section className="sidebarCard">

@@ -43,7 +43,11 @@ export function onAuthStateChange(callback) {
 
 export async function signInWithGoogle() {
   if (!supabase) return { data: null, error: new Error("Supabase auth is not enabled.") };
-  return supabase.auth.signInWithOAuth({ provider: "google" });
+  const redirectTo = `${window.location.origin}/`;
+  return supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo },
+  });
 }
 
 export async function signOut() {

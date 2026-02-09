@@ -82,6 +82,7 @@ This repo includes a minimal local web app that supports:
   - optional `description` (if no image, required; if image is present, used as additional context)
   - optional `date` and `notes`
   - Appends a `food_events` entry and updates the matching `food_log` row (adds the meal totals)
+  - Recalculates `food_log.status` (on-track) and `food_log.healthy` with GPT‑5 after each added meal for that date
   - Returns the created event + the estimate + running totals for that date (from `food_events`) + updated `food_log` row
 - `POST /api/food/photo` → multipart upload (`image`) + optional `date`, `notes`, and `description` (legacy; still supported)
 - `POST /api/food/manual` → JSON body: `description` + optional `date` and `notes` (legacy; still supported)

@@ -1010,8 +1010,6 @@ export default function App() {
       <main className="mainColumn">
         <AppNavbar
           title="🍑 Get fit and hot"
-          activeView={view}
-          onChangeView={setView}
           authEnabled={authEnabled}
           authSession={authSession}
           authStatus={authStatus}
