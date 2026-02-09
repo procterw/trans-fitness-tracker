@@ -1581,7 +1581,13 @@ ul {
 
   .composerTopRow input.composerDateInput {
     padding: 0 10px;
-    line-height: 1;
+    line-height: 40px;
+    font-size: 16px;
+  }
+
+  .composerTopRow input.composerDateInput::-webkit-date-and-time-value {
+    min-height: 40px;
+    line-height: 40px;
   }
 
   .composerBottomRow {
@@ -1591,6 +1597,7 @@ ul {
 
   .composerInput {
     min-width: 0;
+    font-size: 16px;
   }
 
   .composerDateInput {
