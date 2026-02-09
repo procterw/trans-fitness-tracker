@@ -897,6 +897,25 @@ ul {
   border-top: none;
 }
 
+.composerTopRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composerBottomRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex: 1 1 280px;
+  min-width: 200px;
+}
+
+.composerBottomRow .composerInput {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .composerInput {
   flex: 1 1 220px;
   width: auto;
@@ -1501,6 +1520,11 @@ ul {
     overflow: hidden;
   }
 
+  .mainScroll {
+    padding-right: 0;
+    overflow-x: hidden;
+  }
+
   .chatMessages {
     padding: 16px 14px 12px;
     gap: 14px;
@@ -1513,14 +1537,56 @@ ul {
   .composerBar {
     padding: 8px 10px;
     gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .composerTopRow,
+  .composerBottomRow {
+    width: 100%;
+  }
+
+  .composerTopRow {
+    justify-content: flex-start;
   }
 
   .composerInput {
-    min-width: 110px;
+    min-width: 0;
   }
 
   .composerDateInput {
     max-width: 110px;
+  }
+
+  .fitnessHistory,
+  .fitnessHistoryBody,
+  .fitnessHistoryTableScroll {
+    max-width: 100%;
+  }
+
+  .fitnessHistoryTableScroll {
+    overflow-x: hidden;
+  }
+
+  .fitnessHistoryWeekCol,
+  .fitnessHistoryActivityCell {
+    position: static;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .fitnessHistoryTable {
+    table-layout: fixed;
+  }
+
+  .fitnessHistoryCell {
+    min-width: 0;
+  }
+
+  .fitnessHistoryTable th,
+  .fitnessHistoryTable td {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
