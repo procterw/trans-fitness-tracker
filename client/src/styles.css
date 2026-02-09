@@ -619,8 +619,8 @@ ul {
   flex-direction: column;
   gap: 18px;
   font-family: inherit;
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.45;
   max-width: 800px;
   margin: auto;
   width: 100%;
@@ -634,14 +634,18 @@ ul {
   width: 100%;
 }
 
+.chatMessages .chatMsg:last-of-type {
+  margin-bottom: 24px;
+}
+
 .chatMsg.user {
   align-self: flex-end;
   width: auto;
-  max-width: min(72%, 620px);
+  max-width: min(68%, 580px);
   background: var(--chat-bubble);
   border: 1px solid var(--chat-bubble-border);
-  border-radius: 18px;
-  padding: 12px 14px;
+  border-radius: 100px;
+  padding: 8px 14px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 
@@ -693,7 +697,7 @@ ul {
 
 .chatMsg.assistant.status .chatContent {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
   font-weight: 600;
   padding: 2px 0 2px 10px;
@@ -1541,10 +1545,12 @@ ul {
   .chatMessages {
     padding: 16px 14px 12px;
     gap: 14px;
+    font-size: 13px;
+    line-height: 1.35;
   }
 
   .chatMsg.user {
-    max-width: 88%;
+    max-width: 82%;
   }
 
   .composerBar {
