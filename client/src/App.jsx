@@ -1035,7 +1035,7 @@ export default function App() {
 
       <main className="mainColumn">
         <AppNavbar
-          title="🍑 Get fit and hot"
+          title="Get fit and hot"
           authEnabled={authEnabled}
           authSession={authSession}
           authStatus={authStatus}

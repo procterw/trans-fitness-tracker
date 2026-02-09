@@ -700,6 +700,19 @@ ul {
   font-style: italic;
 }
 
+.chatEmptyState {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.chatEmptyEmoji {
+  font-size: clamp(56px, 14vw, 104px);
+  line-height: 1;
+}
+
 .chatInlineCard {
   border: 1px solid var(--border);
   border-radius: 0;
@@ -1548,6 +1561,26 @@ ul {
 
   .composerTopRow {
     justify-content: flex-start;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+
+  .composerTopRow .iconButton,
+  .composerTopRow input.composerDateInput {
+    box-sizing: border-box;
+    height: 40px;
+    min-height: 40px;
+    margin: 0;
+  }
+
+  .composerTopRow input.composerDateInput {
+    padding: 0 10px;
+    line-height: 1;
+  }
+
+  .composerBottomRow {
+    flex: 0 0 auto;
+    min-width: 0;
   }
 
   .composerInput {

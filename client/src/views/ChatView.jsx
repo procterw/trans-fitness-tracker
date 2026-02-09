@@ -57,7 +57,11 @@ export default function ChatView({
               </div>
             ))
           ) : (
-            <div className="muted">No messages yet.</div>
+            <div className="chatEmptyState">
+              <span className="chatEmptyEmoji" role="img" aria-label="Peach">
+                🍑
+              </span>
+            </div>
           )}
 
           {composerLoading && !composerError ? (
