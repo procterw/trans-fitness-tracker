@@ -74,6 +74,8 @@ function useSerialQueue() {
 export default function App() {
   const [view, setView] = useState("chat");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isMobileViewport = () =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 1000px)").matches;
 
   const [suggestedDate, setSuggestedDate] = useState("");
   const foodFormRef = useRef(null);
@@ -404,6 +406,7 @@ export default function App() {
 
   useEffect(() => {
     if (composerLoading) return;
+    if (isMobileViewport()) return;
     composerInputRef.current?.focus();
   }, [composerLoading]);
 
@@ -448,6 +451,7 @@ export default function App() {
     if (composerLoading) return;
     const inputEl = composerInputRef.current;
     const wasFocused = document.activeElement === inputEl;
+    const mobileViewport = isMobileViewport();
     setComposerError("");
 
     const messageText = composerInput.trim();
@@ -476,8 +480,12 @@ export default function App() {
     setComposerMessages((prev) => [...prev, userMessage]);
     setComposerInput("");
     requestAnimationFrame(() => autosizeComposerTextarea(composerInputRef.current));
-    requestAnimationFrame(() => composerInputRef.current?.focus());
-    if (wasFocused) setTimeout(() => inputEl?.focus(), 0);
+    if (mobileViewport) {
+      inputEl?.blur();
+    } else {
+      requestAnimationFrame(() => composerInputRef.current?.focus());
+      if (wasFocused) setTimeout(() => inputEl?.focus(), 0);
+    }
 
     try {
       const json = await ingestAssistant({
@@ -620,7 +628,6 @@ export default function App() {
     if (messageText === settingsInput.trim()) {
       setSettingsInput("");
     }
-    requestAnimationFrame(() => autosizeComposerTextarea(settingsInputRef.current));
 
     try {
       const json = await settingsChat({ message: messageText, messages: previous });
@@ -1103,7 +1110,6 @@ export default function App() {
             onConfirmSettingsProposal={onConfirmSettingsProposal}
             onQuickSettingsPrompt={onQuickSettingsPrompt}
             onSettingsInputChange={setSettingsInput}
-            onSettingsInputAutoSize={autosizeComposerTextarea}
           />
         ) : null}
       </main>

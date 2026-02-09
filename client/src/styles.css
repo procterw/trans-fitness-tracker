@@ -1736,6 +1736,23 @@ ul {
 
 .settingsComposerBar {
   border-top: none;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.settingsComposerBar .composerInput {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settingsInputSingleLine {
+  height: 38px;
+  min-height: 38px;
+  padding: 0 10px;
+  line-height: 38px;
+  resize: none;
+  overflow: hidden;
 }
 
 @media (max-width: 1000px) {
@@ -1761,5 +1778,10 @@ ul {
 
   .dietHistorySection {
     order: 3;
+  }
+
+  .settingsComposerBar {
+    flex-direction: row;
+    align-items: center;
   }
 }

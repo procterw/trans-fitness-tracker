@@ -14,7 +14,6 @@ export default function SettingsView({
   onConfirmSettingsProposal,
   onQuickSettingsPrompt,
   onSettingsInputChange,
-  onSettingsInputAutoSize,
 }) {
   return (
     <section className="chatPanel">
@@ -112,13 +111,12 @@ export default function SettingsView({
           </div>
 
           <div className="composerBar settingsComposerBar" aria-label="Settings input">
-            <textarea
+            <input
               ref={settingsInputRef}
-              rows={1}
-              className="composerInput"
+              type="text"
+              className="composerInput settingsInputSingleLine"
               value={settingsInput}
               onChange={(e) => onSettingsInputChange(e.target.value)}
-              onInput={(e) => onSettingsInputAutoSize(e.currentTarget)}
               onKeyDown={(e) => {
                 if (e.key !== "Enter" || e.shiftKey) return;
                 if (settingsLoading) {
