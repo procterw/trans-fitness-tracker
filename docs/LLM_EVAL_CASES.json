@@ -1,0 +1,40 @@
+[
+  {
+    "id": "food_text_basic",
+    "message": "I ate oatmeal with berries and soy milk.",
+    "expected_intents": ["food"]
+  },
+  {
+    "id": "food_photo_basic",
+    "message": "",
+    "image": "samples/avocado-toast.png",
+    "expected_intents": ["food"]
+  },
+  {
+    "id": "food_vague_clarify",
+    "message": "had some stuff",
+    "expected_intents": ["clarify"]
+  },
+  {
+    "id": "activity_text_basic",
+    "message": "I did a 45 minute moderate run.",
+    "expected_intents": ["activity"]
+  },
+  {
+    "id": "activity_vague_clarify",
+    "message": "worked out",
+    "expected_intents": ["clarify"]
+  },
+  {
+    "id": "activity_photo_strava",
+    "message": "",
+    "image": "samples/strava-run.png",
+    "optional": true,
+    "expected_intents": ["activity", "clarify"]
+  },
+  {
+    "id": "question_basic",
+    "message": "What is my protein today?",
+    "expected_intents": ["question"]
+  }
+]

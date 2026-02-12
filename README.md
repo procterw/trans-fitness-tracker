@@ -18,6 +18,13 @@ Minimal local web app that:
 1. `npm run build`
 2. `npm start`
 
+## LLM Harness & Evals
+- Deterministic contracts (writes/updates/idempotency): `npm run test:harness`
+- Mocked ingest plumbing (including image payload wiring): `npm run test:ingest-mocked`
+- Real-model routing evals: `npm run eval:llm`
+  - Optional threshold override: `npm run eval:llm -- --min-pass-rate 0.80`
+  - Eval cases file: `docs/LLM_EVAL_CASES.json`
+
 ## Data
 - Tracking data is split across `tracking-food.json`, `tracking-activity.json`, `tracking-profile.json`, and `tracking-rules.json`
 - Meal logs are appended to `food_events` (created automatically if missing)

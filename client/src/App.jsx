@@ -96,6 +96,7 @@ export default function App() {
   const [composerLoading, setComposerLoading] = useState(false);
   const [composerMessages, setComposerMessages] = useState([]);
   const composerMessageIdRef = useRef(0);
+  const composerSubmitInFlightRef = useRef(false);
   const [settingsInput, setSettingsInput] = useState("");
   const [settingsMessages, setSettingsMessages] = useState([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -448,7 +449,7 @@ export default function App() {
 
   const onSubmitFood = async (e) => {
     e.preventDefault();
-    if (composerLoading) return;
+    if (composerLoading || composerSubmitInFlightRef.current) return;
     const inputEl = composerInputRef.current;
     const wasFocused = document.activeElement === inputEl;
     const mobileViewport = isMobileViewport();
@@ -460,6 +461,7 @@ export default function App() {
       return;
     }
 
+    composerSubmitInFlightRef.current = true;
     setComposerLoading(true);
     const previous = composerMessages;
     const attachmentCopies = foodAttachments.map((attachment) => ({
@@ -488,11 +490,16 @@ export default function App() {
     }
 
     try {
+      const clientRequestId =
+        typeof globalThis.crypto?.randomUUID === "function"
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const json = await ingestAssistant({
         message: messageText,
         file: foodAttachments[0]?.file ?? null,
         date: foodDate,
         messages: previous,
+        clientRequestId,
       });
 
       if (json?.food_result?.date) setDashDate(json.food_result.date);
@@ -502,10 +509,17 @@ export default function App() {
       if (json?.action === "food" || json?.action === "activity") {
         composerMessageIdRef.current += 1;
         const activityStatus = json?.activity_log_state === "updated" ? "Updated activity." : "Saved activity.";
+        const foodLogAction = json?.food_result?.log_action ?? json?.log_action ?? null;
+        const foodStatus =
+          foodLogAction === "updated"
+            ? "Updated meal entry."
+            : foodLogAction === "existing"
+              ? "Meal already saved."
+              : "Saved meal entry.";
         assistantMessages.push({
           id: composerMessageIdRef.current,
           role: "assistant",
-          content: json.action === "food" ? "✓ Saved meal entry." : `✓ ${activityStatus}`,
+          content: json.action === "food" ? `✓ ${foodStatus}` : `✓ ${activityStatus}`,
           format: "plain",
           tone: "status",
         });
@@ -539,6 +553,7 @@ export default function App() {
       setComposerError(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setComposerLoading(false);
+      composerSubmitInFlightRef.current = false;
     }
   };
 

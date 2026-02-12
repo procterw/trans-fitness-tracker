@@ -85,7 +85,10 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "The user has a single input box that can be used to log food, log an activity, or ask a question.",
   "Choose exactly one intent: food, activity, question, or clarify.",
   "If the message is ambiguous or could be multiple intents, ask a clarifying question instead of logging.",
-  "If there is an attached image and no clear question, prefer intent=food.",
+  "If there is an attached image, inspect the image itself and use it for intent classification.",
+  "If the image appears to show a meal or food, prefer intent=food.",
+  "If the image appears to show workout tracking data (Strava/Garmin/Fitbit/Apple Workout screenshots, pace maps, splits, heart-rate charts), prefer intent=activity.",
+  "If image-only input is unclear, return intent=clarify with a short question.",
   "For activity intent, select one or more checklist items using the provided category + index.",
   "For activity intent, category must exactly match one of the checklist category keys in the context JSON.",
   "If multiple activities are mentioned, return multiple selections.",
@@ -233,8 +236,16 @@ function buildChecklistTemplateSnapshot(currentWeek) {
   });
 }
 
-export async function decideIngestAction({ message, hasImage = false, date = null, messages = [] }) {
-  const client = getOpenAIClient();
+export async function decideIngestAction({
+  message,
+  hasImage = false,
+  imageBuffer = null,
+  imageMimeType = null,
+  date = null,
+  messages = [],
+  clientOverride = null,
+}) {
+  const client = clientOverride ?? getOpenAIClient();
   const model = process.env.OPENAI_INGEST_MODEL || "gpt-5.2";
 
   await ensureCurrentWeek();
@@ -263,7 +274,23 @@ export async function decideIngestAction({ message, hasImage = false, date = nul
   for (const m of safeMessages) input.push(m);
 
   const safeMessage = typeof message === "string" ? message.trim() : "";
-  input.push({ role: "user", content: safeMessage || (hasImage ? "[Image attached]" : "(empty)") });
+  const canAttachImage =
+    Boolean(imageBuffer) &&
+    typeof imageMimeType === "string" &&
+    imageMimeType.startsWith("image/") &&
+    Buffer.isBuffer(imageBuffer);
+  if (canAttachImage) {
+    const dataUrl = `data:${imageMimeType};base64,${imageBuffer.toString("base64")}`;
+    input.push({
+      role: "user",
+      content: [
+        { type: "input_text", text: safeMessage || "[Image attached]" },
+        { type: "input_image", image_url: dataUrl, detail: "high" },
+      ],
+    });
+  } else {
+    input.push({ role: "user", content: safeMessage || (hasImage ? "[Image attached]" : "(empty)") });
+  }
 
   const response = await client.responses.parse({
     model,

@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-08T20:23:44-08:00",
+    "last_updated": "2026-02-11T17:07:45-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json (legacy)",
@@ -185,7 +185,7 @@
         }
       ]
     },
-    "settings_version": 1,
+    "settings_version": 2,
     "settings_history": [
       {
         "version": 1,
@@ -194,6 +194,15 @@
         "checklist_apply_mode": "now",
         "domains": [
           "checklist_template"
+        ]
+      },
+      {
+        "version": 2,
+        "applied_at": "2026-02-09T17:08:39-08:00",
+        "effective_from": "2026-02-09",
+        "checklist_apply_mode": null,
+        "domains": [
+          "user_profile"
         ]
       }
     ]

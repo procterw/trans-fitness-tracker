@@ -26,6 +26,7 @@ import {
   readTrackingData,
   rollupFoodLogFromEvents,
   syncFoodEventsToFoodLog,
+  updateFoodEvent,
   updateCurrentWeekItems,
   updateCurrentWeekItem,
   updateCurrentWeekSummary,
@@ -56,9 +57,12 @@ const __dirname = path.dirname(__filename);
 const clientRoot = path.resolve(__dirname, "..", "client");
 const distDir = path.resolve(__dirname, "..", "dist");
 
-async function logFoodFromInputs({ file, descriptionText, notes, date }) {
+async function logFoodFromInputs({ file, descriptionText, notes, date, eventId = null, clientRequestId = null }) {
   const trimmedDescription = typeof descriptionText === "string" ? descriptionText.trim() : "";
   const trimmedNotes = typeof notes === "string" ? notes.trim() : "";
+  const normalizedEventId = typeof eventId === "string" && eventId.trim() ? eventId.trim() : null;
+  const normalizedRequestId =
+    typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim() : null;
 
   if (!file && !trimmedDescription) {
     throw new Error("Provide either an image or a meal description.");
@@ -80,17 +84,34 @@ async function logFoodFromInputs({ file, descriptionText, notes, date }) {
         userNotes: trimmedNotes,
       });
 
-  const { event, food_log } = await addFoodEvent({
-    date: effectiveDate,
-    source,
-    description: estimate.meal_title,
-    input_text: trimmedDescription || null,
-    notes: trimmedNotes,
-    nutrients: estimate.totals,
-    model: estimate.model,
-    confidence: estimate.confidence,
-    raw_items: estimate.items,
-  });
+  const writeResult = normalizedEventId
+    ? await updateFoodEvent({
+        id: normalizedEventId,
+        date: effectiveDate,
+        source,
+        description: estimate.meal_title,
+        input_text: trimmedDescription || null,
+        notes: trimmedNotes,
+        nutrients: estimate.totals,
+        model: estimate.model,
+        confidence: estimate.confidence,
+        raw_items: estimate.items,
+        idempotency_key: normalizedRequestId,
+      })
+    : await addFoodEvent({
+        date: effectiveDate,
+        source,
+        description: estimate.meal_title,
+        input_text: trimmedDescription || null,
+        notes: trimmedNotes,
+        nutrients: estimate.totals,
+        model: estimate.model,
+        confidence: estimate.confidence,
+        raw_items: estimate.items,
+        idempotency_key: normalizedRequestId,
+      });
+
+  const { event, food_log, log_action } = writeResult;
 
   const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
 
@@ -101,6 +122,7 @@ async function logFoodFromInputs({ file, descriptionText, notes, date }) {
     estimate,
     day_totals_from_events: totalsForDay,
     food_log,
+    log_action: log_action ?? (normalizedEventId ? "updated" : "created"),
   };
 }
 
@@ -601,6 +623,11 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
     if (!message && !file) return res.status(400).json({ ok: false, error: "Provide a message or an image." });
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
+    const clientRequestId =
+      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
+        ? req.body.client_request_id.trim()
+        : null;
     let messages = [];
     if (typeof req.body?.messages === "string" && req.body.messages.trim()) {
       try {
@@ -611,7 +638,14 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       }
     }
 
-    const decision = await decideIngestAction({ message, hasImage: Boolean(file), date, messages });
+    const decision = await decideIngestAction({
+      message,
+      hasImage: Boolean(file),
+      imageBuffer: file?.buffer ?? null,
+      imageMimeType: file?.mimetype ?? null,
+      date,
+      messages,
+    });
     const confidence = typeof decision?.confidence === "number" ? decision.confidence : 0;
     const intent = decision?.intent ?? "clarify";
 
@@ -644,7 +678,14 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
     }
 
     if (intent === "food") {
-      const payload = await logFoodFromInputs({ file, descriptionText: message, notes: "", date });
+      const payload = await logFoodFromInputs({
+        file,
+        descriptionText: message,
+        notes: "",
+        date,
+        eventId,
+        clientRequestId,
+      });
       let mealResponse = summarizeFoodResult(payload);
       try {
         const generated = await composeMealEntryResponse({
@@ -671,6 +712,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         activity_updates: null,
         answer: null,
         date: payload?.date ?? null,
+        log_action: payload?.log_action ?? null,
       });
     }
 
@@ -791,12 +833,22 @@ app.post("/api/food/log", upload.single("image"), async (req, res) => {
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
     const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
     const descriptionText = typeof req.body?.description === "string" ? req.body.description : "";
+    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
+    const clientRequestId =
+      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
+        ? req.body.client_request_id.trim()
+        : null;
 
-    const payload = await logFoodFromInputs({ file, descriptionText, notes, date });
+    const payload = await logFoodFromInputs({ file, descriptionText, notes, date, eventId, clientRequestId });
     res.json(payload);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const isInputError = msg === "Provide either an image or a meal description.";
+    const isInputError =
+      msg === "Provide either an image or a meal description." ||
+      msg === "Missing nutrients" ||
+      msg.startsWith("Invalid date:") ||
+      msg.startsWith("Food event not found:") ||
+      msg === "Invalid event id";
     res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
   }
 });
@@ -810,40 +862,25 @@ app.post("/api/food/photo", upload.single("image"), async (req, res) => {
     }
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
-    const descriptionText = typeof req.body?.description === "string" ? req.body.description.trim() : "";
-    const effectiveDate = date ?? getSuggestedLogDate();
+    const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+    const descriptionText = typeof req.body?.description === "string" ? req.body.description : "";
+    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
+    const clientRequestId =
+      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
+        ? req.body.client_request_id.trim()
+        : null;
 
-    const estimate = await estimateNutritionFromImage({
-      imageBuffer: file.buffer,
-      imageMimeType: file.mimetype,
-      userNotes: [descriptionText, notes].filter(Boolean).join("\n"),
-    });
-
-    const { event, food_log } = await addFoodEvent({
-      date: effectiveDate,
-      source: "photo",
-      description: estimate.meal_title,
-      input_text: descriptionText || null,
-      notes,
-      nutrients: estimate.totals,
-      model: estimate.model,
-      confidence: estimate.confidence,
-      raw_items: estimate.items,
-    });
-
-    const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
-
-    res.json({
-      ok: true,
-      date: effectiveDate,
-      event,
-      estimate,
-      day_totals_from_events: totalsForDay,
-      food_log,
-    });
+    const payload = await logFoodFromInputs({ file, descriptionText, notes, date, eventId, clientRequestId });
+    res.json(payload);
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    const msg = err instanceof Error ? err.message : String(err);
+    const isInputError =
+      msg === "Provide either an image or a meal description." ||
+      msg === "Missing nutrients" ||
+      msg.startsWith("Invalid date:") ||
+      msg.startsWith("Food event not found:") ||
+      msg === "Invalid event id";
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
   }
 });
 
@@ -854,38 +891,31 @@ app.post("/api/food/manual", async (req, res) => {
     if (!description) return res.status(400).json({ ok: false, error: "Missing field: description" });
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : "";
-    const effectiveDate = date ?? getSuggestedLogDate();
+    const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
+    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
+    const clientRequestId =
+      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
+        ? req.body.client_request_id.trim()
+        : null;
 
-    const estimate = await estimateNutritionFromText({
-      mealText: description,
-      userNotes: notes,
-    });
-
-    const { event, food_log } = await addFoodEvent({
-      date: effectiveDate,
-      source: "manual",
-      description: estimate.meal_title,
-      input_text: description,
+    const payload = await logFoodFromInputs({
+      file: null,
+      descriptionText: description,
       notes,
-      nutrients: estimate.totals,
-      model: estimate.model,
-      confidence: estimate.confidence,
-      raw_items: estimate.items,
+      date,
+      eventId,
+      clientRequestId,
     });
-
-    const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
-
-    res.json({
-      ok: true,
-      date: effectiveDate,
-      event,
-      estimate,
-      day_totals_from_events: totalsForDay,
-      food_log,
-    });
+    res.json(payload);
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    const msg = err instanceof Error ? err.message : String(err);
+    const isInputError =
+      msg === "Provide either an image or a meal description." ||
+      msg === "Missing nutrients" ||
+      msg.startsWith("Invalid date:") ||
+      msg.startsWith("Food event not found:") ||
+      msg === "Invalid event id";
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
   }
 });
 

@@ -23,18 +23,29 @@ export async function getContext() {
   return fetchJson("/api/context");
 }
 
-export async function logFoodPhoto({ file, date, notes = "", description = "" }) {
+export async function logFoodPhoto({
+  file,
+  date,
+  notes = "",
+  description = "",
+  eventId = "",
+  clientRequestId = "",
+}) {
   const fd = new FormData();
   fd.append("image", file);
   if (date) fd.append("date", date);
   fd.append("description", description ?? "");
   fd.append("notes", notes ?? "");
+  if (eventId) fd.append("event_id", eventId);
+  if (clientRequestId) fd.append("client_request_id", clientRequestId);
   return fetchJson("/api/food/photo", { method: "POST", body: fd });
 }
 
-export async function logFoodManual({ description, date, notes }) {
+export async function logFoodManual({ description, date, notes, eventId = "", clientRequestId = "" }) {
   const body = { description, notes: notes ?? "" };
   if (date) body.date = date;
+  if (eventId) body.event_id = eventId;
+  if (clientRequestId) body.client_request_id = clientRequestId;
   return fetchJson("/api/food/manual", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,12 +53,21 @@ export async function logFoodManual({ description, date, notes }) {
   });
 }
 
-export async function logFood({ file = null, description = "", date = "", notes = "" }) {
+export async function logFood({
+  file = null,
+  description = "",
+  date = "",
+  notes = "",
+  eventId = "",
+  clientRequestId = "",
+}) {
   const fd = new FormData();
   if (file) fd.append("image", file);
   if (date) fd.append("date", date);
   fd.append("description", description ?? "");
   fd.append("notes", notes ?? "");
+  if (eventId) fd.append("event_id", eventId);
+  if (clientRequestId) fd.append("client_request_id", clientRequestId);
   return fetchJson("/api/food/log", { method: "POST", body: fd });
 }
 
@@ -61,11 +81,20 @@ export async function askAssistant({ question, date = "", messages = [] }) {
   });
 }
 
-export async function ingestAssistant({ message = "", file = null, date = "", messages = [] }) {
+export async function ingestAssistant({
+  message = "",
+  file = null,
+  date = "",
+  messages = [],
+  eventId = "",
+  clientRequestId = "",
+}) {
   const fd = new FormData();
   if (file) fd.append("image", file);
   if (date) fd.append("date", date);
   fd.append("message", message ?? "");
+  if (eventId) fd.append("event_id", eventId);
+  if (clientRequestId) fd.append("client_request_id", clientRequestId);
   if (messages?.length) fd.append("messages", JSON.stringify(messages));
   return fetchJson("/api/assistant/ingest", { method: "POST", body: fd });
 }

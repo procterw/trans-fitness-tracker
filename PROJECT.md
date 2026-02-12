@@ -101,6 +101,7 @@ This repo includes a minimal local web app that supports:
   - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)
 - `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
   - GPT‑5.2 decides if the input is food, activity, or a question; logs the result or answers/clarifies
+  - For image inputs, routing inspects image content (for example meal photos vs Strava/workout screenshots)
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
   - GPT‑5.2 settings assistant that can answer settings questions and propose structured updates to:
     - `user_profile` (generic profile)
