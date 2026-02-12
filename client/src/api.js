@@ -107,6 +107,41 @@ export async function settingsChat({ message = "", messages = [] }) {
   });
 }
 
+export async function getOnboardingState({ clientTimezone = "" } = {}) {
+  const params = new URLSearchParams();
+  if (clientTimezone) params.set("client_timezone", clientTimezone);
+  const qs = params.toString();
+  return fetchJson(`/api/onboarding/state${qs ? `?${qs}` : ""}`);
+}
+
+export async function chatOnboarding({ message = "", messages = [], clientTimezone = "" }) {
+  return fetchJson("/api/onboarding/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, messages, client_timezone: clientTimezone || "" }),
+  });
+}
+
+export async function confirmOnboarding({ action, proposal = null, clientTimezone = "" }) {
+  return fetchJson("/api/onboarding/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action,
+      proposal,
+      client_timezone: clientTimezone || "",
+    }),
+  });
+}
+
+export async function restartOnboardingForDebug({ clientTimezone = "" } = {}) {
+  return fetchJson("/api/onboarding/dev/restart", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_timezone: clientTimezone || "" }),
+  });
+}
+
 export async function confirmSettingsChanges({ proposal, applyMode = "now" }) {
   return fetchJson("/api/settings/confirm", {
     method: "POST",

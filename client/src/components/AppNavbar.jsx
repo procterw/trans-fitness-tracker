@@ -24,6 +24,9 @@ export default function AppNavbar({
   authActionLoading,
   onSignIn,
   onSignOut,
+  showReplayOnboarding = false,
+  replayOnboardingLoading = false,
+  onReplayOnboarding = null,
   mobileNavOpen,
   onToggleMobileNav,
 }) {
@@ -105,6 +108,19 @@ export default function AppNavbar({
                     <div className="accountMenuSubtle muted" title={userEmail}>
                       {userEmail}
                     </div>
+                  ) : null}
+                  {showReplayOnboarding && typeof onReplayOnboarding === "function" ? (
+                    <button
+                      type="button"
+                      className="secondary small accountMenuAction"
+                      disabled={authActionLoading || replayOnboardingLoading}
+                      onClick={async () => {
+                        setMenuOpen(false);
+                        await onReplayOnboarding();
+                      }}
+                    >
+                      Replay onboarding
+                    </button>
                   ) : null}
                   <button
                     type="button"

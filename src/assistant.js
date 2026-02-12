@@ -125,6 +125,41 @@ const DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS = [
   "Do not invent missing data. If data is missing, say so briefly in day_fit_summary.",
 ];
 
+const DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS = [
+  "You are an onboarding assistant for a health and fitness tracker.",
+  "Your job is to collect enough user profile context to personalize the app quickly.",
+  "Ask one focused question at a time and keep responses concise.",
+  "Always return JSON matching the schema.",
+  "For user_profile_patch: return either null or a valid JSON object string with only changed fields.",
+  "Never remove existing user data unless the user explicitly asks to replace it.",
+  "Use answered_keys to mark which onboarding slots were answered in this turn, even when the answer is 'none' or 'no'.",
+  "If the user provides multiple details in one message, include all relevant updates in one patch.",
+  "If context is already sufficient, acknowledge completion and set followup_question to null.",
+  "Do not include markdown code fences in assistant_message.",
+];
+
+const DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS = [
+  "You are creating a fitness checklist during onboarding for a health and fitness tracker.",
+  "Always return JSON matching the schema.",
+  "Generate or revise checklist_categories based on the user's goals and feedback.",
+  "Checklist categories should be practical and concise, with clear action-oriented items.",
+  "Return the full desired checklist_categories array each time.",
+  "If the user asks for changes, revise accordingly rather than asking to confirm first.",
+  "assistant_message should summarize the proposed checklist and invite iteration.",
+  "followup_question should be null unless one specific detail is necessary.",
+  "Do not include markdown code fences in assistant_message.",
+];
+
+const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
+  "You are defining calorie and macro goals during onboarding for a health and fitness tracker.",
+  "Always return JSON matching the schema.",
+  "Return diet_philosophy_patch as a valid JSON object string with only fields that should change.",
+  "Focus on calories and macros (protein, carbs, fat) and keep the patch practical.",
+  "assistant_message should summarize the proposed calorie/macro targets and invite iteration.",
+  "followup_question should be null unless one specific detail is needed.",
+  "Do not include markdown code fences in assistant_message.",
+];
+
 const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
   "The user can update their checklist template, diet goals, fitness goals, and profile context.",
@@ -189,6 +224,29 @@ const MealEntryResponseFormat = zodTextFormat(MealEntryResponseSchema, "meal_ent
 
 const JsonPatchStringSchema = z.string().nullable();
 
+const OnboardingAnsweredKeySchema = z.enum([
+  "timezone",
+  "diet_goals",
+  "fitness_goals",
+  "health_goals",
+  "fitness_experience",
+  "equipment_access",
+  "injuries_limitations",
+  "food_preferences",
+]);
+
+const OnboardingAssistantResponseSchema = z.object({
+  assistant_message: z.string(),
+  followup_question: z.string().nullable(),
+  user_profile_patch: JsonPatchStringSchema,
+  answered_keys: z.array(OnboardingAnsweredKeySchema),
+});
+
+const OnboardingAssistantResponseFormat = zodTextFormat(
+  OnboardingAssistantResponseSchema,
+  "onboarding_assistant_response",
+);
+
 const SettingsChecklistCategorySchema = z.object({
   key: z.string().min(1),
   label: z.string().nullable(),
@@ -209,6 +267,25 @@ const SettingsAssistantResponseSchema = z.object({
 });
 
 const SettingsAssistantResponseFormat = zodTextFormat(SettingsAssistantResponseSchema, "settings_assistant_response");
+
+const OnboardingChecklistProposalSchema = z.object({
+  assistant_message: z.string(),
+  followup_question: z.string().nullable(),
+  checklist_categories: z.array(SettingsChecklistCategorySchema),
+});
+
+const OnboardingChecklistProposalFormat = zodTextFormat(
+  OnboardingChecklistProposalSchema,
+  "onboarding_checklist_proposal",
+);
+
+const OnboardingDietProposalSchema = z.object({
+  assistant_message: z.string(),
+  followup_question: z.string().nullable(),
+  diet_philosophy_patch: JsonPatchStringSchema,
+});
+
+const OnboardingDietProposalFormat = zodTextFormat(OnboardingDietProposalSchema, "onboarding_diet_proposal");
 
 function buildChecklistSnapshot(currentWeek) {
   return getFitnessCategories(currentWeek).map((category) => ({
@@ -478,6 +555,23 @@ function normalizeSettingsCategories(value) {
   return cleaned.length ? cleaned : null;
 }
 
+function normalizeOnboardingAnsweredKeys(value) {
+  if (!Array.isArray(value)) return [];
+  const valid = new Set([
+    "timezone",
+    "diet_goals",
+    "fitness_goals",
+    "health_goals",
+    "fitness_experience",
+    "equipment_access",
+    "injuries_limitations",
+    "food_preferences",
+  ]);
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => valid.has(entry));
+}
+
 function messageLooksLikeSettingsReadRequest(message) {
   const text = typeof message === "string" ? message.toLowerCase() : "";
   if (!text) return false;
@@ -516,6 +610,210 @@ function formatChecklistTemplateMarkdown(checklistTemplate) {
     }
   }
   return lines.join("\n");
+}
+
+function pickOnboardingProfileContext(profile) {
+  const safe = asObject(profile);
+  const general = asObject(safe.general);
+  const goals = asObject(safe.goals);
+  const nutrition = asObject(safe.nutrition);
+  const fitness = asObject(safe.fitness);
+  const preferences = asObject(safe.assistant_preferences);
+
+  return {
+    general: {
+      age: typeof general.age === "number" ? general.age : null,
+      height_cm: typeof general.height_cm === "number" ? general.height_cm : null,
+      weight_lb_baseline: typeof general.weight_lb_baseline === "number" ? general.weight_lb_baseline : null,
+      timezone: typeof general.timezone === "string" ? general.timezone : null,
+    },
+    goals: {
+      diet_goals: Array.isArray(goals.diet_goals) ? goals.diet_goals : [],
+      fitness_goals: Array.isArray(goals.fitness_goals) ? goals.fitness_goals : [],
+      health_goals: Array.isArray(goals.health_goals) ? goals.health_goals : [],
+    },
+    nutrition: {
+      food_restrictions: Array.isArray(nutrition.food_restrictions) ? nutrition.food_restrictions : [],
+      food_allergies: Array.isArray(nutrition.food_allergies) ? nutrition.food_allergies : [],
+      preferences: Array.isArray(nutrition.preferences) ? nutrition.preferences : [],
+    },
+    fitness: {
+      experience_level: typeof fitness.experience_level === "string" ? fitness.experience_level : "",
+      injuries_limitations: Array.isArray(fitness.injuries_limitations) ? fitness.injuries_limitations : [],
+      equipment_access: Array.isArray(fitness.equipment_access) ? fitness.equipment_access : [],
+    },
+    assistant_preferences: {
+      tone: typeof preferences.tone === "string" ? preferences.tone : null,
+      verbosity: typeof preferences.verbosity === "string" ? preferences.verbosity : null,
+    },
+  };
+}
+
+export async function askOnboardingAssistant({ message, messages = [], onboardingState = null, userProfile = null }) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+
+  const tracking = await readTrackingData();
+  const system = readAssistantRuleInstructions(
+    tracking,
+    "onboarding_assistant",
+    DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS,
+  ).join(" ");
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    onboarding_state: onboardingState && typeof onboardingState === "object" ? onboardingState : null,
+    user_profile: pickOnboardingProfileContext(userProfile),
+  };
+
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `Onboarding context JSON:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+  input.push({ role: "user", content: typeof message === "string" ? message.trim() : "" });
+
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format: OnboardingAssistantResponseFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding output.");
+
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    user_profile_patch: normalizeSettingsPatch(parsed.user_profile_patch),
+    answered_keys: normalizeOnboardingAnsweredKeys(parsed.answered_keys),
+  };
+}
+
+export async function proposeOnboardingChecklist({
+  message = "",
+  messages = [],
+  userProfile = null,
+  currentWeek = null,
+  currentProposal = null,
+}) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+
+  const tracking = await readTrackingData();
+  const system = readAssistantRuleInstructions(
+    tracking,
+    "onboarding_checklist",
+    DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS,
+  ).join(" ");
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: pickOnboardingProfileContext(userProfile),
+    checklist_template: buildChecklistTemplateSnapshot(currentWeek ?? null),
+    current_proposal: normalizeSettingsCategories(
+      Array.isArray(currentProposal?.checklist_categories)
+        ? currentProposal.checklist_categories
+        : Array.isArray(currentProposal)
+          ? currentProposal
+          : null,
+    ),
+  };
+
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `Onboarding checklist context JSON:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+  input.push({
+    role: "user",
+    content:
+      (typeof message === "string" ? message.trim() : "") ||
+      "Create an initial weekly fitness checklist proposal from my goals.",
+  });
+
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format: OnboardingChecklistProposalFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding checklist output.");
+
+  const checklistCategories = normalizeSettingsCategories(parsed.checklist_categories);
+  if (!checklistCategories || !checklistCategories.length) {
+    throw new Error("Checklist proposal did not include valid categories.");
+  }
+
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    checklist_categories: checklistCategories,
+  };
+}
+
+export async function proposeOnboardingDietGoals({
+  message = "",
+  messages = [],
+  userProfile = null,
+  dietPhilosophy = null,
+  currentProposal = null,
+}) {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+
+  const tracking = await readTrackingData();
+  const system = readAssistantRuleInstructions(
+    tracking,
+    "onboarding_diet",
+    DEFAULT_ONBOARDING_DIET_INSTRUCTIONS,
+  ).join(" ");
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: pickOnboardingProfileContext(userProfile),
+    current_diet_philosophy: dietPhilosophy && typeof dietPhilosophy === "object" ? dietPhilosophy : null,
+    current_proposal_patch: normalizeSettingsPatch(currentProposal?.diet_philosophy_patch),
+  };
+
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `Onboarding diet context JSON:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+  input.push({
+    role: "user",
+    content:
+      (typeof message === "string" ? message.trim() : "") ||
+      "Create an initial calorie and macro goal proposal.",
+  });
+
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format: OnboardingDietProposalFormat },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding diet output.");
+
+  const dietPatch = normalizeSettingsPatch(parsed.diet_philosophy_patch);
+  if (!dietPatch || !Object.keys(dietPatch).length) {
+    throw new Error("Diet proposal did not include a valid patch.");
+  }
+
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    diet_philosophy_patch: dietPatch,
+  };
 }
 
 export async function askSettingsAssistant({ message, messages = [] }) {

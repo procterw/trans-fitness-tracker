@@ -290,6 +290,49 @@ a {
   justify-content: center;
 }
 
+.onboardingApp {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.onboardingMain {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: 10px 18px 18px;
+}
+
+.onboardingPanel {
+  width: min(980px, 100%);
+}
+
+.onboardingHeader {
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 8px 24px 0;
+}
+
+.onboardingTitle {
+  margin: 0;
+  font-size: 18px;
+}
+
+.onboardingMeta {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.onboardingHint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .mainScroll {
   flex: 1;
   overflow: auto;
@@ -1542,6 +1585,14 @@ ul {
     overflow-x: hidden;
   }
 
+  .onboardingMain {
+    padding: 8px 0 0;
+  }
+
+  .onboardingHeader {
+    padding: 8px 14px 0;
+  }
+
   .chatMessages {
     padding: 16px 14px 12px;
     gap: 14px;
@@ -1754,6 +1805,14 @@ ul {
   line-height: 38px;
   resize: none;
   overflow: hidden;
+}
+
+.onboardingTextarea {
+  min-height: 76px;
+  padding: 8px 10px;
+  line-height: 1.35;
+  resize: vertical;
+  overflow: auto;
 }
 
 @media (max-width: 1000px) {
