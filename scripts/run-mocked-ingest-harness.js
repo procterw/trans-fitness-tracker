@@ -6,6 +6,8 @@ import os from "node:os";
 import path from "node:path";
 
 function setupIsolatedTrackingEnv(root) {
+  process.env.TRACKING_BACKEND = "json";
+  process.env.TRACKING_DEFAULT_USER_ID = "harness-user";
   process.env.TRACKING_FOOD_FILE = path.join(root, "tracking-food.json");
   process.env.TRACKING_ACTIVITY_FILE = path.join(root, "tracking-activity.json");
   process.env.TRACKING_PROFILE_FILE = path.join(root, "tracking-profile.json");

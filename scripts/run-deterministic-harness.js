@@ -21,6 +21,8 @@ function createNutrients({ calories, fat_g, carbs_g, protein_g, fiber_g = 0 }) {
 }
 
 function setupIsolatedTrackingEnv(root) {
+  process.env.TRACKING_BACKEND = "json";
+  process.env.TRACKING_DEFAULT_USER_ID = "harness-user";
   process.env.TRACKING_FOOD_FILE = path.join(root, "tracking-food.json");
   process.env.TRACKING_ACTIVITY_FILE = path.join(root, "tracking-activity.json");
   process.env.TRACKING_PROFILE_FILE = path.join(root, "tracking-profile.json");
