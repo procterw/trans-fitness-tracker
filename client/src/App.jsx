@@ -101,16 +101,34 @@ function normalizeGoalSummary(value) {
   };
 }
 
+function parseChecklistItemText(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return { item: "", description: "" };
+  const parts = text.split(/\s+-\s+/);
+  if (parts.length < 2) return { item: text, description: "" };
+  const item = (parts.shift() ?? "").trim();
+  const description = parts.join(" - ").trim();
+  return {
+    item,
+    description: item && description ? description : "",
+  };
+}
+
 function categoriesFromWeek(week) {
   return getFitnessCategories(week)
     .map((category) => ({
       key: category.key,
       label: category.label,
       items: (Array.isArray(category.items) ? category.items : [])
-        .map((item) => ({
-          item: typeof item?.item === "string" ? item.item.trim() : "",
-          checked: item?.checked === true,
-        }))
+        .map((item) => {
+          const label = typeof item?.item === "string" ? item.item.trim() : "";
+          const description = typeof item?.description === "string" ? item.description.trim() : "";
+          return {
+            item: label,
+            description,
+            checked: item?.checked === true,
+          };
+        })
         .filter((item) => item.item),
     }))
     .filter((category) => category.items.length);
@@ -124,9 +142,9 @@ function categoriesFromProposal(value) {
       label: typeof category?.label === "string" ? category.label.trim() : null,
       items: Array.isArray(category?.items)
         ? category.items
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter(Boolean)
-            .map((item) => ({ item, checked: false }))
+            .map((item) => (typeof item === "string" ? parseChecklistItemText(item) : { item: "", description: "" }))
+            .filter((item) => item.item)
+            .map((item) => ({ ...item, checked: false }))
         : [],
     }))
     .filter((category) => category.key && category.items.length);

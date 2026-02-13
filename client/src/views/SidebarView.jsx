@@ -95,14 +95,21 @@ export default function SidebarView({
                   <h3 className="sidebarChecklistHeader">{label}</h3>
                   <div className="sidebarChecklistItems">
                     {items.length ? (
-                      items.map((it, idx) => (
-                        <div key={idx} className={`sidebarChecklistItem ${it.checked ? "done" : "todo"}`}>
-                          <span className={`sidebarChecklistMark ${it.checked ? "checked" : "unchecked"}`} aria-hidden="true">
-                            {it.checked ? "✓" : ""}
-                          </span>
-                          <span>{it.item}</span>
-                        </div>
-                      ))
+                      items.map((it, idx) => {
+                        const itemLabel = typeof it?.item === "string" ? it.item : "";
+                        const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
+                        return (
+                          <div key={idx} className={`sidebarChecklistItem ${it.checked ? "done" : "todo"}`}>
+                            <span className={`sidebarChecklistMark ${it.checked ? "checked" : "unchecked"}`} aria-hidden="true">
+                              {it.checked ? "✓" : ""}
+                            </span>
+                            <span className="sidebarChecklistText">
+                              <span>{itemLabel}</span>
+                              {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
+                            </span>
+                          </div>
+                        );
+                      })
                     ) : (
                       <div className="sidebarChecklistItem muted">No items.</div>
                     )}

@@ -622,6 +622,21 @@ function normalizeItemToken(value) {
     .trim();
 }
 
+function splitChecklistItemAndDescription(rawValue) {
+  const text = typeof rawValue === "string" ? rawValue.trim() : "";
+  if (!text) return { item: "", description: "" };
+
+  const parts = text.split(/\s+-\s+/);
+  if (parts.length < 2) return { item: text, description: "" };
+
+  const item = parts.shift()?.trim() ?? "";
+  const description = parts.join(" - ").trim();
+  return {
+    item,
+    description: item && description ? description : "",
+  };
+}
+
 function applyChecklistCategories(currentWeek, categories) {
   const safeWeek = currentWeek && typeof currentWeek === "object" ? currentWeek : {};
   const oldKeys = getFitnessCategoryKeys(safeWeek);
@@ -632,13 +647,17 @@ function applyChecklistCategories(currentWeek, categories) {
     const list = Array.isArray(safeWeek[key]) ? safeWeek[key] : [];
     const itemMap = new Map();
     for (const item of list) {
-      const label = typeof item?.item === "string" ? item.item.trim() : "";
-      if (!label) continue;
-      const token = normalizeItemToken(label);
+      const parsed = splitChecklistItemAndDescription(item?.item);
+      if (!parsed.item) continue;
+      const token = normalizeItemToken(parsed.item);
       if (!token || itemMap.has(token)) continue;
       itemMap.set(token, {
         checked: item?.checked === true,
         details: typeof item?.details === "string" ? item.details : "",
+        description:
+          typeof item?.description === "string" && item.description.trim()
+            ? item.description.trim()
+            : parsed.description,
       });
     }
     oldByCategoryAndItem.set(key, itemMap);
@@ -668,14 +687,15 @@ function applyChecklistCategories(currentWeek, categories) {
     const itemRows = [];
     const items = Array.isArray(category?.items) ? category.items : [];
     for (const itemLabelRaw of items) {
-      const itemLabel = typeof itemLabelRaw === "string" ? itemLabelRaw.trim() : "";
-      if (!itemLabel) continue;
-      const token = normalizeItemToken(itemLabel);
+      const parsed = splitChecklistItemAndDescription(itemLabelRaw);
+      if (!parsed.item) continue;
+      const token = normalizeItemToken(parsed.item);
       if (!token || seenItems.has(token)) continue;
       seenItems.add(token);
       const existing = oldItemMap.get(token);
       itemRows.push({
-        item: itemLabel,
+        item: parsed.item,
+        description: parsed.description || (typeof existing?.description === "string" ? existing.description : ""),
         checked: Boolean(existing?.checked),
         details: typeof existing?.details === "string" ? existing.details : "",
       });
@@ -706,9 +726,14 @@ function extractChecklistTemplate(week) {
   for (const key of keys) {
     const list = Array.isArray(week[key]) ? week[key] : [];
     const items = list
-      .map((entry) => (typeof entry?.item === "string" ? entry.item.trim() : ""))
+      .map((entry) => {
+        const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+        if (!item) return null;
+        const description = typeof entry?.description === "string" ? entry.description.trim() : "";
+        return { item, description };
+      })
       .filter(Boolean)
-      .map((item) => ({ item }));
+      .map(({ item, description }) => ({ item: description ? `${item} - ${description}` : item }));
     if (!items.length) continue;
     template.category_order.push(key);
     template[key] = items;

@@ -81,13 +81,17 @@ export default function GoalChecklistSidebar({ className = "", goalSummary = nul
                     items.map((it, idx) => {
                       const itemLabel = typeof it?.item === "string" ? it.item : "";
                       if (!itemLabel) return null;
+                      const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
                       const checked = it?.checked === true;
                       return (
                         <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : "todo"}`}>
                           <span className={`sidebarChecklistMark ${checked ? "checked" : "unchecked"}`} aria-hidden="true">
                             {checked ? "✓" : ""}
                           </span>
-                          <span>{itemLabel}</span>
+                          <span className="sidebarChecklistText">
+                            <span>{itemLabel}</span>
+                            {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
+                          </span>
                         </div>
                       );
                     })

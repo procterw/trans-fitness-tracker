@@ -211,10 +211,16 @@ function normalizeChecklistCategory(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((entry) => {
-      const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+      const rawItem = typeof entry?.item === "string" ? entry.item.trim() : typeof entry === "string" ? entry.trim() : "";
+      const parts = rawItem.split(/\s+-\s+/);
+      const item = (parts.shift() ?? "").trim();
       if (!item) return null;
+      const parsedDescription = parts.join(" - ").trim();
+      const description =
+        typeof entry?.description === "string" && entry.description.trim() ? entry.description.trim() : parsedDescription;
       return {
         item,
+        description,
         checked: entry?.checked === true,
         details: typeof entry?.details === "string" ? entry.details : "",
       };
@@ -266,9 +272,17 @@ function normalizeChecklistTemplate(value) {
     if (!key || out.category_order.includes(key)) continue;
     const list = Array.isArray(safe[key]) ? safe[key] : [];
     const items = list
-      .map((entry) => (typeof entry?.item === "string" ? entry.item.trim() : ""))
-      .filter(Boolean)
-      .map((item) => ({ item }));
+      .map((entry) => {
+        const rawItem = typeof entry?.item === "string" ? entry.item.trim() : typeof entry === "string" ? entry.trim() : "";
+        const parts = rawItem.split(/\s+-\s+/);
+        const item = (parts.shift() ?? "").trim();
+        if (!item) return null;
+        const parsedDescription = parts.join(" - ").trim();
+        const description =
+          typeof entry?.description === "string" && entry.description.trim() ? entry.description.trim() : parsedDescription;
+        return description ? { item, description } : { item };
+      })
+      .filter(Boolean);
     if (!items.length) continue;
     out.category_order.push(key);
     out[key] = items;
@@ -533,6 +547,7 @@ function ensureCurrentWeekInData(data, now = new Date()) {
     return arr
       .map((it) => ({
         item: typeof it?.item === "string" ? it.item : "",
+        description: typeof it?.description === "string" ? it.description : "",
         checked: false,
         details: "",
       }))

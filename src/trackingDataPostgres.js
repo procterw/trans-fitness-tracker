@@ -101,14 +101,6 @@ function mapFoodEventFromRow(row) {
 }
 
 function mapFoodLogFromRow(row) {
-  const micronutrients = row.micronutrients && typeof row.micronutrients === "object" ? row.micronutrients : {};
-
-  const pick = (value, fallbackKey) => {
-    const direct = toNumberOrNull(value);
-    if (direct !== null) return direct;
-    return toNumberOrNull(micronutrients?.[fallbackKey]);
-  };
-
   return {
     date: toDateString(row.date),
     day_of_week: row.day_of_week ?? null,
@@ -117,12 +109,12 @@ function mapFoodLogFromRow(row) {
     fat_g: toNumberOrNull(row.fat_g),
     carbs_g: toNumberOrNull(row.carbs_g),
     protein_g: toNumberOrNull(row.protein_g),
-    fiber_g: pick(row.fiber_g, "fiber_g"),
-    potassium_mg: pick(row.potassium_mg, "potassium_mg"),
-    magnesium_mg: pick(row.magnesium_mg, "magnesium_mg"),
-    omega3_mg: pick(row.omega3_mg, "omega3_mg"),
-    calcium_mg: pick(row.calcium_mg, "calcium_mg"),
-    iron_mg: pick(row.iron_mg, "iron_mg"),
+    fiber_g: toNumberOrNull(row.fiber_g),
+    potassium_mg: toNumberOrNull(row.potassium_mg),
+    magnesium_mg: toNumberOrNull(row.magnesium_mg),
+    omega3_mg: toNumberOrNull(row.omega3_mg),
+    calcium_mg: toNumberOrNull(row.calcium_mg),
+    iron_mg: toNumberOrNull(row.iron_mg),
     status: row.status ?? null,
     notes: row.notes ?? null,
     healthy: row.healthy ?? null,
@@ -220,7 +212,7 @@ export async function readTrackingDataPostgres() {
       client,
       table: "food_log",
       columns:
-        "user_id,date,day_of_week,weight_lb,calories,fat_g,carbs_g,protein_g,fiber_g,potassium_mg,magnesium_mg,omega3_mg,calcium_mg,iron_mg,status,notes,healthy,micronutrients,updated_at",
+        "user_id,date,day_of_week,weight_lb,calories,fat_g,carbs_g,protein_g,fiber_g,potassium_mg,magnesium_mg,omega3_mg,calcium_mg,iron_mg,status,notes,healthy,updated_at",
       userId,
       orderBy: "date",
       ascending: true,
@@ -308,14 +300,6 @@ export async function writeTrackingDataPostgres(data) {
       status: row.status ?? null,
       notes: row.notes ?? null,
       healthy: row.healthy ?? null,
-      micronutrients: {
-        fiber_g: toNumberOrNull(row.fiber_g),
-        potassium_mg: toNumberOrNull(row.potassium_mg),
-        magnesium_mg: toNumberOrNull(row.magnesium_mg),
-        omega3_mg: toNumberOrNull(row.omega3_mg),
-        calcium_mg: toNumberOrNull(row.calcium_mg),
-        iron_mg: toNumberOrNull(row.iron_mg),
-      },
     }));
 
   const fitnessWeeks = asArray(safeData.fitness_weeks)

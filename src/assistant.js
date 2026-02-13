@@ -148,14 +148,26 @@ const DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS = [
   "You are creating a fitness checklist during onboarding for a health and fitness tracker.",
   "Always return JSON matching the schema.",
   "Generate or revise checklist_categories based on the user's goals and feedback.",
-  "Checklist content must be workouts and activity habits only.",
+  "Checklist content must be workouts and activity sessions the user can complete and check off.",
   "Do not include food, eating, meals, nutrition, or diet tasks in checklist categories or items.",
+  "Do not include planning/admin/recovery-support tasks such as scheduling calendar blocks, generic warmup reminders, logging sets/reps, or generic rest-day reminders.",
+  "Do not include exercise-programming directives (for example: include/add/progress patterns, set/rep prescriptions, load progression instructions).",
   "Checklist categories should be practical and concise, with clear action-oriented items.",
+  "Every checklist item should describe a concrete activity session (what to do) instead of process guidance (how to manage training).",
+  "Each checkbox must represent exactly one session. If the target is 3 sessions, output 3 separate checklist items.",
   "Return the full desired checklist_categories array each time.",
   "If the user asks for changes, revise accordingly rather than asking to confirm first.",
   "assistant_message should summarize the proposed checklist and invite iteration.",
   "followup_question should be null unless one specific detail is necessary.",
   "Do not include markdown code fences in assistant_message.",
+];
+
+const CHECKLIST_SESSION_GUARDRAILS = [
+  "Checklist items must be concrete activity sessions that can be completed and checked off.",
+  "Do not include planning/admin/recovery-support items such as scheduling calendar blocks, generic warmup reminders, logging sets/reps, or generic rest-day reminders.",
+  "Do not include exercise-programming directives such as include/add/progress instructions, set/rep prescriptions, or load progression rules.",
+  "Prefer specific sessions with enough detail to perform the workout.",
+  "Each checkbox must represent one completed session; never combine multiple weekly sessions into one checklist item.",
 ];
 
 const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
@@ -180,10 +192,14 @@ const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "Use user_profile_patch for profile updates.",
   "Never include markdown code fences in assistant_message.",
   "For checklist edits, return the full desired checklist_categories array when making checklist changes.",
-  "Checklist content must be workouts and activity habits only.",
+  "Checklist content must be workouts and activity sessions the user can complete and check off.",
   "Do not include food, eating, meals, nutrition, or diet tasks in checklist categories or items.",
+  "Do not include planning/admin/recovery-support tasks such as scheduling calendar blocks, generic warmup reminders, logging sets/reps, or generic rest-day reminders.",
+  "Do not include exercise-programming directives (for example: include/add/progress patterns, set/rep prescriptions, load progression instructions).",
   "Checklist category keys should be short snake_case strings.",
   "Checklist item strings should be concise and action-oriented.",
+  "Every checklist item should describe a concrete activity session (what to do) instead of process guidance (how to manage training).",
+  "Each checkbox must represent exactly one session. If the target is 3 sessions, output 3 separate checklist items.",
   "If the user asks a pure question (no settings change), provide guidance and keep all changes null.",
   "If the user asks to view/show/list their current goals, rules, checklist, or profile settings, include a followup_question asking if they want to make any changes.",
 ];
@@ -319,7 +335,12 @@ function buildChecklistTemplateSnapshot(currentWeek) {
       key,
       label: getFitnessCategoryLabel(safeWeek, key),
       items: list
-        .map((item) => (typeof item?.item === "string" ? item.item.trim() : ""))
+        .map((item) => {
+          const label = typeof item?.item === "string" ? item.item.trim() : "";
+          if (!label) return "";
+          const description = typeof item?.description === "string" ? item.description.trim() : "";
+          return description ? `${label} - ${description}` : label;
+        })
         .filter(Boolean),
     };
   });
@@ -676,7 +697,9 @@ export async function proposeOnboardingChecklist({
     tracking,
     "onboarding_checklist",
     DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS,
-  ).join(" ");
+  )
+    .concat(CHECKLIST_SESSION_GUARDRAILS)
+    .join(" ");
 
   const context = {
     timezone: "America/Los_Angeles",
@@ -804,7 +827,9 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     tracking,
     "settings_assistant",
     DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
-  ).join(" ");
+  )
+    .concat(CHECKLIST_SESSION_GUARDRAILS)
+    .join(" ");
 
   const input = [
     { role: "system", content: system },

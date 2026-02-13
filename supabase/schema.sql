@@ -42,12 +42,84 @@ create table if not exists public.food_log (
   status text,
   notes text,
   healthy text,
-  micronutrients jsonb,
   updated_at timestamptz not null default now(),
   primary key (user_id, date)
 );
 
 create index if not exists food_log_user_date on public.food_log(user_id, date);
+
+-- Ensure canonical micronutrient columns exist and migrate away from legacy food_log.micronutrients jsonb.
+alter table public.food_log add column if not exists fiber_g numeric;
+alter table public.food_log add column if not exists potassium_mg numeric;
+alter table public.food_log add column if not exists magnesium_mg numeric;
+alter table public.food_log add column if not exists omega3_mg numeric;
+alter table public.food_log add column if not exists calcium_mg numeric;
+alter table public.food_log add column if not exists iron_mg numeric;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'food_log' and column_name = 'micronutrients'
+  ) then
+    execute $sql$
+      update public.food_log
+      set fiber_g = coalesce(
+            fiber_g,
+            case
+              when btrim(micronutrients->>'fiber_g') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'fiber_g')::numeric
+              else null
+            end
+          ),
+          potassium_mg = coalesce(
+            potassium_mg,
+            case
+              when btrim(micronutrients->>'potassium_mg') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'potassium_mg')::numeric
+              else null
+            end
+          ),
+          magnesium_mg = coalesce(
+            magnesium_mg,
+            case
+              when btrim(micronutrients->>'magnesium_mg') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'magnesium_mg')::numeric
+              else null
+            end
+          ),
+          omega3_mg = coalesce(
+            omega3_mg,
+            case
+              when btrim(micronutrients->>'omega3_mg') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'omega3_mg')::numeric
+              else null
+            end
+          ),
+          calcium_mg = coalesce(
+            calcium_mg,
+            case
+              when btrim(micronutrients->>'calcium_mg') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'calcium_mg')::numeric
+              else null
+            end
+          ),
+          iron_mg = coalesce(
+            iron_mg,
+            case
+              when btrim(micronutrients->>'iron_mg') ~ '^[+-]?([0-9]+([.][0-9]+)?|[.][0-9]+)([eE][+-]?[0-9]+)?$'
+              then (micronutrients->>'iron_mg')::numeric
+              else null
+            end
+          )
+      where micronutrients is not null
+        and jsonb_typeof(micronutrients) = 'object'
+    $sql$;
+
+    execute 'alter table public.food_log drop column if exists micronutrients';
+  end if;
+end $$;
 
 create table if not exists public.fitness_current (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -141,6 +213,16 @@ begin
     $sql$;
   end if;
 end $$;
+
+-- Remove legacy fixed checklist columns once values have been backfilled into checklist/category_order.
+alter table public.fitness_current drop column if exists cardio;
+alter table public.fitness_current drop column if exists strength;
+alter table public.fitness_current drop column if exists mobility;
+alter table public.fitness_current drop column if exists other;
+alter table public.fitness_weeks drop column if exists cardio;
+alter table public.fitness_weeks drop column if exists strength;
+alter table public.fitness_weeks drop column if exists mobility;
+alter table public.fitness_weeks drop column if exists other;
 
 create table if not exists public.user_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,

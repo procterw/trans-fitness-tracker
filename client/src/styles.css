@@ -688,7 +688,7 @@ ul {
 
 .chatBox {
   border: none;
-  border-radius: 0;
+  border-radius: 20px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1332,6 +1332,17 @@ ul {
   color: var(--text);
 }
 
+.sidebarChecklistText {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebarChecklistDescription {
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+}
+
 .sidebarChecklistMark {
   width: 14px;
   height: 14px;
@@ -1412,13 +1423,25 @@ ul {
 }
 
 .fitnessChecklistLabel {
-  display: block;
+  display: grid;
+  gap: 2px;
   margin: 0;
   font-weight: 500;
   font-size: 13px;
   cursor: pointer;
   line-height: 1.25;
   padding-top: 1px;
+}
+
+.fitnessChecklistLabelText {
+  line-height: 1.2;
+}
+
+.fitnessChecklistLabelDescription {
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .fitnessChecklistDetails {
@@ -1546,6 +1569,14 @@ ul {
   min-width: 180px;
   max-width: 280px;
   font-weight: 700;
+}
+
+.fitnessHistoryActivityDescription {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .fitnessHistoryCell {

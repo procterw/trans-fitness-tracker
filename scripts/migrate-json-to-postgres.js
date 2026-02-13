@@ -132,7 +132,7 @@ function mapFoodLogRow(userId, row) {
   const micronutrients = asObject(row?.micronutrients);
   const legacyMicros = asObject(row?.micronutrients_legacy);
 
-  const fiber = toNumberOrNull(row?.fiber_g);
+  const fiber = toNumberOrNull(row?.fiber_g) ?? toNumberOrNull(micronutrients.fiber_g) ?? toNumberOrNull(legacyMicros.fiber_g);
   const potassium = toNumberOrNull(row?.potassium_mg) ?? toNumberOrNull(micronutrients.potassium_mg) ?? toNumberOrNull(legacyMicros.potassium_mg);
   const magnesium = toNumberOrNull(row?.magnesium_mg) ?? toNumberOrNull(micronutrients.magnesium_mg) ?? toNumberOrNull(legacyMicros.magnesium_mg);
   const omega3 =
@@ -161,14 +161,6 @@ function mapFoodLogRow(userId, row) {
     status: row?.status ?? null,
     notes: row?.notes ?? null,
     healthy: row?.healthy ?? null,
-    micronutrients: {
-      fiber_g: fiber,
-      potassium_mg: potassium,
-      magnesium_mg: magnesium,
-      omega3_mg: omega3,
-      calcium_mg: calcium,
-      iron_mg: iron,
-    },
     updated_at: new Date().toISOString(),
   };
 }

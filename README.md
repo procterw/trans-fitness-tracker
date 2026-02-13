@@ -27,6 +27,7 @@ Minimal local web app that:
 
 ## Data
 - Tracking data is split across `tracking-food.json`, `tracking-activity.json`, `tracking-profile.json`, and `tracking-rules.json`
+- When `TRACKING_BACKEND=postgres`, these local files are optional and can remain empty template files.
 - Meal logs are appended to `food_events` (created automatically if missing)
 - If you logged events before `food_log` syncing existed, use Dashboard → “Sync unsynced events”.
 

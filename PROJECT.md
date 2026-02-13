@@ -17,6 +17,7 @@ Tracking data is split across four files in the repo root:
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
 - `tracking-profile.json` — `user_profile` (generic profile)
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (JSON backend / local fallback source)
+These files are optional when `TRACKING_BACKEND=postgres`; empty template files are valid for future local JSON development.
 
 To backfill existing profile payloads into the generic shape and remove legacy keys, run `npm run migrate:profile` (idempotent). This migrates `tracking-profile.json`.
 

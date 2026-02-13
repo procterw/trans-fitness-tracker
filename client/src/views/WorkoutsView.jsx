@@ -48,7 +48,12 @@ function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
                 </tr>
                 {items.map((item, itemIdx) => (
                   <tr key={`${catKey}_${itemIdx}`}>
-                    <td className="fitnessHistoryActivityCell">{item?.item ?? `${catLabel} ${itemIdx + 1}`}</td>
+                    <td className="fitnessHistoryActivityCell">
+                      <div>{item?.item ?? `${catLabel} ${itemIdx + 1}`}</div>
+                      {typeof item?.description === "string" && item.description.trim() ? (
+                        <div className="fitnessHistoryActivityDescription">{item.description.trim()}</div>
+                      ) : null}
+                    </td>
                     {weeks.map((week, weekIdx) => {
                       const list = Array.isArray(week?.[catKey]) ? week[catKey] : [];
                       const it = list[itemIdx];
@@ -102,7 +107,10 @@ function FitnessCategory({ title, category, fitnessWeek, fitnessLoading, onToggl
                   onChange={(e) => onToggleFitness(category, idx, e.target.checked)}
                 />
                 <label htmlFor={checkboxId} className="fitnessChecklistLabel">
-                  {it.item}
+                  <span className="fitnessChecklistLabelText">{it.item}</span>
+                  {typeof it?.description === "string" && it.description.trim() ? (
+                    <span className="fitnessChecklistLabelDescription">{it.description.trim()}</span>
+                  ) : null}
                 </label>
                 {it.checked ? (
                   <AutoGrowTextarea

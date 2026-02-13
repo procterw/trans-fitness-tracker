@@ -1,5 +1,10 @@
 const CHECKLIST_DISALLOWED_PATTERN =
   /\b(food|foods|meal|meals|eat|eating|eats|diet|diets|nutrition|nutritional|calorie|calories|macro|macros)\b/i;
+const CHECKLIST_AGGREGATE_SESSIONS_PATTERN =
+  /^(?:complete|do|aim for|hit|get in|perform|schedule)?\s*(\d+)\s+(.+?)\s+sessions?(?:\s+this\s+week)?(?:\s*\(.*\))?[.!]*$/i;
+const CHECKLIST_PROGRAMMING_VERB_PATTERN = /^(?:include|add|progress)\b/i;
+const CHECKLIST_PROGRAMMING_CONTENT_PATTERN =
+  /\b(working sets?|sets?\b|reps?\b|load increase|progress one variable|accessory movements?|pattern each session)\b/i;
 
 function normalizeItemToken(value) {
   return String(value || "")
@@ -14,6 +19,56 @@ export function containsDisallowedChecklistLanguage(value) {
   return CHECKLIST_DISALLOWED_PATTERN.test(text);
 }
 
+function splitChecklistItemLine(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return { name: "", description: "" };
+
+  const parts = text.split(/\s+-\s+/);
+  if (parts.length < 2) return { name: text, description: "" };
+
+  const name = parts.shift()?.trim() ?? "";
+  const description = parts.join(" - ").trim();
+  return {
+    name,
+    description: name && description ? description : "",
+  };
+}
+
+function containsDisallowedChecklistItemPattern(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return false;
+  if (CHECKLIST_PROGRAMMING_CONTENT_PATTERN.test(text)) return true;
+  if (CHECKLIST_PROGRAMMING_VERB_PATTERN.test(text) && /\b(session|sessions|set|sets|rep|reps|pattern|movement)\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function sentenceCase(value) {
+  if (!value) return value;
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function expandAggregateSessionItem(item) {
+  const text = typeof item === "string" ? item.trim() : "";
+  if (!text) return [];
+
+  const match = text.match(CHECKLIST_AGGREGATE_SESSIONS_PATTERN);
+  if (!match) return [text];
+
+  const count = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(count) || count < 2 || count > 14) return [text];
+
+  let focus = match[2].replace(/\b(per week|weekly)\b/gi, " ").replace(/\s+/g, " ").trim();
+  if (!focus) return [text];
+
+  focus = focus.replace(/\bsessions?\b$/i, "").trim();
+  if (!focus) return [text];
+
+  const labelRoot = sentenceCase(`${focus} session`);
+  return Array.from({ length: count }, (_, idx) => `${labelRoot} ${idx + 1}`);
+}
+
 export function normalizeChecklistCategories(value) {
   if (!Array.isArray(value)) return null;
   const cleaned = value
@@ -25,18 +80,26 @@ export function normalizeChecklistCategories(value) {
       if (labelRaw && containsDisallowedChecklistLanguage(labelRaw)) return null;
 
       const seen = new Set();
-      const items = Array.isArray(entry?.items)
-        ? entry.items
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter(Boolean)
-            .filter((item) => !containsDisallowedChecklistLanguage(item))
-            .filter((item) => {
-              const token = normalizeItemToken(item);
-              if (!token || seen.has(token)) return false;
-              seen.add(token);
-              return true;
-            })
+      const rawItems = Array.isArray(entry?.items)
+        ? entry.items.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
         : [];
+
+      const expandedItems = rawItems.flatMap((item) => expandAggregateSessionItem(item));
+      const items = expandedItems
+        .map((item) => {
+          const parsed = splitChecklistItemLine(item);
+          if (!parsed.name) return "";
+          return parsed.description ? `${parsed.name} - ${parsed.description}` : parsed.name;
+        })
+        .filter((item) => !containsDisallowedChecklistLanguage(item))
+        .filter((item) => !containsDisallowedChecklistItemPattern(item))
+        .filter((item) => {
+          const parsed = splitChecklistItemLine(item);
+          const token = normalizeItemToken(parsed.name);
+          if (!token || seen.has(token)) return false;
+          seen.add(token);
+          return true;
+        });
       if (!items.length) return null;
 
       return {
@@ -67,7 +130,14 @@ export function formatChecklistCategoriesMarkdown(
       continue;
     }
     for (const item of items) {
-      const itemText = typeof item === "string" ? item.trim() : "";
+      const itemText =
+        typeof item === "string"
+          ? item.trim()
+          : typeof item?.item === "string"
+            ? `${item.item.trim()}${
+                typeof item?.description === "string" && item.description.trim() ? ` - ${item.description.trim()}` : ""
+              }`
+            : "";
       if (!itemText) continue;
       lines.push(`  - [ ] ${itemText}`);
     }
