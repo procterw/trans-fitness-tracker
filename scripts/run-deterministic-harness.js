@@ -27,7 +27,7 @@ function setupIsolatedTrackingEnv(root) {
   process.env.TRACKING_ACTIVITY_FILE = path.join(root, "tracking-activity.json");
   process.env.TRACKING_PROFILE_FILE = path.join(root, "tracking-profile.json");
   process.env.TRACKING_RULES_FILE = path.join(root, "tracking-rules.json");
-  process.env.TRACKING_DATA_FILE = path.join(root, "tracking-data.json");
+  delete process.env.TRACKING_DATA_FILE;
   delete process.env.OPENAI_API_KEY;
 }
 

@@ -47,4 +47,4 @@ Backfill existing local JSON data into Postgres:
 Migrate local profile payloads to include generic `user_profile` and remove legacy `transition_context`:
 1. Run `npm run migrate:profile`.
 2. Re-run safely; it is idempotent.
-   This migrates `tracking-profile.json` and (if present) legacy `tracking-data.json`.
+   This migrates `tracking-profile.json`.

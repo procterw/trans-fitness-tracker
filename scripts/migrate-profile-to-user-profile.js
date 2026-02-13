@@ -10,9 +10,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const profilePath = process.env.TRACKING_PROFILE_FILE
   ? path.resolve(process.env.TRACKING_PROFILE_FILE)
   : path.resolve(repoRoot, "tracking-profile.json");
-const legacyTrackingPath = process.env.TRACKING_DATA_FILE
-  ? path.resolve(process.env.TRACKING_DATA_FILE)
-  : path.resolve(repoRoot, "tracking-data.json");
+const legacyTrackingPath = process.env.TRACKING_DATA_FILE ? path.resolve(process.env.TRACKING_DATA_FILE) : null;
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -111,7 +109,7 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
 }
 
 async function main() {
-  const targets = Array.from(new Set([profilePath, legacyTrackingPath]));
+  const targets = Array.from(new Set([profilePath, legacyTrackingPath].filter(Boolean)));
   let migrated = 0;
 
   for (const filePath of targets) {

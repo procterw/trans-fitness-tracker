@@ -70,6 +70,14 @@ async function fetchUserProfileRow({ client, userId }) {
     .maybeSingle();
 }
 
+async function fetchUserRulesRow({ client, userId }) {
+  return client
+    .from("user_rules")
+    .select("user_id,rules_data,updated_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+}
+
 function toNumberOrNull(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -227,19 +235,24 @@ export async function readTrackingDataPostgres() {
     }),
   ]);
 
-  const [fitnessCurrentResult, profileResult] = await Promise.all([
+  const [fitnessCurrentResult, profileResult, rulesResult] = await Promise.all([
     client
       .from("fitness_current")
       .select("user_id,week_start,week_label,summary,checklist,category_order,updated_at")
       .eq("user_id", userId)
       .maybeSingle(),
     fetchUserProfileRow({ client, userId }),
+    fetchUserRulesRow({ client, userId }),
   ]);
 
   assertNoError("select from fitness_current", fitnessCurrentResult.error);
   assertNoError("select from user_profiles", profileResult.error);
+  assertNoError("select from user_rules", rulesResult.error);
 
   return {
+    ...(rulesResult.data?.rules_data && typeof rulesResult.data.rules_data === "object"
+      ? rulesResult.data.rules_data
+      : {}),
     food_log: foodLogRows.map(mapFoodLogFromRow),
     food_events: foodEventsRows.map(mapFoodEventFromRow),
     current_week: mapCurrentWeekFromRow(fitnessCurrentResult.data),
@@ -254,8 +267,9 @@ export async function readTrackingDataPostgres() {
 export async function writeTrackingDataPostgres(data) {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
+  const safeData = asObject(data);
 
-  const foodEvents = asArray(data?.food_events)
+  const foodEvents = asArray(safeData.food_events)
     .filter((row) => row && typeof row === "object" && row.date)
     .map((row) => ({
       id: typeof row.id === "string" && row.id ? row.id : crypto.randomUUID(),
@@ -274,7 +288,7 @@ export async function writeTrackingDataPostgres(data) {
       applied_to_food_log: row.applied_to_food_log === true,
     }));
 
-  const foodLog = asArray(data?.food_log)
+  const foodLog = asArray(safeData.food_log)
     .filter((row) => row && typeof row === "object" && row.date)
     .map((row) => ({
       user_id: userId,
@@ -304,7 +318,7 @@ export async function writeTrackingDataPostgres(data) {
       },
     }));
 
-  const fitnessWeeks = asArray(data?.fitness_weeks)
+  const fitnessWeeks = asArray(safeData.fitness_weeks)
     .filter((row) => row && typeof row === "object" && row.week_start)
     .map((row) => {
       const { checklist, categoryOrder } = toFitnessChecklistStorage(row);
@@ -318,16 +332,31 @@ export async function writeTrackingDataPostgres(data) {
       };
     });
 
-  const currentWeek = data?.current_week && typeof data.current_week === "object" ? data.current_week : null;
-  const userProfile = data?.user_profile && typeof data.user_profile === "object" ? data.user_profile : {};
+  const currentWeek = safeData.current_week && typeof safeData.current_week === "object" ? safeData.current_week : null;
+  const userProfile = safeData.user_profile && typeof safeData.user_profile === "object" ? safeData.user_profile : {};
+  const {
+    food_log: _foodLogOmitted,
+    food_events: _foodEventsOmitted,
+    current_week: _currentWeekOmitted,
+    fitness_weeks: _fitnessWeeksOmitted,
+    user_profile: _userProfileOmitted,
+    ...rulesData
+  } = safeData;
   const profilePayload = {
     user_id: userId,
     user_profile: userProfile,
     updated_at: new Date().toISOString(),
   };
+  const rulesPayload = {
+    user_id: userId,
+    rules_data: asObject(rulesData),
+    updated_at: new Date().toISOString(),
+  };
 
   const profileResult = await client.from("user_profiles").upsert(profilePayload, { onConflict: "user_id" });
   assertNoError("upsert user_profiles", profileResult.error);
+  const rulesResult = await client.from("user_rules").upsert(rulesPayload, { onConflict: "user_id" });
+  assertNoError("upsert user_rules", rulesResult.error);
 
   if (currentWeek && currentWeek.week_start) {
     const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);

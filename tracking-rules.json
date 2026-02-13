@@ -3,7 +3,7 @@
     "last_updated": "2026-02-12T19:19:11-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
-    "data_file": "tracking-data.json (legacy)",
+    "data_file": "tracking-rules.json",
     "logging_conventions": {
       "timezone": "Pacific Time (PT) - UTC-8/UTC-7. User is located in Seattle, Washington, US.",
       "late_night_entries": "When logging late at night or in early morning hours (after midnight), assume entries are for the previous calendar day unless explicitly stated otherwise. If it's 2AM Tuesday, treat food/activity logs as Monday's data by default.",

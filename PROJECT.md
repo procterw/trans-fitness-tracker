@@ -16,13 +16,12 @@ Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `food_log` + `food_events`
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
 - `tracking-profile.json` — `user_profile` (generic profile)
-- `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (local parsing/prompt configuration)
+- `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (JSON backend / local fallback source)
 
-`tracking-data.json` is treated as a legacy single-file format (still readable if configured), but new writes go to the split files by default.
+To backfill existing profile payloads into the generic shape and remove legacy keys, run `npm run migrate:profile` (idempotent). This migrates `tracking-profile.json`.
 
-To backfill existing profile payloads into the generic shape and remove legacy keys, run `npm run migrate:profile` (idempotent). This migrates both `tracking-profile.json` and legacy `tracking-data.json` (if present).
-
-`tracking-rules.json` is always local-file backed (including when `TRACKING_BACKEND=postgres`).
+When `TRACKING_BACKEND=postgres`, rules/philosophy are stored per-user in Postgres (`user_rules.rules_data`).
+When `TRACKING_BACKEND=json` (or split-file mode), rules are loaded from `tracking-rules.json`.
 
 ### Conventions
 - **Timezone:** Seattle, WA (Pacific Time).
@@ -77,7 +76,6 @@ This repo includes a minimal local web app that supports:
 - `TRACKING_ACTIVITY_FILE` (optional; defaults to repo `tracking-activity.json`)
 - `TRACKING_PROFILE_FILE` (optional; defaults to repo `tracking-profile.json`)
 - `TRACKING_RULES_FILE` (optional; defaults to repo `tracking-rules.json`)
-- `TRACKING_DATA_FILE` (optional; legacy single-file mode when set)
 
 ### Endpoints
 - `GET /` → React UI (Food / Fitness / Dashboard)
@@ -154,8 +152,7 @@ Implementation: `src/visionNutrition.js`
 - `tracking-food.json` — food events + daily food log
 - `tracking-activity.json` — weekly fitness checklist data
 - `tracking-profile.json` — generic user profile + legacy transition-context mirror
-- `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules
-- `tracking-data.json` — legacy single-file tracking data (optional)
+- `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules (JSON backend or migration source)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups
 - `src/visionNutrition.js` — OpenAI nutrition estimation (photo + text)

@@ -24,6 +24,9 @@ const TRACKING_ACTIVITY_FILE = process.env.TRACKING_ACTIVITY_FILE
 const TRACKING_PROFILE_FILE = process.env.TRACKING_PROFILE_FILE
   ? path.resolve(process.env.TRACKING_PROFILE_FILE)
   : path.resolve(repoRoot, "tracking-profile.json");
+const TRACKING_RULES_FILE = process.env.TRACKING_RULES_FILE
+  ? path.resolve(process.env.TRACKING_RULES_FILE)
+  : path.resolve(repoRoot, "tracking-rules.json");
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -253,10 +256,11 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const [foodData, activityData, profileData] = await Promise.all([
+  const [foodData, activityData, profileData, rulesData] = await Promise.all([
     readJsonOrDefault(TRACKING_FOOD_FILE, {}),
     readJsonOrDefault(TRACKING_ACTIVITY_FILE, {}),
     readJsonOrDefault(TRACKING_PROFILE_FILE, {}),
+    readJsonOrDefault(TRACKING_RULES_FILE, {}),
   ]);
 
   const userProfile = mapUserProfile(profileData);
@@ -271,6 +275,16 @@ async function main() {
     { onConflict: "user_id" },
   );
   if (profileUpsert.error) throw new Error(`Supabase upsert user_profiles failed: ${profileUpsert.error.message}`);
+
+  const rulesUpsert = await client.from("user_rules").upsert(
+    {
+      user_id: userId,
+      rules_data: asObject(rulesData),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (rulesUpsert.error) throw new Error(`Supabase upsert user_rules failed: ${rulesUpsert.error.message}`);
 
   if (currentWeek.week_start) {
     const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);
@@ -372,6 +386,7 @@ async function main() {
     fitness_weeks_skipped_existing: skippedFitnessWeeks,
     current_week_upserted: Boolean(currentWeek.week_start),
     profile_upserted: true,
+    rules_upserted: true,
   };
 
   console.log("JSON -> Postgres migration complete.");

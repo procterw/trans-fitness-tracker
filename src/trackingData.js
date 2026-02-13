@@ -15,9 +15,7 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_DATA_DIR = path.resolve(__dirname, "..");
 const TRACKING_BACKEND = String(process.env.TRACKING_BACKEND || "json").toLowerCase();
 const USE_POSTGRES_BACKEND = TRACKING_BACKEND === "postgres";
-const LEGACY_TRACKING_FILE = process.env.TRACKING_DATA_FILE
-  ? path.resolve(process.env.TRACKING_DATA_FILE)
-  : path.resolve(DEFAULT_DATA_DIR, "tracking-data.json");
+const LEGACY_TRACKING_FILE = process.env.TRACKING_DATA_FILE ? path.resolve(process.env.TRACKING_DATA_FILE) : null;
 const TRACKING_FOOD_FILE = process.env.TRACKING_FOOD_FILE
   ? path.resolve(process.env.TRACKING_FOOD_FILE)
   : path.resolve(DEFAULT_DATA_DIR, "tracking-food.json");
@@ -372,10 +370,6 @@ function splitTrackingData(data) {
     profile: path.basename(TRACKING_PROFILE_FILE),
     rules: path.basename(TRACKING_RULES_FILE),
   };
-  if (rulesMeta.data_file === "tracking-data.json") {
-    rulesMeta.data_file = "tracking-data.json (legacy)";
-  }
-
   return {
     food: {
       food_log: Array.isArray(food_log) ? food_log : [],
@@ -441,7 +435,7 @@ async function ensureSplitFiles() {
     return;
   }
 
-  const legacyExists = await fileExists(LEGACY_TRACKING_FILE);
+  const legacyExists = LEGACY_TRACKING_FILE ? await fileExists(LEGACY_TRACKING_FILE) : false;
   if (!legacyExists) {
     await writeSplitFiles(
       splitTrackingData({
@@ -458,22 +452,20 @@ async function ensureSplitFiles() {
     return;
   }
 
-  const legacyData = await readJsonOrDefault(LEGACY_TRACKING_FILE, {});
-  normalizeProfileDataPayload(legacyData);
-  const split = splitTrackingData(legacyData);
-  await writeSplitFiles(split);
+  if (LEGACY_TRACKING_FILE) {
+    const legacyData = await readJsonOrDefault(LEGACY_TRACKING_FILE, {});
+    normalizeProfileDataPayload(legacyData);
+    const split = splitTrackingData(legacyData);
+    await writeSplitFiles(split);
+  }
 }
 
 export async function readTrackingData() {
   if (USE_POSTGRES_BACKEND) {
-    const [userData, localRules] = await Promise.all([readTrackingDataPostgres(), readLocalRulesData()]);
-    const merged = {
-      ...asObject(userData),
-      ...asObject(localRules),
-    };
-    sanitizeActivityDataPayload(merged);
-    normalizeProfileDataPayload(merged);
-    return merged;
+    const data = asObject(await readTrackingDataPostgres());
+    sanitizeActivityDataPayload(data);
+    normalizeProfileDataPayload(data);
+    return data;
   }
 
   if (USE_LEGACY_FILE) {
@@ -503,7 +495,6 @@ export async function writeTrackingData(data) {
 
   if (USE_POSTGRES_BACKEND) {
     await writeTrackingDataPostgres(payload);
-    await writeLocalRulesData(payload);
     return;
   }
 
