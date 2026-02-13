@@ -17,8 +17,10 @@ import {
   decideIngestAction,
 } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
+import { formatChecklistCategoriesMarkdown, normalizeChecklistCategories } from "./checklistPolicy.js";
 import { getFitnessCategoryKeys, resolveFitnessCategoryKey, toFitnessCategoryLabel } from "./fitnessChecklist.js";
 import { generateWeeklyFitnessSummary } from "./fitnessSummary.js";
+import { deriveGoalsListsFromGoalsText, normalizeGoalsText, parseGoalsTextToList } from "./goalsText.js";
 import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
@@ -302,6 +304,10 @@ function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function asObject(value) {
+  return isPlainObject(value) ? value : {};
+}
+
 function mergeObjectPatch(base, patch) {
   if (!isPlainObject(base)) return structuredClone(patch);
   const out = structuredClone(base);
@@ -310,6 +316,36 @@ function mergeObjectPatch(base, patch) {
     else out[key] = structuredClone(value);
   }
   return out;
+}
+
+function hasGoalsTextPatch(patch) {
+  if (!isPlainObject(patch)) return false;
+  const goalsText = isPlainObject(patch.goals_text) ? patch.goals_text : null;
+  if (!goalsText) return false;
+  return ["overall_goals", "fitness_goals", "diet_goals"].some((key) => key in goalsText);
+}
+
+function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
+  const safeProfile = isPlainObject(profile) ? profile : {};
+  const legacyGoals = asObject(safeProfile.goals);
+  const goalsText = normalizeGoalsText(asObject(safeProfile.goals_text), { legacyGoals });
+  const derived = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
+  const metadata = asObject(safeProfile.metadata);
+  return {
+    ...safeProfile,
+    goals_text: goalsText,
+    goals: {
+      ...legacyGoals,
+      diet_goals: derived.diet_goals,
+      fitness_goals: derived.fitness_goals,
+      health_goals: derived.health_goals,
+    },
+    metadata: {
+      ...metadata,
+      goals_text_updated_at: formatSeattleIso(now),
+      goals_derivation_version: 1,
+    },
+  };
 }
 
 const ONBOARDING_STAGE_ORDER = ["goals", "checklist", "diet"];
@@ -335,32 +371,42 @@ function hasNonEmptyArray(value) {
   return Array.isArray(value) && value.some((entry) => hasNonEmptyString(entry));
 }
 
+function normalizeGoalList(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of value) {
+    const text = typeof entry === "string" ? entry.trim() : "";
+    if (!text) continue;
+    const token = text.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(text);
+  }
+  return out;
+}
+
+function extractGoalSummary(userProfile) {
+  const profile = isPlainObject(userProfile) ? userProfile : {};
+  const goals = isPlainObject(profile.goals) ? profile.goals : {};
+  const goalsText = normalizeGoalsText(asObject(profile.goals_text), { legacyGoals: goals });
+  const derivedGoals = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals: goals });
+  return {
+    diet_goals: normalizeGoalList(derivedGoals.diet_goals),
+    fitness_goals: normalizeGoalList(derivedGoals.fitness_goals),
+    health_goals: normalizeGoalList(derivedGoals.health_goals),
+    goals_text: goalsText,
+    overall_goals_list: parseGoalsTextToList(goalsText.overall_goals),
+  };
+}
+
 function normalizeOnboardingStage(value) {
   const stage = typeof value === "string" ? value.trim().toLowerCase() : "";
   return ONBOARDING_STAGE_SET.has(stage) ? stage : "goals";
 }
 
 function normalizeOnboardingChecklistCategories(value) {
-  if (!Array.isArray(value)) return null;
-  const cleaned = value
-    .map((entry) => {
-      const key = typeof entry?.key === "string" ? entry.key.trim() : "";
-      if (!key) return null;
-      const labelRaw = typeof entry?.label === "string" ? entry.label.trim() : "";
-      const items = Array.isArray(entry?.items)
-        ? entry.items
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter(Boolean)
-        : [];
-      if (!items.length) return null;
-      return {
-        key,
-        label: labelRaw || null,
-        items,
-      };
-    })
-    .filter(Boolean);
-  return cleaned.length ? cleaned : null;
+  return normalizeChecklistCategories(value);
 }
 
 function normalizeOnboardingChecklistProposal(value) {
@@ -392,7 +438,9 @@ function getOnboardingMeta(userProfile) {
 function hasGoalContext(userProfile) {
   const profile = isPlainObject(userProfile) ? userProfile : {};
   const goals = isPlainObject(profile.goals) ? profile.goals : {};
-  return hasNonEmptyArray(goals.diet_goals) && hasNonEmptyArray(goals.fitness_goals);
+  const goalsText = normalizeGoalsText(asObject(profile.goals_text), { legacyGoals: goals });
+  const derived = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals: goals });
+  return hasNonEmptyArray(derived.diet_goals) && hasNonEmptyArray(derived.fitness_goals);
 }
 
 function hasChecklistConfigured(currentWeek) {
@@ -502,13 +550,7 @@ function restartOnboardingMetadata(userProfile, { now = new Date() } = {}) {
 function checklistProposalToMarkdown(proposal) {
   const categories = normalizeOnboardingChecklistCategories(proposal?.checklist_categories);
   if (!categories?.length) return "";
-  const lines = ["Proposed fitness checklist:"];
-  for (const category of categories) {
-    const label = hasNonEmptyString(category?.label) ? category.label.trim() : category.key;
-    lines.push(`- **${label}**`);
-    for (const item of category.items) lines.push(`  - [ ] ${item}`);
-  }
-  return lines.join("\n");
+  return formatChecklistCategoriesMarkdown(categories, { heading: "Proposed fitness checklist:" });
 }
 
 function dietProposalToMarkdown(proposal) {
@@ -708,6 +750,13 @@ function isValidSettingsProposal(value) {
 async function applySettingsChanges({ proposal, applyMode = "now" }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
   const mode = applyMode === "next_week" ? "next_week" : "now";
+  const normalizedChecklistCategories =
+    proposal.checklist_categories === null || proposal.checklist_categories === undefined
+      ? null
+      : normalizeChecklistCategories(proposal.checklist_categories);
+  if (proposal.checklist_categories && !normalizedChecklistCategories?.length) {
+    throw new Error("Checklist changes must only include workout or activity items.");
+  }
 
   await ensureCurrentWeek();
   const data = await readTrackingData();
@@ -715,6 +764,9 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
 
   if (proposal.user_profile_patch) {
     data.user_profile = mergeObjectPatch(data.user_profile ?? {}, proposal.user_profile_patch);
+    if (hasGoalsTextPatch(proposal.user_profile_patch)) {
+      data.user_profile = applyGoalTextDerivation(data.user_profile, { now: new Date() });
+    }
     changesApplied.push("Updated generic user profile.");
   }
 
@@ -727,8 +779,8 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
     changesApplied.push("Updated fitness goals/philosophy.");
   }
 
-  if (proposal.checklist_categories) {
-    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, proposal.checklist_categories);
+  if (normalizedChecklistCategories) {
+    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, normalizedChecklistCategories);
     const template = extractChecklistTemplate(remappedWeek);
     if (template) {
       const metadata = isPlainObject(data.metadata) ? data.metadata : {};
@@ -746,7 +798,7 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
   if (changesApplied.length) {
     const metadata = isPlainObject(data.metadata) ? data.metadata : {};
     const appliedAt = formatSeattleIso(new Date());
-    const effectiveFrom = proposal.checklist_categories && mode === "next_week"
+    const effectiveFrom = normalizedChecklistCategories && mode === "next_week"
       ? "next_week_rollover"
       : getSeattleDateString(new Date());
     const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
@@ -755,12 +807,12 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
     if (proposal.user_profile_patch) domains.push("user_profile");
     if (proposal.diet_philosophy_patch) domains.push("diet_philosophy");
     if (proposal.fitness_philosophy_patch) domains.push("fitness_philosophy");
-    if (proposal.checklist_categories) domains.push("checklist_template");
+    if (normalizedChecklistCategories) domains.push("checklist_template");
     const event = {
       version: nextVersion,
       applied_at: appliedAt,
       effective_from: effectiveFrom,
-      checklist_apply_mode: proposal.checklist_categories ? mode : null,
+      checklist_apply_mode: normalizedChecklistCategories ? mode : null,
       domains,
     };
     const previous = Array.isArray(metadata.settings_history) ? metadata.settings_history : [];
@@ -1018,6 +1070,9 @@ app.post("/api/onboarding/chat", async (req, res) => {
           ? result.user_profile_patch
           : null;
       if (patch) profile = mergeObjectPatch(profile, patch);
+      if (patch && hasGoalsTextPatch(patch)) {
+        profile = applyGoalTextDerivation(profile, { now: new Date() });
+      }
       profile = updateOnboardingMetadata(profile, { stage: "goals" });
 
       if (hasGoalContext(profile)) {
@@ -1263,11 +1318,13 @@ app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
+    const goalSummary = extractGoalSummary(data.user_profile);
     res.json({
       ok: true,
       suggested_date: getSuggestedLogDate(),
       diet_philosophy: data.diet_philosophy ?? null,
       fitness_philosophy: data.fitness_philosophy ?? null,
+      user_profile_goals: goalSummary,
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -1298,13 +1355,42 @@ app.post("/api/settings/chat", async (req, res) => {
     const result = await askSettingsAssistant({ message, messages });
 
     const changes = result?.changes ?? {};
+    const goalsTextChanged = hasGoalsTextPatch(changes.user_profile_patch);
+    if (goalsTextChanged && !Array.isArray(changes.checklist_categories)) {
+      try {
+        await ensureCurrentWeek();
+        const data = await readTrackingData();
+        const patchedProfile = applyGoalTextDerivation(
+          mergeObjectPatch(data.user_profile ?? {}, changes.user_profile_patch ?? {}),
+          { now: new Date() },
+        );
+        const checklistDraft = await proposeOnboardingChecklist({
+          message: "Create an updated weekly workout checklist from my latest goals text.",
+          messages,
+          userProfile: patchedProfile,
+          currentWeek: data.current_week ?? null,
+          currentProposal: null,
+        });
+        changes.checklist_categories = checklistDraft.checklist_categories;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("Checklist suggestion generation failed after goals_text update.", err);
+      }
+    }
     const hasProposal = hasPendingSettingsChanges(changes);
     const proposalId = hasProposal ? crypto.randomUUID() : null;
-
-    const assistantMessage =
-      hasProposal && result.assistant_message
-        ? `${result.assistant_message}\n\nProposed settings changes are ready. Confirm to apply.`
-        : result.assistant_message;
+    const checklistPreview = Array.isArray(changes?.checklist_categories)
+      ? formatChecklistCategoriesMarkdown(changes.checklist_categories, {
+          heading: "Updated workout checklist to review before confirming:",
+        })
+      : "";
+    const assistantMessage = [
+      typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "",
+      checklistPreview,
+      hasProposal ? "Proposed settings changes are ready. Confirm to apply." : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
     res.json({
       ok: true,
@@ -1339,7 +1425,11 @@ app.post("/api/settings/confirm", async (req, res) => {
       effective_from: applied.effectiveFrom,
     });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    const isValidationError =
+      message === "Invalid settings proposal payload." ||
+      message === "Checklist changes must only include workout or activity items.";
+    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 

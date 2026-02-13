@@ -31,6 +31,11 @@
       "fitness_goals": [],
       "health_goals": []
     },
+    "goals_text": {
+      "overall_goals": "",
+      "fitness_goals": "",
+      "diet_goals": ""
+    },
     "behavior": {
       "motivation_barriers": [],
       "adherence_triggers": []
@@ -101,7 +106,9 @@
     },
     "metadata": {
       "updated_at": null,
-      "settings_version": 1
+      "settings_version": 1,
+      "goals_text_updated_at": null,
+      "goals_derivation_version": 1
     }
   }
 }

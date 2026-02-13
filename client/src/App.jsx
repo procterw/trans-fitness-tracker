@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "./styles.css";
 import {
@@ -33,6 +33,7 @@ import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
 import SettingsView from "./views/SettingsView.jsx";
 import OnboardingView from "./views/OnboardingView.jsx";
+import { getFitnessCategories } from "./fitnessChecklist.js";
 
 function useDebouncedKeyedCallback(fn, ms) {
   const fnRef = useRef(fn);
@@ -74,6 +75,61 @@ function useSerialQueue() {
       return next;
     };
   }, []);
+}
+
+function normalizeGoalSummary(value) {
+  const asList = (items) => {
+    if (!Array.isArray(items)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const entry of items) {
+      const text = typeof entry === "string" ? entry.trim() : "";
+      if (!text) continue;
+      const token = text.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      out.push(text);
+    }
+    return out;
+  };
+
+  const safe = value && typeof value === "object" ? value : {};
+  return {
+    diet_goals: asList(safe.diet_goals),
+    fitness_goals: asList(safe.fitness_goals),
+    health_goals: asList(safe.health_goals),
+  };
+}
+
+function categoriesFromWeek(week) {
+  return getFitnessCategories(week)
+    .map((category) => ({
+      key: category.key,
+      label: category.label,
+      items: (Array.isArray(category.items) ? category.items : [])
+        .map((item) => ({
+          item: typeof item?.item === "string" ? item.item.trim() : "",
+          checked: item?.checked === true,
+        }))
+        .filter((item) => item.item),
+    }))
+    .filter((category) => category.items.length);
+}
+
+function categoriesFromProposal(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((category) => ({
+      key: typeof category?.key === "string" ? category.key.trim() : "",
+      label: typeof category?.label === "string" ? category.label.trim() : null,
+      items: Array.isArray(category?.items)
+        ? category.items
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter(Boolean)
+            .map((item) => ({ item, checked: false }))
+        : [],
+    }))
+    .filter((category) => category.key && category.items.length);
 }
 
 export default function App() {
@@ -123,6 +179,11 @@ export default function App() {
   const [sidebarDayStatus, setSidebarDayStatus] = useState("");
   const [sidebarDayError, setSidebarDayError] = useState("");
   const sidebarDaySeqRef = useRef(0);
+  const [profileGoalSummary, setProfileGoalSummary] = useState({
+    diet_goals: [],
+    fitness_goals: [],
+    health_goals: [],
+  });
 
   // Workouts view state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -184,6 +245,16 @@ export default function App() {
       .replace(/[?.!]+$/g, "")
       .trim();
 
+  const refreshAppContext = useCallback(async () => {
+    const json = await getContext();
+    const date = typeof json?.suggested_date === "string" ? json.suggested_date : "";
+    setSuggestedDate(date);
+    setFoodDate((prev) => prev || date);
+    setDashDate((prev) => prev || date);
+    setProfileGoalSummary(normalizeGoalSummary(json?.user_profile_goals));
+    return json;
+  }, []);
+
   const seedOnboardingMessagesFromResponse = (json) => {
     onboardingMessageIdRef.current = 0;
     if (!json?.needs_onboarding) {
@@ -226,15 +297,8 @@ export default function App() {
 
   useEffect(() => {
     if (signedOut) return;
-    getContext()
-      .then((json) => {
-        const date = json?.suggested_date ?? "";
-        setSuggestedDate(date);
-        setFoodDate((prev) => prev || date);
-        setDashDate((prev) => prev || date);
-      })
-      .catch(() => {});
-  }, [signedOut]);
+    refreshAppContext().catch(() => {});
+  }, [refreshAppContext, signedOut]);
 
   useEffect(() => {
     if (!authEnabled) return;
@@ -790,6 +854,7 @@ export default function App() {
       });
       setOnboardingState(json);
       setOnboardingChecked(true);
+      refreshAppContext().catch(() => {});
 
       const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
       const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
@@ -859,6 +924,8 @@ export default function App() {
       });
       setOnboardingState(json);
       setOnboardingChecked(true);
+      refreshAppContext().catch(() => {});
+      loadFitness();
 
       setOnboardingMessages((prev) =>
         prev.map((msg) =>
@@ -999,10 +1066,6 @@ export default function App() {
     await sendSettingsMessage(settingsInput);
   };
 
-  const onQuickSettingsPrompt = async (prompt) => {
-    await sendSettingsMessage(prompt);
-  };
-
   const onConfirmSettingsProposal = async (messageId, applyMode = "now") => {
     if (settingsLoading) return;
     setSettingsError("");
@@ -1051,6 +1114,7 @@ export default function App() {
       if (json?.updated?.current_week) {
         setFitnessWeek(json.updated.current_week);
       }
+      refreshAppContext().catch(() => {});
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1093,6 +1157,7 @@ export default function App() {
       setOnboardingChecked(true);
       setOnboardingInput("");
       seedOnboardingMessagesFromResponse(json);
+      refreshAppContext().catch(() => {});
       setView("chat");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1348,6 +1413,39 @@ export default function App() {
 
   const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
 
+  const onboardingGoalSummary = useMemo(() => {
+    const profileGoals = onboardingState?.updated_profile?.goals;
+    if (profileGoals && typeof profileGoals === "object") return normalizeGoalSummary(profileGoals);
+    return profileGoalSummary;
+  }, [onboardingState?.updated_profile?.goals, profileGoalSummary]);
+
+  const onboardingProposalCategories = useMemo(() => {
+    const proposal = onboardingState?.proposal;
+    return Array.isArray(proposal?.checklist_categories) ? proposal.checklist_categories : null;
+  }, [onboardingState]);
+
+  const settingsProposalCategories = useMemo(() => {
+    for (let i = settingsMessages.length - 1; i >= 0; i -= 1) {
+      const msg = settingsMessages[i];
+      if (!msg?.requiresConfirmation) continue;
+      if (!Array.isArray(msg?.proposal?.checklist_categories)) continue;
+      return msg.proposal.checklist_categories;
+    }
+    return null;
+  }, [settingsMessages]);
+
+  const onboardingWorkingChecklist = useMemo(() => {
+    const proposal = categoriesFromProposal(onboardingProposalCategories);
+    if (proposal.length) return proposal;
+    return categoriesFromWeek(fitnessWeek);
+  }, [fitnessWeek, onboardingProposalCategories]);
+
+  const settingsWorkingChecklist = useMemo(() => {
+    const proposal = categoriesFromProposal(settingsProposalCategories);
+    if (proposal.length) return proposal;
+    return categoriesFromWeek(fitnessWeek);
+  }, [fitnessWeek, settingsProposalCategories]);
+
   if (signedOut) {
     return (
       <SignedOutView authStatus={authStatus} authActionLoading={authActionLoading} onSignIn={onSignIn} />
@@ -1393,6 +1491,8 @@ export default function App() {
             onboardingStage={onboardingState?.stage ?? "goals"}
             onboardingStepIndex={onboardingState?.step_index ?? 1}
             onboardingStepTotal={onboardingState?.step_total ?? 3}
+            onboardingGoalSummary={onboardingGoalSummary}
+            onboardingWorkingChecklist={onboardingWorkingChecklist}
             onSubmitOnboarding={onSubmitOnboarding}
             onConfirmOnboardingProposal={onConfirmOnboardingProposal}
             onOnboardingInputChange={setOnboardingInput}
@@ -1499,9 +1599,10 @@ export default function App() {
             settingsInput={settingsInput}
             settingsLoading={settingsLoading}
             settingsError={settingsError}
+            settingsGoalSummary={profileGoalSummary}
+            settingsWorkingChecklist={settingsWorkingChecklist}
             onSubmitSettings={onSubmitSettings}
             onConfirmSettingsProposal={onConfirmSettingsProposal}
-            onQuickSettingsPrompt={onQuickSettingsPrompt}
             onSettingsInputChange={setSettingsInput}
           />
         ) : null}

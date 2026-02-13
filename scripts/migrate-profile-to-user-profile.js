@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { deriveGoalsListsFromGoalsText, normalizeGoalsText } from "../src/goalsText.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
@@ -40,6 +42,10 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
   const transFromProfile = asObject(safeModules.trans_care);
   const fallbackTrans = asObject(fallbackTransitionContext);
   const transCare = Object.keys(transFromProfile).length ? transFromProfile : fallbackTrans;
+  const legacyGoals = asObject(safe.goals);
+  const goalsText = normalizeGoalsText(asObject(safe.goals_text), { legacyGoals });
+  const derivedGoals = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
+  const metadata = asObject(safe.metadata);
 
   return {
     ...safe,
@@ -66,11 +72,12 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
       injuries_limitations: asStringArray(asObject(safe.fitness).injuries_limitations),
       equipment_access: asStringArray(asObject(safe.fitness).equipment_access),
     },
+    goals_text: goalsText,
     goals: {
-      ...asObject(safe.goals),
-      diet_goals: asStringArray(asObject(safe.goals).diet_goals),
-      fitness_goals: asStringArray(asObject(safe.goals).fitness_goals),
-      health_goals: asStringArray(asObject(safe.goals).health_goals),
+      ...legacyGoals,
+      diet_goals: asStringArray(derivedGoals.diet_goals),
+      fitness_goals: asStringArray(derivedGoals.fitness_goals),
+      health_goals: asStringArray(derivedGoals.health_goals),
     },
     behavior: {
       ...asObject(safe.behavior),
@@ -90,10 +97,14 @@ function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
           : "concise",
     },
     metadata: {
-      ...asObject(safe.metadata),
-      updated_at: typeof asObject(safe.metadata).updated_at === "string" ? asObject(safe.metadata).updated_at : null,
-      settings_version: Number.isInteger(asObject(safe.metadata).settings_version)
-        ? asObject(safe.metadata).settings_version
+      ...metadata,
+      updated_at: typeof metadata.updated_at === "string" ? metadata.updated_at : null,
+      settings_version: Number.isInteger(metadata.settings_version)
+        ? metadata.settings_version
+        : 1,
+      goals_text_updated_at: typeof metadata.goals_text_updated_at === "string" ? metadata.goals_text_updated_at : null,
+      goals_derivation_version: Number.isInteger(metadata.goals_derivation_version)
+        ? metadata.goals_derivation_version
         : 1,
     },
   };

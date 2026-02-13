@@ -1,5 +1,6 @@
 import React from "react";
 
+import GoalChecklistSidebar from "../components/GoalChecklistSidebar.jsx";
 import MarkdownContent from "../components/MarkdownContent.jsx";
 
 export default function OnboardingView({
@@ -13,6 +14,8 @@ export default function OnboardingView({
   onboardingStage,
   onboardingStepIndex,
   onboardingStepTotal,
+  onboardingGoalSummary,
+  onboardingWorkingChecklist,
   onSubmitOnboarding,
   onConfirmOnboardingProposal,
   onOnboardingInputChange,
@@ -36,47 +39,55 @@ export default function OnboardingView({
       </div>
 
       <div className="chatBox chatBoxFull">
-        <div ref={onboardingMessagesRef} className="chatMessages" aria-label="Onboarding conversation">
-          {onboardingMessages.length ? (
-            onboardingMessages.map((m, idx) => (
-              <div
-                key={m.id ?? idx}
-                className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
-              >
+        <div className="chatBodySplit">
+          <div ref={onboardingMessagesRef} className="chatMessages" aria-label="Onboarding conversation">
+            {onboardingMessages.length ? (
+              onboardingMessages.map((m, idx) => (
                 <div
-                  className={`chatContent ${
-                    m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
-                  }`}
+                  key={m.id ?? idx}
+                  className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
                 >
-                  {m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? (
-                    <MarkdownContent content={m.content} />
-                  ) : (
-                    m.content
-                  )}
-                </div>
-                {m.role === "assistant" && m.requiresConfirmation && m.proposal ? (
-                  <div className="settingsConfirmRow">
-                    <button
-                      type="button"
-                      className="small"
-                      disabled={onboardingLoading}
-                      onClick={() => onConfirmOnboardingProposal(m.id)}
-                    >
-                      {m.confirmAction === "accept_diet" ? "Accept diet goals" : "Accept checklist"}
-                    </button>
+                  <div
+                    className={`chatContent ${
+                      m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
+                    }`}
+                  >
+                    {m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? (
+                      <MarkdownContent content={m.content} />
+                    ) : (
+                      m.content
+                    )}
                   </div>
-                ) : null}
-              </div>
-            ))
-          ) : (
-            <div className="muted">I will ask a few questions to personalize your tracker.</div>
-          )}
+                  {m.role === "assistant" && m.requiresConfirmation && m.proposal ? (
+                    <div className="settingsConfirmRow">
+                      <button
+                        type="button"
+                        className="small"
+                        disabled={onboardingLoading}
+                        onClick={() => onConfirmOnboardingProposal(m.id)}
+                      >
+                        {m.confirmAction === "accept_diet" ? "Accept diet goals" : "Accept checklist"}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div className="muted">I will ask a few questions to personalize your tracker.</div>
+            )}
 
-          {onboardingLoading && !onboardingError ? (
-            <div className="chatMsg assistant thinking">
-              <div className="chatContent plain">Thinking…</div>
-            </div>
-          ) : null}
+            {onboardingLoading && !onboardingError ? (
+              <div className="chatMsg assistant thinking">
+                <div className="chatContent plain">Thinking…</div>
+              </div>
+            ) : null}
+          </div>
+
+          <GoalChecklistSidebar
+            className="chatContextPanel"
+            goalSummary={onboardingGoalSummary}
+            checklistCategories={onboardingWorkingChecklist}
+          />
         </div>
 
         <form ref={onboardingFormRef} onSubmit={onSubmitOnboarding} className="foodComposerForm chatComposer">

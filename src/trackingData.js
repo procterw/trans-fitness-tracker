@@ -6,6 +6,7 @@ import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { getFitnessCategoryKeys, getFitnessCategoryLabel, resolveFitnessCategoryKey } from "./fitnessChecklist.js";
+import { deriveGoalsListsFromGoalsText, normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import { readTrackingDataPostgres, writeTrackingDataPostgres } from "./trackingDataPostgres.js";
 
@@ -131,6 +132,10 @@ function normalizeUserProfile(value) {
   const safe = asObject(value);
   const safeModules = asObject(safe.modules);
   const transFromProfile = asObject(safeModules.trans_care);
+  const legacyGoals = asObject(safe.goals);
+  const goalsText = normalizeGoalsText(asObject(safe.goals_text), { legacyGoals });
+  const derivedGoals = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
+  const safeMetadata = asObject(safe.metadata);
 
   return {
     ...safe,
@@ -157,11 +162,12 @@ function normalizeUserProfile(value) {
       injuries_limitations: asStringArray(asObject(safe.fitness).injuries_limitations),
       equipment_access: asStringArray(asObject(safe.fitness).equipment_access),
     },
+    goals_text: goalsText,
     goals: {
-      ...asObject(safe.goals),
-      diet_goals: asStringArray(asObject(safe.goals).diet_goals),
-      fitness_goals: asStringArray(asObject(safe.goals).fitness_goals),
-      health_goals: asStringArray(asObject(safe.goals).health_goals),
+      ...legacyGoals,
+      diet_goals: asStringArray(derivedGoals.diet_goals),
+      fitness_goals: asStringArray(derivedGoals.fitness_goals),
+      health_goals: asStringArray(derivedGoals.health_goals),
     },
     behavior: {
       ...asObject(safe.behavior),
@@ -181,10 +187,14 @@ function normalizeUserProfile(value) {
           : "concise",
     },
     metadata: {
-      ...asObject(safe.metadata),
-      updated_at: typeof asObject(safe.metadata).updated_at === "string" ? asObject(safe.metadata).updated_at : null,
-      settings_version: Number.isInteger(asObject(safe.metadata).settings_version)
-        ? asObject(safe.metadata).settings_version
+      ...safeMetadata,
+      updated_at: typeof safeMetadata.updated_at === "string" ? safeMetadata.updated_at : null,
+      settings_version: Number.isInteger(safeMetadata.settings_version)
+        ? safeMetadata.settings_version
+        : 1,
+      goals_text_updated_at: typeof safeMetadata.goals_text_updated_at === "string" ? safeMetadata.goals_text_updated_at : null,
+      goals_derivation_version: Number.isInteger(safeMetadata.goals_derivation_version)
+        ? safeMetadata.goals_derivation_version
         : 1,
     },
   };

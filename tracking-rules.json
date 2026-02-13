@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "last_updated": "2026-02-11T17:07:45-08:00",
+    "last_updated": "2026-02-12T19:19:11-08:00",
     "version": "1.0",
     "description": "Complete health, fitness, and transition tracking data",
     "data_file": "tracking-data.json (legacy)",
@@ -114,78 +114,87 @@
     },
     "checklist_template": {
       "category_order": [
-        "cardio",
-        "strength",
-        "mobility",
-        "other"
+        "cardio_endurance",
+        "lower_body_strength",
+        "core_back_health",
+        "mobility_joints"
       ],
       "category_labels": {
-        "cardio": "Cardio",
-        "strength": "Strength",
-        "mobility": "Mobility",
-        "other": "Other"
+        "cardio_endurance": "Cardio (heart health + endurance)",
+        "lower_body_strength": "Strength (glutes/hips emphasis)",
+        "core_back_health": "Core + spine-friendly work",
+        "mobility_joints": "Mobility (hips/ankles/spine)"
       },
-      "cardio": [
+      "cardio_endurance": [
         {
-          "item": "Quality run"
+          "item": "Zone 2 easy aerobic (25–45 min)"
         },
         {
-          "item": "Long aerobic"
+          "item": "Zone 2 easy aerobic #2 (25–45 min)"
         },
         {
-          "item": "Bike / cross-training"
+          "item": "Long easy aerobic (45–75 min)"
         },
         {
-          "item": "Easy aerobic #1"
+          "item": "Optional short intervals (8–15 min total work; controlled)"
         },
         {
-          "item": "Easy aerobic #2"
+          "item": "Recovery walk / very easy movement (20–30 min)"
         },
         {
-          "item": "Recovery / very easy #1"
-        },
-        {
-          "item": "Recovery / very easy #2"
-        },
-        {
-          "item": "Timing: protect glute recovery"
+          "item": "Warm-up + cool-down (5–10 min each)"
         }
       ],
-      "strength": [
+      "lower_body_strength": [
         {
-          "item": "Glutes — hard"
+          "item": "Glutes/hips strength day (hip thrust/bridge + squat pattern)"
         },
         {
-          "item": "Glutes — easy"
+          "item": "Glutes/hips shaping day (hinge + higher-rep pump work)"
         },
         {
-          "item": "Glute med micro-dose (10–15 min)"
+          "item": "Glute med + hip stability mini-session (10–15 min)"
         },
         {
-          "item": "Extra glutes (outlier)"
+          "item": "Calves + tibialis (ankle resilience) (8–12 min)"
+        },
+        {
+          "item": "Keep upper-body loading minimal (no heavy presses/pulls; use only daily-life movement)"
         }
       ],
-      "mobility": [
+      "core_back_health": [
         {
-          "item": "Mobility micro-dose #1 (10 min)"
+          "item": "Core anti-extension (dead bug variations) (8–12 min)"
         },
         {
-          "item": "Mobility micro-dose #2 (10 min)"
+          "item": "Core anti-rotation (Pallof press or carry) (8–12 min)"
+        },
+        {
+          "item": "Back-friendly posterior chain accessory (light back extension or hip hinge pattern) (2–3 easy sets)"
+        },
+        {
+          "item": "Daily posture break: 2–3 minutes of gentle thoracic opening"
         }
       ],
-      "other": [
+      "mobility_joints": [
         {
-          "item": "Rock climbing"
+          "item": "Hip flexors + glute stretch (5–10 min)"
         },
         {
-          "item": "Ballet #1"
+          "item": "Hip rotation (90/90 or similar) (5–10 min)"
         },
         {
-          "item": "Ballet #2"
+          "item": "Ankles + calves mobility (5–10 min)"
+        },
+        {
+          "item": "Spine mobility (cat-cow + gentle rotations) (5–10 min)"
+        },
+        {
+          "item": "Short cooldown breathing walk (5–10 min)"
         }
       ]
     },
-    "settings_version": 2,
+    "settings_version": 6,
     "settings_history": [
       {
         "version": 1,
@@ -204,19 +213,62 @@
         "domains": [
           "user_profile"
         ]
+      },
+      {
+        "version": 3,
+        "applied_at": "2026-02-12T10:06:31-08:00",
+        "effective_from": "2026-02-12",
+        "checklist_apply_mode": null,
+        "domains": [
+          "user_profile",
+          "diet_philosophy",
+          "fitness_philosophy"
+        ]
+      },
+      {
+        "version": 4,
+        "applied_at": "2026-02-12T10:07:24-08:00",
+        "effective_from": "2026-02-12",
+        "checklist_apply_mode": "now",
+        "domains": [
+          "checklist_template"
+        ]
+      },
+      {
+        "version": 5,
+        "applied_at": "2026-02-12T19:16:53-08:00",
+        "effective_from": "2026-02-12",
+        "checklist_apply_mode": "now",
+        "domains": [
+          "checklist_template"
+        ]
+      },
+      {
+        "version": 6,
+        "applied_at": "2026-02-12T19:19:11-08:00",
+        "effective_from": "2026-02-12",
+        "checklist_apply_mode": "now",
+        "domains": [
+          "user_profile",
+          "checklist_template"
+        ]
       }
     ]
   },
   "diet_philosophy": {
     "goals": [
-      "Energy sufficiency",
-      "Calm surplus (2600-2900 daily) with smoother day-to-day swings",
-      "Track calories + macros + fiber; use a separate 'healthy' flag for food-quality patterns",
-      "Minimal muscle-preservation signaling (upper-body disuse is the primary lever)"
+      "Energy sufficiency (no restriction)",
+      "Calm, consistent surplus with minimal day-to-day swings",
+      "Keep protein adequate and diffuse (not spiked or lean/isolated)",
+      "Pair protein with fats and carbs; avoid muscle-preserving signaling patterns",
+      "Support endurance with sufficient carbohydrates",
+      "Include adequate dietary fat to support hormonal environment",
+      "Maintain fiber and micronutrient intake for cardiovascular/heart health",
+      "Avoid restriction cycles that increase stress or disrupt redistribution"
     ],
     "protein": {
-      "target_g": "100-120",
-      "philosophy": "On estrogen with suppressed testosterone, protein alone doesn't cause muscle retention - training stimulus does. Focus on distribution quality (diffuse, fat-paired) rather than minimizing total grams.",
+      "target_g": "110 (range 100-120)",
+      "philosophy": "Keep protein adequate but diffuse (avoid spiking or relying on lean/isolated sources). Prefer pairing with fats and carbs and avoid patterns that feel like deliberate muscle-preservation signaling.",
       "key_factors": [
         "Distribution: spread across meals rather than concentrated",
         "Pairing: consumed with fats and carbs, not lean/isolated",
@@ -225,7 +277,7 @@
       ]
     },
     "calories": {
-      "target": "2600-2900 daily",
+      "target": "2700 daily (usual range 2600-2900)",
       "training_day_floor": 2500,
       "absolute_floor": 2400,
       "soft_ceiling": 3200,
@@ -241,10 +293,12 @@
       }
     },
     "carbs": {
-      "philosophy": "Neutral or positive. Primary fuel for endurance and lower-body training. No distinction between complex and simple."
+      "philosophy": "Neutral or positive. Primary fuel for endurance and lower-body training. No distinction between complex and simple.",
+      "target_g": 340
     },
     "fat": {
-      "philosophy": "Supportive. Essential for hormone production, fat-soluble vitamins, and calorie intake without protein."
+      "philosophy": "Supportive. Essential for hormone production, fat-soluble vitamins, and calorie intake without protein.",
+      "target_g": 85
     },
     "evaluation_criteria": {
       "green": "Calories mostly 2600-2900 (or within plan floors/ceiling), with training days ≥2500 and no days <2400; protein ~100-120g when diffuse/fat-paired; fiber ≥28g most days. 'Healthy' flag can be 🟢 or 🟡.",
@@ -279,13 +333,14 @@
     }
   },
   "fitness_philosophy": {
-    "big_picture": "Long-term trans feminization with health, stability, and sustainability. Optimize for selective change over time: let estrogen work while avoiding stressors that cause rebound, stagnation, or injury.",
+    "big_picture": "Selective change over time with health and longevity as non-negotiables. Create permissive conditions for long-term feminization: strong estrogen/suppressed testosterone, adequate energy, low systemic stress, and sustainable training that does not interfere with gradual change.",
     "physique_goals": [
-      "Allow upper-body muscle to gradually atrophy without provoking defensive retention",
-      "Support estrogen-driven fat redistribution (hips, thighs, chest)",
-      "Maintain or subtly enhance glutes and hips for shape and proportion",
-      "Move through time + consistency, not force",
-      "Prioritize softness, drape, posture over metrics"
+      "Allow upper-body muscle to gradually atrophy through disuse (minimize upper-body hypertrophy stimulus)",
+      "Support slow, estrogen-driven fat redistribution toward hips/thighs/chest",
+      "Improve shoulder-to-hip visual balance via glute/hip development and softness (not extreme dieting)",
+      "Maintain or subtly grow glutes and hips for proportion",
+      "Reduce hypervigilant self-scrutiny; prioritize stability over rapid change",
+      "Avoid systemic stress patterns that provoke rebound or stagnation"
     ],
     "cardio": {
       "approach": "Regular aerobic work (running, cycling, elliptical, walking) for cardiovascular health, recovery, and fat-friendly stress",
@@ -299,7 +354,7 @@
     },
     "strength": {
       "lower_body": "Glute-focused with minimal systemic stress: 1 hard glute day + 1 shaping day. Hard day: controlled hypertrophy, no failure. Shaping day: still low fatigue, but include 2–4 hard sets (RIR ~1–3) of a hip-dominant glute-max movement (hip thrust/bridge, glute-biased back extension, or similar) before pump work. Add 1 micro-dose glute-med session (10–15 min; 2–3 sets abduction/lateral pattern) weekly if recovery is good. Optional third session only as a true outlier—keep it easy and do not chase fatigue.",
-      "upper_body": "Intentionally minimized - complete avoidance",
+      "upper_body": "Intentionally minimized (avoid upper-body hypertrophy stimulus); allow atrophy via disuse",
       "quad_bias_note": "If quad growth is not desired, bias programming toward hip-dominant patterns over heavy knee-dominant squatting."
     },
     "mobility": {
@@ -322,10 +377,10 @@
       "progression": "Conservative to avoid accidental escalation"
     },
     "health_priorities": [
-      "Heart health: endurance exercise, fiber, omega-3s, stress reduction",
-      "Joint health: mobility, varied movement, avoiding excessive load",
-      "Mental health: routine, non-punitive rules, not tying self-worth to metrics",
-      "Hormonal environment: adequate energy, dietary fat, avoiding chronic stress"
+      "Heart health via regular aerobic work",
+      "Joint health (hips, ankles, spine) and lower-back injury prevention",
+      "Mobility and controlled loading for tissue resilience",
+      "Emotional stability and sustainability over intensity"
     ]
   },
   "assistant_rules": {

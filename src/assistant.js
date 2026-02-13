@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
+import { formatChecklistCategoriesMarkdown, normalizeChecklistCategories } from "./checklistPolicy.js";
 import { getFitnessCategories, getFitnessCategoryLabel, getFitnessCategoryKeys } from "./fitnessChecklist.js";
+import { normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import {
   ensureCurrentWeek,
@@ -35,6 +37,7 @@ function pickUserProfileSummary(profile) {
   const userProfile = asObject(profile);
   const general = asObject(userProfile.general);
   const goals = asObject(userProfile.goals);
+  const goalsText = normalizeGoalsText(asObject(userProfile.goals_text), { legacyGoals: goals });
   const behavior = asObject(userProfile.behavior);
   const medical = asObject(userProfile.medical);
   const cycle = asObject(medical.cycle_hormonal_context);
@@ -52,6 +55,7 @@ function pickUserProfileSummary(profile) {
       fitness_goals: Array.isArray(goals.fitness_goals) ? goals.fitness_goals : [],
       health_goals: Array.isArray(goals.health_goals) ? goals.health_goals : [],
     },
+    goals_text: goalsText,
     behavior: {
       motivation_barriers: Array.isArray(behavior.motivation_barriers) ? behavior.motivation_barriers : [],
       adherence_triggers: Array.isArray(behavior.adherence_triggers) ? behavior.adherence_triggers : [],
@@ -131,6 +135,8 @@ const DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS = [
   "Ask one focused question at a time and keep responses concise.",
   "Always return JSON matching the schema.",
   "For user_profile_patch: return either null or a valid JSON object string with only changed fields.",
+  "When the user describes goals, write to user_profile_patch.goals_text (overall_goals, fitness_goals, diet_goals).",
+  "Treat goals_text as the primary goals source; legacy goals arrays are compatibility-only.",
   "Never remove existing user data unless the user explicitly asks to replace it.",
   "Use answered_keys to mark which onboarding slots were answered in this turn, even when the answer is 'none' or 'no'.",
   "If the user provides multiple details in one message, include all relevant updates in one patch.",
@@ -142,6 +148,8 @@ const DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS = [
   "You are creating a fitness checklist during onboarding for a health and fitness tracker.",
   "Always return JSON matching the schema.",
   "Generate or revise checklist_categories based on the user's goals and feedback.",
+  "Checklist content must be workouts and activity habits only.",
+  "Do not include food, eating, meals, nutrition, or diet tasks in checklist categories or items.",
   "Checklist categories should be practical and concise, with clear action-oriented items.",
   "Return the full desired checklist_categories array each time.",
   "If the user asks for changes, revise accordingly rather than asking to confirm first.",
@@ -167,9 +175,13 @@ const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
   "Use minimal patches: include only fields that should change.",
   "For user_profile_patch, diet_philosophy_patch, and fitness_philosophy_patch: return either null or a valid JSON object string.",
+  "For goal updates, prefer user_profile_patch.goals_text fields (overall_goals, fitness_goals, diet_goals).",
+  "Treat goals_text as the canonical goals source; legacy goals arrays are compatibility-only.",
   "Use user_profile_patch for profile updates.",
   "Never include markdown code fences in assistant_message.",
   "For checklist edits, return the full desired checklist_categories array when making checklist changes.",
+  "Checklist content must be workouts and activity habits only.",
+  "Do not include food, eating, meals, nutrition, or diet tasks in checklist categories or items.",
   "Checklist category keys should be short snake_case strings.",
   "Checklist item strings should be concise and action-oriented.",
   "If the user asks a pure question (no settings change), provide guidance and keep all changes null.",
@@ -532,29 +544,6 @@ function normalizeSettingsPatch(value) {
   }
 }
 
-function normalizeSettingsCategories(value) {
-  if (!Array.isArray(value)) return null;
-  const cleaned = value
-    .map((entry) => {
-      const key = typeof entry?.key === "string" ? entry.key.trim() : "";
-      if (!key) return null;
-      const labelRaw = typeof entry?.label === "string" ? entry.label.trim() : "";
-      const items = Array.isArray(entry?.items)
-        ? entry.items
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter(Boolean)
-        : [];
-      if (!items.length) return null;
-      return {
-        key,
-        label: labelRaw || null,
-        items,
-      };
-    })
-    .filter(Boolean);
-  return cleaned.length ? cleaned : null;
-}
-
 function normalizeOnboardingAnsweredKeys(value) {
   if (!Array.isArray(value)) return [];
   const valid = new Set([
@@ -590,32 +579,11 @@ function messageLooksLikeChecklistReadRequest(message) {
   return asksToView && checklistTopic;
 }
 
-function formatChecklistTemplateMarkdown(checklistTemplate) {
-  const categories = Array.isArray(checklistTemplate) ? checklistTemplate : [];
-  if (!categories.length) return "I don't have a checklist template yet.";
-
-  const lines = ["Here is your current workout checklist structure:"];
-  for (const category of categories) {
-    const label = typeof category?.label === "string" && category.label.trim() ? category.label.trim() : category?.key || "Category";
-    lines.push(`- **${label}**`);
-    const items = Array.isArray(category?.items) ? category.items : [];
-    if (!items.length) {
-      lines.push("  - [ ] (no items)");
-      continue;
-    }
-    for (const item of items) {
-      const itemText = typeof item === "string" ? item.trim() : "";
-      if (!itemText) continue;
-      lines.push(`  - [ ] ${itemText}`);
-    }
-  }
-  return lines.join("\n");
-}
-
 function pickOnboardingProfileContext(profile) {
   const safe = asObject(profile);
   const general = asObject(safe.general);
   const goals = asObject(safe.goals);
+  const goalsText = normalizeGoalsText(asObject(safe.goals_text), { legacyGoals: goals });
   const nutrition = asObject(safe.nutrition);
   const fitness = asObject(safe.fitness);
   const preferences = asObject(safe.assistant_preferences);
@@ -632,6 +600,7 @@ function pickOnboardingProfileContext(profile) {
       fitness_goals: Array.isArray(goals.fitness_goals) ? goals.fitness_goals : [],
       health_goals: Array.isArray(goals.health_goals) ? goals.health_goals : [],
     },
+    goals_text: goalsText,
     nutrition: {
       food_restrictions: Array.isArray(nutrition.food_restrictions) ? nutrition.food_restrictions : [],
       food_allergies: Array.isArray(nutrition.food_allergies) ? nutrition.food_allergies : [],
@@ -713,7 +682,7 @@ export async function proposeOnboardingChecklist({
     timezone: "America/Los_Angeles",
     user_profile: pickOnboardingProfileContext(userProfile),
     checklist_template: buildChecklistTemplateSnapshot(currentWeek ?? null),
-    current_proposal: normalizeSettingsCategories(
+    current_proposal: normalizeChecklistCategories(
       Array.isArray(currentProposal?.checklist_categories)
         ? currentProposal.checklist_categories
         : Array.isArray(currentProposal)
@@ -745,7 +714,7 @@ export async function proposeOnboardingChecklist({
   const parsed = response.output_parsed;
   if (!parsed) throw new Error("OpenAI response did not include parsed onboarding checklist output.");
 
-  const checklistCategories = normalizeSettingsCategories(parsed.checklist_categories);
+  const checklistCategories = normalizeChecklistCategories(parsed.checklist_categories);
   if (!checklistCategories || !checklistCategories.length) {
     throw new Error("Checklist proposal did not include valid categories.");
   }
@@ -859,7 +828,7 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
     diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
     fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
-    checklist_categories: normalizeSettingsCategories(parsed?.changes?.checklist_categories),
+    checklist_categories: normalizeChecklistCategories(parsed?.changes?.checklist_categories),
   };
 
   const hasChanges = Boolean(
@@ -871,7 +840,9 @@ export async function askSettingsAssistant({ message, messages = [] }) {
 
   let assistantMessage = cleanRichText(parsed.assistant_message);
   if (!hasChanges && messageLooksLikeChecklistReadRequest(message)) {
-    assistantMessage = formatChecklistTemplateMarkdown(context.checklist_template);
+    assistantMessage = formatChecklistCategoriesMarkdown(context.checklist_template, {
+      heading: "Here is your current workout checklist structure:",
+    });
   }
 
   let followupQuestion = cleanText(parsed.followup_question ?? "") || null;
