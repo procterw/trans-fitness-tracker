@@ -84,6 +84,11 @@ function sanitizeMessages(messages) {
   return safe.slice(-12);
 }
 
+function cleanUserMessage(value, { fallback = "" } = {}) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || fallback;
+}
+
 const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "You classify a user's message for a health & fitness tracker.",
   "The user has a single input box that can be used to log food, log an activity, or ask a question.",
@@ -204,6 +209,18 @@ const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "If the user asks to view/show/list their current goals, rules, checklist, or profile settings, include a followup_question asking if they want to make any changes.",
 ];
 
+const DEFAULT_MODEL = "gpt-5.2";
+const ONBOARDING_ANSWERED_KEYS = new Set([
+  "timezone",
+  "diet_goals",
+  "fitness_goals",
+  "health_goals",
+  "fitness_experience",
+  "equipment_access",
+  "injuries_limitations",
+  "food_preferences",
+]);
+
 function normalizeInstructionList(value, fallback) {
   if (!Array.isArray(value)) return fallback;
   const cleaned = value
@@ -215,6 +232,42 @@ function normalizeInstructionList(value, fallback) {
 function readAssistantRuleInstructions(tracking, sectionKey, fallback) {
   const configured = tracking?.assistant_rules?.[sectionKey]?.instructions;
   return normalizeInstructionList(configured, fallback);
+}
+
+function getAssistantModel() {
+  return process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || DEFAULT_MODEL;
+}
+
+function getIngestModel() {
+  return process.env.OPENAI_INGEST_MODEL || DEFAULT_MODEL;
+}
+
+function buildSystemInstructions({ tracking, sectionKey, fallback, extraInstructions = [] }) {
+  return readAssistantRuleInstructions(tracking, sectionKey, fallback).concat(extraInstructions).join(" ");
+}
+
+function buildModelInput({ system, contextLabel = "Context JSON", context, messages = [], userContent }) {
+  const input = [
+    { role: "system", content: system },
+    { role: "developer", content: `${contextLabel}:\n${JSON.stringify(context, null, 2)}` },
+  ];
+
+  const safeMessages = sanitizeMessages(messages);
+  for (const m of safeMessages) input.push(m);
+  input.push({ role: "user", content: userContent });
+  return input;
+}
+
+async function parseStructuredResponse({ client, model, input, format, errorMessage }) {
+  const response = await client.responses.parse({
+    model,
+    input,
+    text: { format },
+  });
+
+  const parsed = response.output_parsed;
+  if (!parsed) throw new Error(errorMessage);
+  return parsed;
 }
 
 const ActivitySelectionSchema = z.object({
@@ -356,7 +409,7 @@ export async function decideIngestAction({
   clientOverride = null,
 }) {
   const client = clientOverride ?? getOpenAIClient();
-  const model = process.env.OPENAI_INGEST_MODEL || "gpt-5.2";
+  const model = getIngestModel();
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
@@ -364,9 +417,11 @@ export async function decideIngestAction({
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
   const checklistCategories = buildChecklistSnapshot(tracking.current_week ?? null);
 
-  const system = readAssistantRuleInstructions(tracking, "ingest_classifier", DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS).join(
-    " ",
-  );
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "ingest_classifier",
+    fallback: DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS,
+  });
 
   const context = {
     timezone: "America/Los_Angeles",
@@ -375,47 +430,41 @@ export async function decideIngestAction({
     checklist_categories: checklistCategories,
   };
 
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-
-  const safeMessage = typeof message === "string" ? message.trim() : "";
+  const safeMessage = cleanUserMessage(message);
   const canAttachImage =
     Boolean(imageBuffer) &&
     typeof imageMimeType === "string" &&
     imageMimeType.startsWith("image/") &&
     Buffer.isBuffer(imageBuffer);
+  let userContent = safeMessage || (hasImage ? "[Image attached]" : "(empty)");
   if (canAttachImage) {
     const dataUrl = `data:${imageMimeType};base64,${imageBuffer.toString("base64")}`;
-    input.push({
-      role: "user",
-      content: [
-        { type: "input_text", text: safeMessage || "[Image attached]" },
-        { type: "input_image", image_url: dataUrl, detail: "high" },
-      ],
-    });
-  } else {
-    input.push({ role: "user", content: safeMessage || (hasImage ? "[Image attached]" : "(empty)") });
+    userContent = [
+      { type: "input_text", text: safeMessage || "[Image attached]" },
+      { type: "input_image", image_url: dataUrl, detail: "high" },
+    ];
   }
 
-  const response = await client.responses.parse({
-    model,
-    input,
-    text: { format: IngestDecisionFormat },
+  const input = buildModelInput({
+    system,
+    context,
+    messages,
+    userContent,
   });
 
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed output.");
+  const parsed = await parseStructuredResponse({
+    client,
+    model,
+    input,
+    format: IngestDecisionFormat,
+    errorMessage: "OpenAI response did not include parsed output.",
+  });
   return parsed;
 }
 
 export async function askAssistant({ question, date = null, messages = [] }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
@@ -440,17 +489,17 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     current_week: tracking.current_week ?? null,
   };
 
-  const system = readAssistantRuleInstructions(tracking, "qa_assistant", DEFAULT_QA_ASSISTANT_INSTRUCTIONS).join(" ");
-
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-
-  input.push({ role: "user", content: question });
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "qa_assistant",
+    fallback: DEFAULT_QA_ASSISTANT_INSTRUCTIONS,
+  });
+  const input = buildModelInput({
+    system,
+    context,
+    messages,
+    userContent: question,
+  });
 
   const response = await client.responses.create({ model, input });
   return (response.output_text || "").trim();
@@ -473,7 +522,7 @@ function cleanRichText(value) {
 
 export async function composeMealEntryResponse({ payload, date = null, messages = [] }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
@@ -515,33 +564,25 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     },
   };
 
-  const system = readAssistantRuleInstructions(
+  const system = buildSystemInstructions({
     tracking,
-    "meal_entry_response",
-    DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS,
-  ).join(" ");
-
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-
-  input.push({
-    role: "user",
-    content: "A meal was just logged. Generate the post-log response now.",
+    sectionKey: "meal_entry_response",
+    fallback: DEFAULT_MEAL_ENTRY_RESPONSE_INSTRUCTIONS,
+  });
+  const input = buildModelInput({
+    system,
+    context,
+    messages,
+    userContent: "A meal was just logged. Generate the post-log response now.",
   });
 
-  const response = await client.responses.parse({
+  const parsed = await parseStructuredResponse({
+    client,
     model,
     input,
-    text: { format: MealEntryResponseFormat },
+    format: MealEntryResponseFormat,
+    errorMessage: "OpenAI response did not include parsed meal entry output.",
   });
-
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed meal entry output.");
 
   const followup = cleanText(parsed.followup_question ?? "");
   return {
@@ -567,19 +608,9 @@ function normalizeSettingsPatch(value) {
 
 function normalizeOnboardingAnsweredKeys(value) {
   if (!Array.isArray(value)) return [];
-  const valid = new Set([
-    "timezone",
-    "diet_goals",
-    "fitness_goals",
-    "health_goals",
-    "fitness_experience",
-    "equipment_access",
-    "injuries_limitations",
-    "food_preferences",
-  ]);
   return value
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter((entry) => valid.has(entry));
+    .filter((entry) => ONBOARDING_ANSWERED_KEYS.has(entry));
 }
 
 function messageLooksLikeSettingsReadRequest(message) {
@@ -641,14 +672,14 @@ function pickOnboardingProfileContext(profile) {
 
 export async function askOnboardingAssistant({ message, messages = [], onboardingState = null, userProfile = null }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   const tracking = await readTrackingData();
-  const system = readAssistantRuleInstructions(
+  const system = buildSystemInstructions({
     tracking,
-    "onboarding_assistant",
-    DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS,
-  ).join(" ");
+    sectionKey: "onboarding_assistant",
+    fallback: DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS,
+  });
 
   const context = {
     timezone: "America/Los_Angeles",
@@ -656,23 +687,21 @@ export async function askOnboardingAssistant({ message, messages = [], onboardin
     user_profile: pickOnboardingProfileContext(userProfile),
   };
 
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Onboarding context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-  input.push({ role: "user", content: typeof message === "string" ? message.trim() : "" });
-
-  const response = await client.responses.parse({
-    model,
-    input,
-    text: { format: OnboardingAssistantResponseFormat },
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message),
   });
 
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding output.");
+  const parsed = await parseStructuredResponse({
+    client,
+    model,
+    input,
+    format: OnboardingAssistantResponseFormat,
+    errorMessage: "OpenAI response did not include parsed onboarding output.",
+  });
 
   return {
     assistant_message: cleanRichText(parsed.assistant_message),
@@ -690,16 +719,15 @@ export async function proposeOnboardingChecklist({
   currentProposal = null,
 }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   const tracking = await readTrackingData();
-  const system = readAssistantRuleInstructions(
+  const system = buildSystemInstructions({
     tracking,
-    "onboarding_checklist",
-    DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS,
-  )
-    .concat(CHECKLIST_SESSION_GUARDRAILS)
-    .join(" ");
+    sectionKey: "onboarding_checklist",
+    fallback: DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS,
+    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
+  });
 
   const context = {
     timezone: "America/Los_Angeles",
@@ -714,28 +742,23 @@ export async function proposeOnboardingChecklist({
     ),
   };
 
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Onboarding checklist context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-  input.push({
-    role: "user",
-    content:
-      (typeof message === "string" ? message.trim() : "") ||
-      "Create an initial weekly fitness checklist proposal from my goals.",
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding checklist context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message, {
+      fallback: "Create an initial weekly fitness checklist proposal from my goals.",
+    }),
   });
 
-  const response = await client.responses.parse({
+  const parsed = await parseStructuredResponse({
+    client,
     model,
     input,
-    text: { format: OnboardingChecklistProposalFormat },
+    format: OnboardingChecklistProposalFormat,
+    errorMessage: "OpenAI response did not include parsed onboarding checklist output.",
   });
-
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding checklist output.");
 
   const checklistCategories = normalizeChecklistCategories(parsed.checklist_categories);
   if (!checklistCategories || !checklistCategories.length) {
@@ -757,14 +780,14 @@ export async function proposeOnboardingDietGoals({
   currentProposal = null,
 }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   const tracking = await readTrackingData();
-  const system = readAssistantRuleInstructions(
+  const system = buildSystemInstructions({
     tracking,
-    "onboarding_diet",
-    DEFAULT_ONBOARDING_DIET_INSTRUCTIONS,
-  ).join(" ");
+    sectionKey: "onboarding_diet",
+    fallback: DEFAULT_ONBOARDING_DIET_INSTRUCTIONS,
+  });
 
   const context = {
     timezone: "America/Los_Angeles",
@@ -773,28 +796,23 @@ export async function proposeOnboardingDietGoals({
     current_proposal_patch: normalizeSettingsPatch(currentProposal?.diet_philosophy_patch),
   };
 
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Onboarding diet context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-  input.push({
-    role: "user",
-    content:
-      (typeof message === "string" ? message.trim() : "") ||
-      "Create an initial calorie and macro goal proposal.",
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding diet context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message, {
+      fallback: "Create an initial calorie and macro goal proposal.",
+    }),
   });
 
-  const response = await client.responses.parse({
+  const parsed = await parseStructuredResponse({
+    client,
     model,
     input,
-    text: { format: OnboardingDietProposalFormat },
+    format: OnboardingDietProposalFormat,
+    errorMessage: "OpenAI response did not include parsed onboarding diet output.",
   });
-
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed onboarding diet output.");
 
   const dietPatch = normalizeSettingsPatch(parsed.diet_philosophy_patch);
   if (!dietPatch || !Object.keys(dietPatch).length) {
@@ -810,7 +828,7 @@ export async function proposeOnboardingDietGoals({
 
 export async function askSettingsAssistant({ message, messages = [] }) {
   const client = getOpenAIClient();
-  const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_MODEL || "gpt-5.2";
+  const model = getAssistantModel();
 
   await ensureCurrentWeek();
   const tracking = await readTrackingData();
@@ -823,31 +841,27 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
   };
 
-  const system = readAssistantRuleInstructions(
+  const system = buildSystemInstructions({
     tracking,
-    "settings_assistant",
-    DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
-  )
-    .concat(CHECKLIST_SESSION_GUARDRAILS)
-    .join(" ");
-
-  const input = [
-    { role: "system", content: system },
-    { role: "developer", content: `Settings context JSON:\n${JSON.stringify(context, null, 2)}` },
-  ];
-
-  const safeMessages = sanitizeMessages(messages);
-  for (const m of safeMessages) input.push(m);
-  input.push({ role: "user", content: typeof message === "string" ? message.trim() : "" });
-
-  const response = await client.responses.parse({
-    model,
-    input,
-    text: { format: SettingsAssistantResponseFormat },
+    sectionKey: "settings_assistant",
+    fallback: DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
+    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
+  });
+  const input = buildModelInput({
+    system,
+    contextLabel: "Settings context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message),
   });
 
-  const parsed = response.output_parsed;
-  if (!parsed) throw new Error("OpenAI response did not include parsed settings output.");
+  const parsed = await parseStructuredResponse({
+    client,
+    model,
+    input,
+    format: SettingsAssistantResponseFormat,
+    errorMessage: "OpenAI response did not include parsed settings output.",
+  });
 
   const changes = {
     user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
