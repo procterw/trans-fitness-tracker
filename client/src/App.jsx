@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import "./styles.css";
 import {
-  chatOnboarding,
+  chatOnboardingStream,
   confirmOnboarding,
   restartOnboardingForDebug,
   getOnboardingState,
@@ -12,9 +12,9 @@ import {
   getFoodForDate,
   getFoodLog,
   confirmSettingsChanges,
-  ingestAssistant,
+  ingestAssistantStream,
   rollupFoodForDate,
-  settingsChat,
+  settingsChatStream,
   syncFoodForDate,
   updateFitnessItem,
 } from "./api.js";
@@ -707,23 +707,11 @@ export default function App() {
       if (wasFocused) setTimeout(() => inputEl?.focus(), 0);
     }
 
-    try {
-      const clientRequestId =
-        typeof globalThis.crypto?.randomUUID === "function"
-          ? globalThis.crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const json = await ingestAssistant({
-        message: messageText,
-        file: foodAttachments[0]?.file ?? null,
-        date: foodDate,
-        messages: previous,
-        clientRequestId,
-      });
-
-      if (json?.food_result?.date) setDashDate(json.food_result.date);
-      if (json?.current_week) setFitnessWeek(json.current_week);
-
+    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
+      if (!json) return;
+      const isStreamingQuestion = Boolean(streamingAssistantMessageId);
       const assistantMessages = [];
+
       if (json?.action === "food" || json?.action === "activity") {
         composerMessageIdRef.current += 1;
         const activityStatus = json?.activity_log_state === "updated" ? "Updated activity." : "Saved activity.";
@@ -742,31 +730,107 @@ export default function App() {
           tone: "status",
         });
       }
-      if (json?.assistant_message) {
-        composerMessageIdRef.current += 1;
-        assistantMessages.push({
-          id: composerMessageIdRef.current,
-          role: "assistant",
-          content: json.assistant_message,
-          format: json?.action === "question" || json?.action === "food" ? "markdown" : "plain",
-        });
+
+      const assistantMessageText =
+        typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
+      if (assistantMessageText) {
+        if (isStreamingQuestion) {
+          setComposerMessages((prev) =>
+            prev.map((message) =>
+              message.id === streamingAssistantMessageId
+                ? {
+                    ...message,
+                    content: assistantMessageText,
+                    format: "markdown",
+                  }
+                : message,
+            ),
+          );
+        } else {
+          composerMessageIdRef.current += 1;
+          assistantMessages.push({
+            id: composerMessageIdRef.current,
+            role: "assistant",
+            content: assistantMessageText,
+            format: json?.action === "question" || json?.action === "food" ? "markdown" : "plain",
+          });
+        }
       }
-      if (json?.followup_question) {
+
+      const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
+      if (followupText) {
         composerMessageIdRef.current += 1;
         assistantMessages.push({
           id: composerMessageIdRef.current,
           role: "assistant",
-          content: json.followup_question,
+          content: followupText,
           format: "plain",
         });
       }
+
       if (assistantMessages.length) {
         setComposerMessages((prev) => [...prev, ...assistantMessages]);
       }
 
-      clearFoodAttachments({ revoke: false });
+      if (json?.food_result?.date) setDashDate(json.food_result.date);
+      if (json?.current_week) setFitnessWeek(json.current_week);
       const summaryDate = json?.food_result?.date || foodDate;
       if (summaryDate) loadSidebarDaySummary(summaryDate);
+      clearFoodAttachments({ revoke: false });
+    };
+
+    try {
+      const clientRequestId =
+        typeof globalThis.crypto?.randomUUID === "function"
+          ? globalThis.crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      let streamingMessageId = null;
+      let responsePayload = null;
+      let streamedText = "";
+      const streamIterator = ingestAssistantStream({
+        message: messageText,
+        file: foodAttachments[0]?.file ?? null,
+        date: foodDate,
+        messages: previous,
+        clientRequestId,
+      });
+
+      for await (const event of streamIterator) {
+        if (event?.type === "error") {
+          throw new Error(event.error || "Streaming request failed.");
+        }
+        if (event?.type === "chunk") {
+          const delta = typeof event.delta === "string" ? event.delta : "";
+          if (!delta) continue;
+          streamedText += delta;
+          if (!streamingMessageId) {
+            composerMessageIdRef.current += 1;
+            streamingMessageId = composerMessageIdRef.current;
+            setComposerMessages((prev) => [
+              ...prev,
+              {
+                id: streamingMessageId,
+                role: "assistant",
+                content: "",
+                format: "markdown",
+              },
+            ]);
+          }
+          const nextContent = streamedText;
+          setComposerMessages((prev) =>
+            prev.map((message) => (message.id === streamingMessageId ? { ...message, content: nextContent } : message)),
+          );
+        }
+        if (event?.type === "done") {
+          responsePayload = event.payload ?? null;
+        }
+      }
+
+      if (!responsePayload) {
+        throw new Error("Streaming response did not complete.");
+      }
+      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
     } catch (e2) {
       setComposerError(e2 instanceof Error ? e2.message : String(e2));
     } finally {
@@ -864,15 +928,8 @@ export default function App() {
     ]);
     if (messageText === onboardingInput.trim()) setOnboardingInput("");
 
-    try {
-      const json = await chatOnboarding({
-        message: messageText,
-        messages: previous,
-        clientTimezone: getClientTimezone(),
-      });
-      setOnboardingState(json);
-      setOnboardingChecked(true);
-      refreshAppContext().catch(() => {});
+    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
+      const assistantMessages = [];
 
       const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
       const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
@@ -881,35 +938,101 @@ export default function App() {
         normalizeForCompare(assistantText) === normalizeForCompare(followupText);
 
       if (assistantText) {
-        onboardingMessageIdRef.current += 1;
-        setOnboardingMessages((prev) => [
-          ...prev,
-          {
-            id: onboardingMessageIdRef.current,
-            role: "assistant",
-            content: assistantText,
-            format: "markdown",
-            requiresConfirmation: Boolean(json?.requires_confirmation),
-            confirmAction: json?.confirm_action ?? null,
-            proposal: json?.proposal ?? null,
-          },
-        ]);
+        if (streamingAssistantMessageId) {
+          setOnboardingMessages((prev) =>
+            prev.map((message) =>
+              message.id === streamingAssistantMessageId
+                ? {
+                    ...message,
+                    content: assistantText,
+                    format: "markdown",
+                    requiresConfirmation: Boolean(json?.requires_confirmation),
+                    confirmAction: json?.confirm_action ?? null,
+                    proposal: json?.proposal ?? null,
+                  }
+                : message,
+            ),
+          );
+        } else {
+          onboardingMessageIdRef.current += 1;
+          setOnboardingMessages((prev) => [
+            ...prev,
+            {
+              id: onboardingMessageIdRef.current,
+              role: "assistant",
+              content: assistantText,
+              format: "markdown",
+              requiresConfirmation: Boolean(json?.requires_confirmation),
+              confirmAction: json?.confirm_action ?? null,
+              proposal: json?.proposal ?? null,
+            },
+          ]);
+        }
       }
 
       if (followupText && !isDuplicateFollowup) {
         onboardingMessageIdRef.current += 1;
-        setOnboardingMessages((prev) => [
-          ...prev,
-          {
-            id: onboardingMessageIdRef.current,
-            role: "assistant",
-            content: followupText,
-            format: "plain",
-          },
-        ]);
+        assistantMessages.push({
+          id: onboardingMessageIdRef.current,
+          role: "assistant",
+          content: followupText,
+          format: "plain",
+        });
       }
 
-      if (json?.onboarding_complete) {
+      if (assistantMessages.length) {
+        setOnboardingMessages((prev) => [...prev, ...assistantMessages]);
+      }
+    };
+
+    try {
+      let streamingMessageId = null;
+      let responsePayload = null;
+      let streamedText = "";
+      const streamIterator = chatOnboardingStream({
+        message: messageText,
+        messages: previous,
+        clientTimezone: getClientTimezone(),
+      });
+
+      for await (const event of streamIterator) {
+        if (event?.type === "error") {
+          throw new Error(event.error || "Streaming request failed.");
+        }
+        if (event?.type === "chunk") {
+          const delta = typeof event.delta === "string" ? event.delta : "";
+          if (!delta) continue;
+          streamedText += delta;
+          if (!streamingMessageId) {
+            onboardingMessageIdRef.current += 1;
+            streamingMessageId = onboardingMessageIdRef.current;
+            setOnboardingMessages((prev) => [
+              ...prev,
+              {
+                id: streamingMessageId,
+                role: "assistant",
+                content: "",
+                format: "markdown",
+              },
+            ]);
+          }
+          const nextContent = streamedText;
+          setOnboardingMessages((prev) =>
+            prev.map((message) => (message.id === streamingMessageId ? { ...message, content: nextContent } : message)),
+          );
+        }
+        if (event?.type === "done") {
+          responsePayload = event.payload ?? null;
+        }
+      }
+
+      if (!responsePayload) throw new Error("Streaming response did not complete.");
+
+      setOnboardingState(responsePayload);
+      setOnboardingChecked(true);
+      refreshAppContext().catch(() => {});
+      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
+      if (responsePayload?.onboarding_complete) {
         setView("chat");
       }
     } catch (err) {
@@ -1026,25 +1149,34 @@ export default function App() {
       setSettingsInput("");
     }
 
-    try {
-      const json = await settingsChat({ message: messageText, messages: previous });
+    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
+      const assistantMessages = [];
+
       const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
       const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
-      const normalizeForCompare = (text) =>
-        String(text || "")
-          .toLowerCase()
-          .replace(/\s+/g, " ")
-          .replace(/[?.!]+$/g, "")
-          .trim();
       const isDuplicateFollowup =
         Boolean(assistantText && followupText) &&
         normalizeForCompare(assistantText) === normalizeForCompare(followupText);
 
       if (assistantText) {
-        settingsMessageIdRef.current += 1;
-        setSettingsMessages((prev) => [
-          ...prev,
-          {
+        if (streamingAssistantMessageId) {
+          setSettingsMessages((prev) =>
+            prev.map((message) =>
+              message.id === streamingAssistantMessageId
+                ? {
+                    ...message,
+                    content: assistantText,
+                    format: "markdown",
+                    requiresConfirmation: Boolean(json?.requires_confirmation),
+                    proposalId: json?.proposal_id ?? null,
+                    proposal: json?.proposal ?? null,
+                  }
+                : message,
+            ),
+          );
+        } else {
+          settingsMessageIdRef.current += 1;
+          assistantMessages.push({
             id: settingsMessageIdRef.current,
             role: "assistant",
             content: assistantText,
@@ -1052,25 +1184,69 @@ export default function App() {
             requiresConfirmation: Boolean(json?.requires_confirmation),
             proposalId: json?.proposal_id ?? null,
             proposal: json?.proposal ?? null,
-          },
-        ]);
+          });
+        }
       }
 
       if (followupText && !isDuplicateFollowup) {
         settingsMessageIdRef.current += 1;
-        setSettingsMessages((prev) => [
-          ...prev,
-          {
-            id: settingsMessageIdRef.current,
-            role: "assistant",
-            content: followupText,
-            format: "plain",
-          },
-        ]);
+        assistantMessages.push({
+          id: settingsMessageIdRef.current,
+          role: "assistant",
+          content: followupText,
+          format: "plain",
+        });
       }
 
-      if (json?.updated?.current_week) {
-        setFitnessWeek(json.updated.current_week);
+      if (assistantMessages.length) {
+        setSettingsMessages((prev) => [...prev, ...assistantMessages]);
+      }
+    };
+
+    try {
+      let streamingMessageId = null;
+      let responsePayload = null;
+      let streamedText = "";
+      const streamIterator = settingsChatStream({ message: messageText, messages: previous });
+
+      for await (const event of streamIterator) {
+        if (event?.type === "error") {
+          throw new Error(event.error || "Streaming request failed.");
+        }
+        if (event?.type === "chunk") {
+          const delta = typeof event.delta === "string" ? event.delta : "";
+          if (!delta) continue;
+          streamedText += delta;
+          if (!streamingMessageId) {
+            settingsMessageIdRef.current += 1;
+            streamingMessageId = settingsMessageIdRef.current;
+            setSettingsMessages((prev) => [
+              ...prev,
+              {
+                id: streamingMessageId,
+                role: "assistant",
+                content: "",
+                format: "markdown",
+              },
+            ]);
+          }
+          const nextContent = streamedText;
+          setSettingsMessages((prev) =>
+            prev.map((message) =>
+              message.id === streamingMessageId ? { ...message, content: nextContent } : message,
+            ),
+          );
+        }
+        if (event?.type === "done") {
+          responsePayload = event.payload ?? null;
+        }
+      }
+
+      if (!responsePayload) throw new Error("Streaming response did not complete.");
+
+      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
+      if (responsePayload?.updated?.current_week) {
+        setFitnessWeek(responsePayload.updated.current_week);
       }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));

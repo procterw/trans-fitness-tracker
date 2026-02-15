@@ -258,6 +258,80 @@ function buildModelInput({ system, contextLabel = "Context JSON", context, messa
   return input;
 }
 
+function extractResponseTextDelta(chunk) {
+  if (!chunk || typeof chunk !== "object") return "";
+  if (chunk.type === "response.output_text.delta") {
+    if (typeof chunk.delta === "string" && chunk.delta.length) return chunk.delta;
+    if (typeof chunk.text === "string" && chunk.text.length) return chunk.text;
+  }
+  return "";
+}
+
+async function streamResponseText({ client, model, input, onText }) {
+  const stream = await client.responses.create({
+    model,
+    input,
+    stream: true,
+  });
+
+  let answer = "";
+  for await (const chunk of stream) {
+    const delta = extractResponseTextDelta(chunk);
+    if (!delta) continue;
+    answer += delta;
+    if (typeof onText === "function") onText(delta);
+  }
+
+  const finalResponse = await stream.finalResponse();
+  const finalText = typeof finalResponse?.output_text === "string" ? finalResponse.output_text : "";
+  if (finalText && finalText !== answer) {
+    answer = finalText;
+  }
+  return answer.trim();
+}
+
+function extractJsonCandidate(value) {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (!raw) return "";
+
+  const fenced = raw.match(/```json\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) return raw.slice(firstBrace, lastBrace + 1).trim();
+
+  return raw;
+}
+
+function parseJsonText({ text, schema, errorMessage }) {
+  const candidate = extractJsonCandidate(text);
+  if (!candidate) throw new Error(errorMessage);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    throw new Error(errorMessage);
+  }
+
+  const result = schema.safeParse(parsed);
+  if (!result.success) throw new Error(errorMessage);
+  return result.data;
+}
+
+async function streamStructuredResponse({ client, model, input, schema, onText, errorMessage }) {
+  const output = await streamResponseText({
+    client,
+    model,
+    input,
+    onText,
+  });
+
+  return parseJsonText({ text: output, schema, errorMessage });
+}
+
 async function parseStructuredResponse({ client, model, input, format, errorMessage }) {
   const response = await client.responses.parse({
     model,
@@ -505,6 +579,53 @@ export async function askAssistant({ question, date = null, messages = [] }) {
   return (response.output_text || "").trim();
 }
 
+export async function streamAssistantResponse({ question, date = null, messages = [], onText }) {
+  const client = getOpenAIClient();
+  const model = getAssistantModel();
+
+  await ensureCurrentWeek();
+  const tracking = await readTrackingData();
+
+  const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
+  const [foodLogRow, eventsForDate, totalsForDate, recentFoodLog] = await Promise.all([
+    getFoodLogForDate(selectedDate),
+    getFoodEventsForDate(selectedDate),
+    getDailyFoodEventTotals(selectedDate),
+    listFoodLog({ limit: 14 }),
+  ]);
+  const context = {
+    timezone: "America/Los_Angeles",
+    selected_date: selectedDate,
+    user_profile: pickUserProfileSummary(tracking.user_profile),
+    diet_philosophy: tracking.diet_philosophy ?? null,
+    fitness_philosophy: tracking.fitness_philosophy ?? null,
+    food_log_for_date: foodLogRow,
+    food_events_for_date: eventsForDate,
+    day_totals_from_events: totalsForDate,
+    recent_food_log: recentFoodLog,
+    current_week: tracking.current_week ?? null,
+  };
+
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "qa_assistant",
+    fallback: DEFAULT_QA_ASSISTANT_INSTRUCTIONS,
+  });
+  const input = buildModelInput({
+    system,
+    context,
+    messages,
+    userContent: question,
+  });
+
+  return streamResponseText({
+    client,
+    model,
+    input,
+    onText,
+  });
+}
+
 function cleanText(value) {
   if (typeof value !== "string") return "";
   return value.replace(/\s+/g, " ").trim();
@@ -518,6 +639,49 @@ function cleanRichText(value) {
     .split("\n")
     .map((line) => line.trim().replace(/[ \t]{2,}/g, " "));
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function normalizeOnboardingAssistantOutput(parsed) {
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    user_profile_patch: normalizeSettingsPatch(parsed.user_profile_patch),
+    answered_keys: normalizeOnboardingAnsweredKeys(parsed.answered_keys),
+  };
+}
+
+function normalizeSettingsAssistantOutput(parsed, { message = "", checklistTemplate = null } = {}) {
+  const changes = {
+    user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
+    diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
+    fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
+    checklist_categories: normalizeChecklistCategories(parsed?.changes?.checklist_categories),
+  };
+
+  const hasChanges = Boolean(
+    changes.user_profile_patch ||
+      changes.diet_philosophy_patch ||
+      changes.fitness_philosophy_patch ||
+      changes.checklist_categories,
+  );
+
+  let assistantMessage = cleanRichText(parsed.assistant_message);
+  if (!hasChanges && messageLooksLikeChecklistReadRequest(message)) {
+    assistantMessage = formatChecklistCategoriesMarkdown(checklistTemplate ?? {}, {
+      heading: "Here is your current workout checklist structure:",
+    });
+  }
+
+  let followupQuestion = cleanText(parsed.followup_question ?? "") || null;
+  if (!hasChanges && !followupQuestion && messageLooksLikeSettingsReadRequest(message)) {
+    followupQuestion = "Would you like me to make any changes to these settings?";
+  }
+
+  return {
+    assistant_message: assistantMessage,
+    followup_question: followupQuestion,
+    changes,
+  };
 }
 
 export async function composeMealEntryResponse({ payload, date = null, messages = [] }) {
@@ -703,12 +867,50 @@ export async function askOnboardingAssistant({ message, messages = [], onboardin
     errorMessage: "OpenAI response did not include parsed onboarding output.",
   });
 
-  return {
-    assistant_message: cleanRichText(parsed.assistant_message),
-    followup_question: cleanText(parsed.followup_question ?? "") || null,
-    user_profile_patch: normalizeSettingsPatch(parsed.user_profile_patch),
-    answered_keys: normalizeOnboardingAnsweredKeys(parsed.answered_keys),
+  return normalizeOnboardingAssistantOutput(parsed);
+}
+
+export async function streamOnboardingAssistant({
+  message,
+  messages = [],
+  onboardingState = null,
+  userProfile = null,
+  onText,
+}) {
+  const client = getOpenAIClient();
+  const model = getAssistantModel();
+
+  const tracking = await readTrackingData();
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "onboarding_assistant",
+    fallback: DEFAULT_ONBOARDING_ASSISTANT_INSTRUCTIONS,
+  });
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    onboarding_state: onboardingState && typeof onboardingState === "object" ? onboardingState : null,
+    user_profile: pickOnboardingProfileContext(userProfile),
   };
+
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message),
+  });
+
+  const parsed = await streamStructuredResponse({
+    client,
+    model,
+    input,
+    schema: OnboardingAssistantResponseSchema,
+    onText,
+    errorMessage: "OpenAI response did not include parsed onboarding output.",
+  });
+
+  return normalizeOnboardingAssistantOutput(parsed);
 }
 
 export async function proposeOnboardingChecklist({
@@ -757,6 +959,69 @@ export async function proposeOnboardingChecklist({
     model,
     input,
     format: OnboardingChecklistProposalFormat,
+    errorMessage: "OpenAI response did not include parsed onboarding checklist output.",
+  });
+
+  const checklistCategories = normalizeChecklistCategories(parsed.checklist_categories);
+  if (!checklistCategories || !checklistCategories.length) {
+    throw new Error("Checklist proposal did not include valid categories.");
+  }
+
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    checklist_categories: checklistCategories,
+  };
+}
+
+export async function streamOnboardingChecklist({
+  message = "",
+  messages = [],
+  userProfile = null,
+  currentWeek = null,
+  currentProposal = null,
+  onText,
+}) {
+  const client = getOpenAIClient();
+  const model = getAssistantModel();
+
+  const tracking = await readTrackingData();
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "onboarding_checklist",
+    fallback: DEFAULT_ONBOARDING_CHECKLIST_INSTRUCTIONS,
+    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
+  });
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: pickOnboardingProfileContext(userProfile),
+    checklist_template: buildChecklistTemplateSnapshot(currentWeek ?? null),
+    current_proposal: normalizeChecklistCategories(
+      Array.isArray(currentProposal?.checklist_categories)
+        ? currentProposal.checklist_categories
+        : Array.isArray(currentProposal)
+          ? currentProposal
+          : null,
+    ),
+  };
+
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding checklist context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message, {
+      fallback: "Create an initial weekly fitness checklist proposal from my goals.",
+    }),
+  });
+
+  const parsed = await streamStructuredResponse({
+    client,
+    model,
+    input,
+    schema: OnboardingChecklistProposalSchema,
+    onText,
     errorMessage: "OpenAI response did not include parsed onboarding checklist output.",
   });
 
@@ -826,6 +1091,62 @@ export async function proposeOnboardingDietGoals({
   };
 }
 
+export async function streamOnboardingDietGoals({
+  message = "",
+  messages = [],
+  userProfile = null,
+  dietPhilosophy = null,
+  currentProposal = null,
+  onText,
+}) {
+  const client = getOpenAIClient();
+  const model = getAssistantModel();
+
+  const tracking = await readTrackingData();
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "onboarding_diet",
+    fallback: DEFAULT_ONBOARDING_DIET_INSTRUCTIONS,
+  });
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: pickOnboardingProfileContext(userProfile),
+    current_diet_philosophy: dietPhilosophy && typeof dietPhilosophy === "object" ? dietPhilosophy : null,
+    current_proposal_patch: normalizeSettingsPatch(currentProposal?.diet_philosophy_patch),
+  };
+
+  const input = buildModelInput({
+    system,
+    contextLabel: "Onboarding diet context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message, {
+      fallback: "Create an initial calorie and macro goal proposal.",
+    }),
+  });
+
+  const parsed = await streamStructuredResponse({
+    client,
+    model,
+    input,
+    schema: OnboardingDietProposalSchema,
+    onText,
+    errorMessage: "OpenAI response did not include parsed onboarding diet output.",
+  });
+
+  const dietPatch = normalizeSettingsPatch(parsed.diet_philosophy_patch);
+  if (!dietPatch || !Object.keys(dietPatch).length) {
+    throw new Error("Diet proposal did not include a valid patch.");
+  }
+
+  return {
+    assistant_message: cleanRichText(parsed.assistant_message),
+    followup_question: cleanText(parsed.followup_question ?? "") || null,
+    diet_philosophy_patch: dietPatch,
+  };
+}
+
 export async function askSettingsAssistant({ message, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
@@ -863,35 +1184,52 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     errorMessage: "OpenAI response did not include parsed settings output.",
   });
 
-  const changes = {
-    user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
-    diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
-    fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
-    checklist_categories: normalizeChecklistCategories(parsed?.changes?.checklist_categories),
+  return normalizeSettingsAssistantOutput(parsed, {
+    message,
+    checklistTemplate: context.checklist_template,
+  });
+}
+
+export async function streamSettingsAssistant({ message, messages = [], onText }) {
+  const client = getOpenAIClient();
+  const model = getAssistantModel();
+
+  await ensureCurrentWeek();
+  const tracking = await readTrackingData();
+
+  const context = {
+    timezone: "America/Los_Angeles",
+    user_profile: tracking.user_profile ?? null,
+    diet_philosophy: tracking.diet_philosophy ?? null,
+    fitness_philosophy: tracking.fitness_philosophy ?? null,
+    checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
   };
 
-  const hasChanges = Boolean(
-    changes.user_profile_patch ||
-      changes.diet_philosophy_patch ||
-      changes.fitness_philosophy_patch ||
-      changes.checklist_categories,
-  );
+  const system = buildSystemInstructions({
+    tracking,
+    sectionKey: "settings_assistant",
+    fallback: DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
+    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
+  });
+  const input = buildModelInput({
+    system,
+    contextLabel: "Settings context JSON",
+    context,
+    messages,
+    userContent: cleanUserMessage(message),
+  });
 
-  let assistantMessage = cleanRichText(parsed.assistant_message);
-  if (!hasChanges && messageLooksLikeChecklistReadRequest(message)) {
-    assistantMessage = formatChecklistCategoriesMarkdown(context.checklist_template, {
-      heading: "Here is your current workout checklist structure:",
-    });
-  }
+  const parsed = await streamStructuredResponse({
+    client,
+    model,
+    input,
+    schema: SettingsAssistantResponseSchema,
+    onText,
+    errorMessage: "OpenAI response did not include parsed settings output.",
+  });
 
-  let followupQuestion = cleanText(parsed.followup_question ?? "") || null;
-  if (!hasChanges && !followupQuestion && messageLooksLikeSettingsReadRequest(message)) {
-    followupQuestion = "Would you like me to make any changes to these settings?";
-  }
-
-  return {
-    assistant_message: assistantMessage,
-    followup_question: followupQuestion,
-    changes,
-  };
+  return normalizeSettingsAssistantOutput(parsed, {
+    message,
+    checklistTemplate: context.checklist_template,
+  });
 }

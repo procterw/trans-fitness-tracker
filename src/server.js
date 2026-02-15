@@ -9,10 +9,15 @@ import { fileURLToPath } from "node:url";
 
 import {
   askAssistant,
+  streamAssistantResponse,
   askOnboardingAssistant,
+  streamOnboardingAssistant,
   proposeOnboardingChecklist,
+  streamOnboardingChecklist,
   proposeOnboardingDietGoals,
+  streamOnboardingDietGoals,
   askSettingsAssistant,
+  streamSettingsAssistant,
   composeMealEntryResponse,
   decideIngestAction,
 } from "./assistant.js";
@@ -323,6 +328,42 @@ function hasGoalsTextPatch(patch) {
   const goalsText = isPlainObject(patch.goals_text) ? patch.goals_text : null;
   if (!goalsText) return false;
   return ["overall_goals", "fitness_goals", "diet_goals"].some((key) => key in goalsText);
+}
+
+function isStreamingRequest(value) {
+  if (value === true) return true;
+  if (typeof value === "string") return value === "true" || value === "1";
+  if (typeof value === "number") return value === 1;
+  return false;
+}
+
+function writeSsePayload(res, payload) {
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function sendStreamingAssistantDone(res, payload) {
+  writeSsePayload(res, { type: "done", payload });
+}
+
+function sendStreamingAssistantChunk(res, delta) {
+  if (!delta) return;
+  writeSsePayload(res, { type: "chunk", delta });
+  res.flush?.();
+}
+
+function sendStreamingAssistantError(res, error) {
+  writeSsePayload(res, {
+    type: "error",
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+
+function enableSseHeaders(res) {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
 }
 
 function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
@@ -878,14 +919,30 @@ function getCurrentOnboardingState(data) {
   return { profile, stage, onboardingMeta };
 }
 
-async function buildChecklistDraft({ message = "", messages = [], data, profile, currentProposal = null }) {
-  const proposalResult = await proposeOnboardingChecklist({
-    message,
-    messages,
-    userProfile: profile,
-    currentWeek: data?.current_week ?? null,
-    currentProposal,
-  });
+async function buildChecklistDraft({
+  message = "",
+  messages = [],
+  data,
+  profile,
+  currentProposal = null,
+  onText,
+}) {
+  const proposalResult = onText
+    ? await streamOnboardingChecklist({
+        message,
+        messages,
+        userProfile: profile,
+        currentWeek: data?.current_week ?? null,
+        currentProposal,
+        onText,
+      })
+    : await proposeOnboardingChecklist({
+        message,
+        messages,
+        userProfile: profile,
+        currentWeek: data?.current_week ?? null,
+        currentProposal,
+      });
   const proposal = { checklist_categories: proposalResult.checklist_categories };
   const markdown = checklistProposalToMarkdown(proposal);
   return {
@@ -897,14 +954,30 @@ async function buildChecklistDraft({ message = "", messages = [], data, profile,
   };
 }
 
-async function buildDietDraft({ message = "", messages = [], data, profile, currentProposal = null }) {
-  const proposalResult = await proposeOnboardingDietGoals({
-    message,
-    messages,
-    userProfile: profile,
-    dietPhilosophy: data?.diet_philosophy ?? null,
-    currentProposal,
-  });
+async function buildDietDraft({
+  message = "",
+  messages = [],
+  data,
+  profile,
+  currentProposal = null,
+  onText,
+}) {
+  const proposalResult = onText
+    ? await streamOnboardingDietGoals({
+        message,
+        messages,
+        userProfile: profile,
+        dietPhilosophy: data?.diet_philosophy ?? null,
+        currentProposal,
+        onText,
+      })
+    : await proposeOnboardingDietGoals({
+        message,
+        messages,
+        userProfile: profile,
+        dietPhilosophy: data?.diet_philosophy ?? null,
+        currentProposal,
+      });
   const proposal = { diet_philosophy_patch: proposalResult.diet_philosophy_patch };
   const markdown = dietProposalToMarkdown(proposal);
   return {
@@ -1040,6 +1113,8 @@ app.post("/api/onboarding/chat", async (req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
+    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
+    if (stream) enableSseHeaders(res);
 
     let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
     const clientTimezone = typeof req.body?.client_timezone === "string" ? req.body.client_timezone : "";
@@ -1052,12 +1127,20 @@ app.post("/api/onboarding/chat", async (req, res) => {
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
 
+    const sendResult = (payload) => {
+      if (stream) {
+        sendStreamingAssistantDone(res, payload);
+        return res.end();
+      }
+      return res.json(payload);
+    };
+
     if (stage === "complete") {
       if (timezoneApplied.changed) {
         data.user_profile = profile;
         await writeTrackingData(data);
       }
-      return res.json(
+      return sendResult(
         buildOnboardingResponse({
           stage,
           assistantMessage: "Setup is already complete. Taking you to your tracker.",
@@ -1069,7 +1152,7 @@ app.post("/api/onboarding/chat", async (req, res) => {
     }
 
     if (!message) {
-      return res.json(
+      return sendResult(
         buildOnboardingResponse({
           stage,
           assistantMessage: ONBOARDING_PROMPTS[stage] ?? "Ready when you are.",
@@ -1083,12 +1166,20 @@ app.post("/api/onboarding/chat", async (req, res) => {
     }
 
     if (stage === "goals") {
-      const result = await askOnboardingAssistant({
-        message,
-        messages,
-        onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
-        userProfile: profile,
-      });
+      const result = stream
+        ? await streamOnboardingAssistant({
+            message,
+            messages,
+            onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
+            userProfile: profile,
+            onText: (delta) => sendStreamingAssistantChunk(res, delta),
+          })
+        : await askOnboardingAssistant({
+            message,
+            messages,
+            onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
+            userProfile: profile,
+          });
 
       const patch =
         isPlainObject(result?.user_profile_patch) && Object.keys(result.user_profile_patch).length
@@ -1101,7 +1192,14 @@ app.post("/api/onboarding/chat", async (req, res) => {
       profile = updateOnboardingMetadata(profile, { stage: "goals" });
 
       if (hasGoalContext(profile)) {
-        const draft = await buildChecklistDraft({ message: "", messages: [], data, profile, currentProposal: null });
+        const draft = await buildChecklistDraft({
+          message: "",
+          messages: [],
+          data,
+          profile,
+          currentProposal: null,
+          onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
+        });
         profile = updateOnboardingMetadata(profile, {
           stage: "checklist",
           checklistProposal: draft.proposal,
@@ -1110,7 +1208,7 @@ app.post("/api/onboarding/chat", async (req, res) => {
         data.user_profile = profile;
         await writeTrackingData(data);
 
-        return res.json(
+        return sendResult(
           buildOnboardingResponse({
             stage: "checklist",
             assistantMessage: draft.assistantMessage,
@@ -1125,7 +1223,7 @@ app.post("/api/onboarding/chat", async (req, res) => {
 
       data.user_profile = profile;
       await writeTrackingData(data);
-      return res.json(
+      return sendResult(
         buildOnboardingResponse({
           stage: "goals",
           assistantMessage:
@@ -1147,12 +1245,13 @@ app.post("/api/onboarding/chat", async (req, res) => {
         data,
         profile,
         currentProposal: onboardingMeta.checklist_proposal,
+        onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
       });
       profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: draft.proposal });
       data.user_profile = profile;
       await writeTrackingData(data);
 
-      return res.json(
+      return sendResult(
         buildOnboardingResponse({
           stage: "checklist",
           assistantMessage: draft.assistantMessage,
@@ -1172,12 +1271,13 @@ app.post("/api/onboarding/chat", async (req, res) => {
       data,
       profile,
       currentProposal: onboardingMeta.diet_proposal,
+      onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
     });
     profile = updateOnboardingMetadata(profile, { stage: "diet", dietProposal: draft.proposal });
     data.user_profile = profile;
     await writeTrackingData(data);
 
-    return res.json(
+    return sendResult(
       buildOnboardingResponse({
         stage: "diet",
         assistantMessage: draft.assistantMessage,
@@ -1189,6 +1289,11 @@ app.post("/api/onboarding/chat", async (req, res) => {
       }),
     );
   } catch (err) {
+    if (stream) {
+      sendStreamingAssistantError(res, err);
+      if (!res.writableEnded) res.end();
+      return;
+    }
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
@@ -1363,6 +1468,25 @@ app.post("/api/assistant/ask", async (req, res) => {
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
+
+    if (stream) {
+      enableSseHeaders(res);
+      try {
+        const answer = await streamAssistantResponse({
+          question,
+          date,
+          messages,
+          onText: (delta) => sendStreamingAssistantChunk(res, delta),
+        });
+        sendStreamingAssistantDone(res, { ok: true, answer, action: "question" });
+      } catch (error) {
+        sendStreamingAssistantError(res, error);
+      } finally {
+        res.end();
+      }
+      return;
+    }
 
     const answer = await askAssistant({ question, date, messages });
     res.json({ ok: true, answer });
@@ -1373,11 +1497,20 @@ app.post("/api/assistant/ask", async (req, res) => {
 
 app.post("/api/settings/chat", async (req, res) => {
   try {
+    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
+    if (stream) enableSseHeaders(res);
+
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
 
-    const result = await askSettingsAssistant({ message, messages });
+    const result = stream
+      ? await streamSettingsAssistant({
+          message,
+          messages,
+          onText: (delta) => sendStreamingAssistantChunk(res, delta),
+        })
+      : await askSettingsAssistant({ message, messages });
 
     const changes = result?.changes ?? {};
     const goalsTextChanged = hasGoalsTextPatch(changes.user_profile_patch);
@@ -1389,13 +1522,22 @@ app.post("/api/settings/chat", async (req, res) => {
           mergeObjectPatch(data.user_profile ?? {}, changes.user_profile_patch ?? {}),
           { now: new Date() },
         );
-        const checklistDraft = await proposeOnboardingChecklist({
-          message: "Create an updated weekly workout checklist from my latest goals text.",
-          messages,
-          userProfile: patchedProfile,
-          currentWeek: data.current_week ?? null,
-          currentProposal: null,
-        });
+        const checklistDraft = await (stream
+          ? streamOnboardingChecklist({
+              message: "Create an updated weekly workout checklist from my latest goals text.",
+              messages,
+              userProfile: patchedProfile,
+              currentWeek: data.current_week ?? null,
+              currentProposal: null,
+              onText: (delta) => sendStreamingAssistantChunk(res, delta),
+            })
+          : proposeOnboardingChecklist({
+              message: "Create an updated weekly workout checklist from my latest goals text.",
+              messages,
+              userProfile: patchedProfile,
+              currentWeek: data.current_week ?? null,
+              currentProposal: null,
+            }));
         changes.checklist_categories = checklistDraft.checklist_categories;
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -1417,7 +1559,7 @@ app.post("/api/settings/chat", async (req, res) => {
       .filter(Boolean)
       .join("\n\n");
 
-    res.json({
+    const payload = {
       ok: true,
       assistant_message: assistantMessage,
       followup_question: result.followup_question ?? null,
@@ -1426,8 +1568,18 @@ app.post("/api/settings/chat", async (req, res) => {
       proposal: hasProposal ? changes : null,
       changes_applied: [],
       updated: null,
-    });
+    };
+    if (stream) {
+      sendStreamingAssistantDone(res, payload);
+      return res.end();
+    }
+    return res.json(payload);
   } catch (err) {
+    if (isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream)) {
+      sendStreamingAssistantError(res, err);
+      if (!res.writableEnded) res.end();
+      return;
+    }
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
@@ -1483,6 +1635,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         messages = [];
       }
     }
+    const stream = isStreamingRequest(req.body?.stream);
 
     const decision = await decideIngestAction({
       message,
@@ -1511,8 +1664,33 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
 
     if (intent === "question") {
       const questionText = decision?.question?.trim() || message;
+      if (stream) {
+        enableSseHeaders(res);
+        try {
+          const answer = await streamAssistantResponse({
+            question: questionText,
+            date,
+            messages,
+            onText: (delta) => sendStreamingAssistantChunk(res, delta),
+          });
+          sendStreamingAssistantDone(res, {
+            ok: true,
+            action: "question",
+            assistant_message: answer,
+            followup_question: null,
+            food_result: null,
+            activity_updates: null,
+            answer,
+          });
+        } catch (error) {
+          sendStreamingAssistantError(res, error);
+        } finally {
+          res.end();
+        }
+        return;
+      }
       const answer = await askAssistant({ question: questionText, date, messages });
-      return res.json({
+      res.json({
         ok: true,
         action: "question",
         assistant_message: answer,
@@ -1521,6 +1699,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         activity_updates: null,
         answer,
       });
+      return;
     }
 
     if (intent === "food") {
@@ -1549,7 +1728,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         console.warn("Meal response generation failed, using fallback summary.", err);
       }
 
-      return res.json({
+      const responsePayload = {
         ok: true,
         action: "food",
         assistant_message: mealResponse.assistant_message,
@@ -1559,7 +1738,13 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         answer: null,
         date: payload?.date ?? null,
         log_action: payload?.log_action ?? null,
-      });
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responsePayload);
+        return res.end();
+      }
+      return res.json(responsePayload);
     }
 
     if (intent === "activity") {
@@ -1591,7 +1776,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       const updatedWeek = await updateCurrentWeekItems(updates);
       const summarizedWeek = await refreshCurrentWeekSummaryForActivity(updatedWeek);
 
-      return res.json({
+      const responsePayload = {
         ok: true,
         action: "activity",
         activity_log_state: hasExistingEntries ? "updated" : "saved",
@@ -1601,10 +1786,16 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         activity_updates: resolved,
         current_week: summarizedWeek,
         answer: null,
-      });
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responsePayload);
+        return res.end();
+      }
+      return res.json(responsePayload);
     }
 
-    return res.json({
+    const responsePayload = {
       ok: true,
       action: "clarify",
       assistant_message:
@@ -1613,7 +1804,13 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       food_result: null,
       activity_updates: null,
       answer: null,
-    });
+    };
+    if (stream) {
+      enableSseHeaders(res);
+      sendStreamingAssistantDone(res, responsePayload);
+      return res.end();
+    }
+    return res.json(responsePayload);
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
