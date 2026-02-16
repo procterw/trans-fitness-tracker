@@ -157,3 +157,4 @@ Plan change note (2026-02-12 01:41Z): Updated progress, decisions, outcomes, and
 Plan change note (2026-02-12 01:47Z): Refined onboarding to remove timezone questioning and persist client timezone automatically.
 Plan change note (2026-02-12 02:00Z): Refactored onboarding to explicit staged flow with accept-button confirmation for checklist and diet targets.
 Plan change note (2026-02-15 19:45Z): Simplified onboarding to one intake prompt + auto-generated goals/checklist + explicit exit-onboarding action.
+Plan change note (2026-02-16 20:10Z): Retired dedicated onboarding routes/UI and merged first-visit setup into Settings via `POST /api/settings/bootstrap` + starter defaults.

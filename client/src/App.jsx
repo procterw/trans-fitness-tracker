@@ -2,16 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import "./styles.css";
 import {
-  chatOnboardingStream,
-  confirmOnboarding,
-  restartOnboardingForDebug,
-  getOnboardingState,
   getContext,
   getFitnessCurrent,
   getFitnessHistory,
   getFoodForDate,
   getFoodLog,
   confirmSettingsChanges,
+  settingsBootstrap,
   ingestAssistantStream,
   rollupFoodForDate,
   settingsChatStream,
@@ -32,7 +29,6 @@ import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
 import SettingsView from "./views/SettingsView.jsx";
-import OnboardingView from "./views/OnboardingView.jsx";
 import { getFitnessCategories } from "./fitnessChecklist.js";
 
 function useDebouncedKeyedCallback(fn, ms) {
@@ -166,9 +162,6 @@ export default function App() {
   const settingsFormRef = useRef(null);
   const settingsInputRef = useRef(null);
   const settingsMessagesRef = useRef(null);
-  const onboardingFormRef = useRef(null);
-  const onboardingInputRef = useRef(null);
-  const onboardingMessagesRef = useRef(null);
 
   // Chat view state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
@@ -184,15 +177,8 @@ export default function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const settingsMessageIdRef = useRef(0);
-  const [onboardingInput, setOnboardingInput] = useState("");
-  const [onboardingMessages, setOnboardingMessages] = useState([]);
-  const [onboardingState, setOnboardingState] = useState(null);
-  const [onboardingLoading, setOnboardingLoading] = useState(false);
-  const [onboardingChecking, setOnboardingChecking] = useState(false);
-  const [onboardingChecked, setOnboardingChecked] = useState(false);
-  const [onboardingError, setOnboardingError] = useState("");
-  const [onboardingReplayLoading, setOnboardingReplayLoading] = useState(false);
-  const onboardingMessageIdRef = useRef(0);
+  const [settingsBootstrapChecking, setSettingsBootstrapChecking] = useState(false);
+  const settingsBootstrapRoutedRef = useRef(false);
   const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
   const [sidebarDayStatus, setSidebarDayStatus] = useState("");
   const [sidebarDayError, setSidebarDayError] = useState("");
@@ -235,11 +221,7 @@ export default function App() {
   const [authSession, setAuthSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("");
   const [authActionLoading, setAuthActionLoading] = useState(false);
-  const onboardingDevToolsEnabled = Boolean(
-    import.meta.env.DEV || String(import.meta.env.VITE_ENABLE_ONBOARDING_DEV_TOOLS || "").toLowerCase() === "true",
-  );
   const signedOut = authEnabled && !authSession?.user;
-  const onboardingRequired = authEnabled && !signedOut && onboardingChecked && onboardingState?.needs_onboarding === true;
 
   const fmt = (n) => {
     if (n === null || n === undefined) return "—";
@@ -273,43 +255,6 @@ export default function App() {
     return json;
   }, []);
 
-  const seedOnboardingMessagesFromResponse = (json) => {
-    onboardingMessageIdRef.current = 0;
-    if (!json?.needs_onboarding) {
-      setOnboardingMessages([]);
-      return;
-    }
-
-    const seed = [];
-    const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
-    const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
-    const isDuplicateFollowup =
-      Boolean(assistantText && followupText) &&
-      normalizeForCompare(assistantText) === normalizeForCompare(followupText);
-
-    if (assistantText) {
-      onboardingMessageIdRef.current += 1;
-      seed.push({
-        id: onboardingMessageIdRef.current,
-        role: "assistant",
-        content: assistantText,
-        format: "markdown",
-      });
-    }
-
-    if (followupText && !isDuplicateFollowup) {
-      onboardingMessageIdRef.current += 1;
-      seed.push({
-        id: onboardingMessageIdRef.current,
-        role: "assistant",
-        content: followupText,
-        format: "plain",
-      });
-    }
-
-    setOnboardingMessages(seed);
-  };
-
   useEffect(() => {
     if (signedOut) return;
     refreshAppContext().catch(() => {});
@@ -341,45 +286,43 @@ export default function App() {
   }, [authEnabled]);
 
   useEffect(() => {
-    if (!authEnabled) {
-      setOnboardingChecked(true);
-      setOnboardingState(null);
-      return;
-    }
-
-    if (signedOut) {
-      setOnboardingChecked(false);
-      setOnboardingChecking(false);
-      setOnboardingLoading(false);
-      setOnboardingState(null);
-      setOnboardingMessages([]);
-      setOnboardingInput("");
-      setOnboardingError("");
-      onboardingMessageIdRef.current = 0;
+    if (!authEnabled || signedOut) {
+      settingsBootstrapRoutedRef.current = false;
+      setSettingsBootstrapChecking(false);
       return;
     }
 
     let canceled = false;
-    setOnboardingChecking(true);
-    setOnboardingChecked(false);
-    setOnboardingError("");
+    setSettingsBootstrapChecking(true);
 
-    getOnboardingState({ clientTimezone: getClientTimezone() })
+    settingsBootstrap({ clientTimezone: getClientTimezone() })
       .then((json) => {
         if (canceled) return;
-        setOnboardingState(json);
-        setOnboardingChecked(true);
-        seedOnboardingMessagesFromResponse(json);
-        if (!json?.needs_onboarding) setOnboardingInput("");
+        if (json?.seeded_now) {
+          settingsMessageIdRef.current += 1;
+          setSettingsMessages((prev) => [
+            {
+              id: settingsMessageIdRef.current,
+              role: "assistant",
+              content: "Starter goals and checklist were added. Tell me what you want to change.",
+              format: "plain",
+              tone: "status",
+            },
+            ...prev,
+          ]);
+        }
+        if (!settingsBootstrapRoutedRef.current && json?.default_open_view === "settings") {
+          settingsBootstrapRoutedRef.current = true;
+          setView("settings");
+        }
       })
       .catch((err) => {
         if (canceled) return;
-        setOnboardingChecked(true);
-        setOnboardingError(err instanceof Error ? err.message : String(err));
+        setAuthStatus(err instanceof Error ? err.message : String(err));
       })
       .finally(() => {
         if (canceled) return;
-        setOnboardingChecking(false);
+        setSettingsBootstrapChecking(false);
       });
 
     return () => {
@@ -602,12 +545,6 @@ export default function App() {
   }, [settingsMessages, settingsLoading]);
 
   useEffect(() => {
-    const el = onboardingMessagesRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [onboardingMessages, onboardingLoading]);
-
-  useEffect(() => {
     return () => {
       for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
       previewUrlsRef.current.clear();
@@ -625,12 +562,6 @@ export default function App() {
     if (settingsLoading) return;
     settingsInputRef.current?.focus();
   }, [settingsLoading, view]);
-
-  useEffect(() => {
-    if (!onboardingRequired) return;
-    if (onboardingLoading || onboardingChecking) return;
-    onboardingInputRef.current?.focus();
-  }, [onboardingRequired, onboardingLoading, onboardingChecking]);
 
   const onSignIn = async () => {
     setAuthActionLoading(true);
@@ -898,172 +829,6 @@ export default function App() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
-  const sendOnboardingMessage = async (rawMessage) => {
-    if (onboardingLoading || onboardingChecking) return;
-    setOnboardingError("");
-
-    const messageText = typeof rawMessage === "string" ? rawMessage.trim() : "";
-    if (!messageText) {
-      setOnboardingError("Type an answer before sending.");
-      return;
-    }
-
-    setOnboardingLoading(true);
-    const previous = onboardingMessages
-      .filter((msg) => msg?.role === "user" || msg?.role === "assistant")
-      .map((msg) => ({ role: msg.role, content: String(msg.content || "") }));
-
-    onboardingMessageIdRef.current += 1;
-    setOnboardingMessages((prev) => [
-      ...prev,
-      {
-        id: onboardingMessageIdRef.current,
-        role: "user",
-        content: messageText,
-        format: "plain",
-      },
-    ]);
-    if (messageText === onboardingInput.trim()) setOnboardingInput("");
-
-    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
-      const assistantMessages = [];
-
-      const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
-      const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
-      const isDuplicateFollowup =
-        Boolean(assistantText && followupText) &&
-        normalizeForCompare(assistantText) === normalizeForCompare(followupText);
-
-      if (assistantText) {
-        if (streamingAssistantMessageId) {
-          setOnboardingMessages((prev) =>
-            prev.map((message) =>
-              message.id === streamingAssistantMessageId
-                ? {
-                  ...message,
-                  content: assistantText,
-                  format: "markdown",
-                }
-              : message,
-          ),
-        );
-        } else {
-          onboardingMessageIdRef.current += 1;
-          setOnboardingMessages((prev) => [
-            ...prev,
-            {
-              id: onboardingMessageIdRef.current,
-              role: "assistant",
-              content: assistantText,
-              format: "markdown",
-            },
-          ]);
-        }
-      }
-
-      if (followupText && !isDuplicateFollowup) {
-        onboardingMessageIdRef.current += 1;
-        assistantMessages.push({
-          id: onboardingMessageIdRef.current,
-          role: "assistant",
-          content: followupText,
-          format: "plain",
-        });
-      }
-
-      if (assistantMessages.length) {
-        setOnboardingMessages((prev) => [...prev, ...assistantMessages]);
-      }
-    };
-
-    try {
-      let streamingMessageId = null;
-      let responsePayload = null;
-      let streamedText = "";
-      const streamIterator = chatOnboardingStream({
-        message: messageText,
-        messages: previous,
-        clientTimezone: getClientTimezone(),
-      });
-
-      for await (const event of streamIterator) {
-        if (event?.type === "error") {
-          throw new Error(event.error || "Streaming request failed.");
-        }
-        if (event?.type === "chunk") {
-          const delta = typeof event.delta === "string" ? event.delta : "";
-          if (!delta) continue;
-          streamedText += delta;
-          if (!streamingMessageId) {
-            onboardingMessageIdRef.current += 1;
-            streamingMessageId = onboardingMessageIdRef.current;
-            setOnboardingMessages((prev) => [
-              ...prev,
-              {
-                id: streamingMessageId,
-                role: "assistant",
-                content: "",
-                format: "markdown",
-              },
-            ]);
-          }
-          const nextContent = streamedText;
-          setOnboardingMessages((prev) =>
-            prev.map((message) => (message.id === streamingMessageId ? { ...message, content: nextContent } : message)),
-          );
-        }
-        if (event?.type === "done") {
-          responsePayload = event.payload ?? null;
-        }
-      }
-
-      if (!responsePayload) throw new Error("Streaming response did not complete.");
-
-      setOnboardingState(responsePayload);
-      setOnboardingChecked(true);
-      refreshAppContext().catch(() => {});
-      loadFitness();
-      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
-      if (responsePayload?.onboarding_complete) {
-        setView("chat");
-      }
-    } catch (err) {
-      setOnboardingError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setOnboardingLoading(false);
-    }
-  };
-
-  const onSubmitOnboarding = async (e) => {
-    e.preventDefault();
-    await sendOnboardingMessage(onboardingInput);
-  };
-
-  const onExitOnboarding = async () => {
-    if (onboardingLoading || onboardingChecking) return;
-    setOnboardingError("");
-    const stage = onboardingState?.stage;
-    if (stage !== "checklist") return;
-
-    setOnboardingLoading(true);
-    try {
-      const json = await confirmOnboarding({
-        action: "finish_onboarding",
-        proposal: onboardingState?.proposal ?? null,
-        clientTimezone: getClientTimezone(),
-      });
-      setOnboardingState(json);
-      setOnboardingChecked(true);
-      refreshAppContext().catch(() => {});
-      loadFitness();
-      if (json?.onboarding_complete) setView("chat");
-    } catch (err) {
-      setOnboardingError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setOnboardingLoading(false);
-    }
-  };
-
   const sendSettingsMessage = async (rawMessage) => {
     if (settingsLoading) return;
     setSettingsError("");
@@ -1269,37 +1034,6 @@ export default function App() {
       setFitnessError(e instanceof Error ? e.message : String(e));
       setFitnessStatus("");
       });
-  };
-
-  const onReplayOnboarding = async () => {
-    if (
-      !onboardingDevToolsEnabled ||
-      signedOut ||
-      onboardingReplayLoading ||
-      onboardingChecking ||
-      onboardingLoading
-    ) {
-      return;
-    }
-
-    setOnboardingReplayLoading(true);
-    setOnboardingError("");
-    setAuthStatus("");
-    try {
-      const json = await restartOnboardingForDebug({ clientTimezone: getClientTimezone() });
-      setOnboardingState(json);
-      setOnboardingChecked(true);
-      setOnboardingInput("");
-      seedOnboardingMessagesFromResponse(json);
-      refreshAppContext().catch(() => {});
-      setView("chat");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setOnboardingError(message);
-      setAuthStatus(message);
-    } finally {
-      setOnboardingReplayLoading(false);
-    }
   };
 
   const debouncedSaveFitnessItem = useDebouncedKeyedCallback(saveFitnessItem, 450);
@@ -1547,17 +1281,6 @@ export default function App() {
 
   const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
 
-  const onboardingGoalSummary = useMemo(() => {
-    const profileGoals = onboardingState?.updated_profile?.goals;
-    if (profileGoals && typeof profileGoals === "object") return normalizeGoalSummary(profileGoals);
-    return profileGoalSummary;
-  }, [onboardingState?.updated_profile?.goals, profileGoalSummary]);
-
-  const onboardingProposalCategories = useMemo(() => {
-    const proposal = onboardingState?.proposal;
-    return Array.isArray(proposal?.checklist_categories) ? proposal.checklist_categories : null;
-  }, [onboardingState]);
-
   const settingsProposalCategories = useMemo(() => {
     for (let i = settingsMessages.length - 1; i >= 0; i -= 1) {
       const msg = settingsMessages[i];
@@ -1567,12 +1290,6 @@ export default function App() {
     }
     return null;
   }, [settingsMessages]);
-
-  const onboardingWorkingChecklist = useMemo(() => {
-    const proposal = categoriesFromProposal(onboardingProposalCategories);
-    if (proposal.length) return proposal;
-    return categoriesFromWeek(fitnessWeek);
-  }, [fitnessWeek, onboardingProposalCategories]);
 
   const settingsWorkingChecklist = useMemo(() => {
     const proposal = categoriesFromProposal(settingsProposalCategories);
@@ -1586,53 +1303,13 @@ export default function App() {
     );
   }
 
-  if (authEnabled && !signedOut && !onboardingChecked) {
+  if (authEnabled && !signedOut && settingsBootstrapChecking) {
     return (
       <div className="signedOutShell">
         <section className="signedOutCard">
           <h1 className="signedOutTitle">Get fit and hot</h1>
           <p className="signedOutDescription">Loading your profile…</p>
         </section>
-      </div>
-    );
-  }
-
-  if (onboardingRequired) {
-    return (
-      <div className="onboardingApp">
-        <AppNavbar
-          title="Get fit and hot"
-          authEnabled={authEnabled}
-          authSession={authSession}
-          authStatus={authStatus}
-          authActionLoading={authActionLoading}
-          onSignIn={onSignIn}
-          onSignOut={onSignOut}
-          showReplayOnboarding={onboardingDevToolsEnabled && Boolean(authSession?.user)}
-          replayOnboardingLoading={onboardingReplayLoading || onboardingLoading || onboardingChecking}
-          onReplayOnboarding={onReplayOnboarding}
-          mobileNavOpen={false}
-        />
-        <main className="onboardingMain">
-          <OnboardingView
-            onboardingMessagesRef={onboardingMessagesRef}
-            onboardingFormRef={onboardingFormRef}
-            onboardingInputRef={onboardingInputRef}
-            onboardingMessages={onboardingMessages}
-            onboardingInput={onboardingInput}
-            onboardingLoading={onboardingLoading || onboardingChecking}
-            onboardingError={onboardingError}
-            onboardingStage={onboardingState?.stage ?? "goals"}
-            onboardingStepIndex={onboardingState?.step_index ?? 1}
-            onboardingStepTotal={onboardingState?.step_total ?? 2}
-            onboardingGoalSummary={onboardingGoalSummary}
-            onboardingWorkingChecklist={onboardingWorkingChecklist}
-            onSubmitOnboarding={onSubmitOnboarding}
-            canExitOnboarding={onboardingState?.stage === "checklist"}
-            onExitOnboarding={onExitOnboarding}
-            onOnboardingInputChange={setOnboardingInput}
-          />
-        </main>
       </div>
     );
   }
@@ -1674,9 +1351,6 @@ export default function App() {
           authActionLoading={authActionLoading}
           onSignIn={onSignIn}
           onSignOut={onSignOut}
-          showReplayOnboarding={onboardingDevToolsEnabled && Boolean(authSession?.user)}
-          replayOnboardingLoading={onboardingReplayLoading || onboardingLoading || onboardingChecking}
-          onReplayOnboarding={onReplayOnboarding}
           mobileNavOpen={mobileNavOpen}
           onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
         />

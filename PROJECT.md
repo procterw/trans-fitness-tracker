@@ -45,10 +45,10 @@ This repo includes a minimal local web app that supports:
 - Unified meal logging (photo and/or manual description) + nutrition inference (OpenAI)
 - Asking questions in-app (OpenAI assistant, contextualized by the split tracking files)
 - A unified chat-style input that routes food/activity/questions via GPT‑5.2
-- Authenticated staged onboarding:
-  - one initial intake prompt for diet, fitness, and goals
-  - after the first response, auto-create goals context + fitness checklist draft
-  - users can keep chatting to refine goals/checklist, then exit onboarding with an explicit button
+- First-visit settings bootstrap:
+  - on first authenticated visit, the app seeds minimal starter goals + checklist defaults
+  - the app opens on Settings once (not gated), and users can navigate anywhere immediately
+  - settings chat remains the surface for refining goals/checklist/profile preferences
 - Weekly fitness checklist updates (`current_week`)
 - Settings chat for editing profile context, checklist template, and diet/fitness philosophy
 - A basic dashboard for browsing:
@@ -79,15 +79,9 @@ This repo includes a minimal local web app that supports:
 
 ### Endpoints
 - `GET /` → React UI (Food / Fitness / Dashboard)
-- `GET /api/onboarding/state` → returns onboarding completion state, progress, and next prompt
-- `POST /api/onboarding/chat` → JSON body: `message` + optional `messages`
-  - Stage-aware onboarding chat:
-    - initial goals intake
-    - ongoing goals/checklist refinement after initial draft creation
-- `POST /api/onboarding/confirm` → JSON body: `action` (`finish_onboarding`) + optional `proposal`
-  - `action: "finish_onboarding"` marks onboarding complete
-  - optional `proposal` can persist the latest checklist draft before exit
-- `POST /api/onboarding/dev/restart` (dev-only) → resets onboarding metadata for the current signed-in user and re-enters onboarding flow
+- `POST /api/settings/bootstrap` → JSON body: optional `client_timezone`
+  - Idempotently seeds starter goals/checklist defaults for first-time users
+  - Returns `seeded_now`, `already_seeded`, `default_open_view`, starter summary, and optional updated profile
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `POST /api/food/log` → multipart form:
   - optional `image` (if present, uses vision)

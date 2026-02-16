@@ -237,65 +237,8 @@ export async function settingsChat({ message = "", messages = [] }) {
   });
 }
 
-export async function getOnboardingState({ clientTimezone = "" } = {}) {
-  const params = new URLSearchParams();
-  if (clientTimezone) params.set("client_timezone", clientTimezone);
-  const qs = params.toString();
-  return fetchJson(`/api/onboarding/state${qs ? `?${qs}` : ""}`);
-}
-
-export async function chatOnboarding({ message = "", messages = [], clientTimezone = "" }) {
-  return fetchJson("/api/onboarding/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, messages, client_timezone: clientTimezone || "" }),
-  });
-}
-
-export async function* chatOnboardingStream({
-  message = "",
-  messages = [],
-  clientTimezone = "",
-}) {
-  const body = {
-    message,
-    messages,
-    client_timezone: clientTimezone || "",
-    stream: true,
-  };
-
-  const res = await fetch(
-    "/api/onboarding/chat",
-    await withAuth({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json?.error || `Request failed (${res.status})`);
-  }
-
-  for await (const event of parseSsePayloads(res)) {
-    yield event;
-  }
-}
-
-export async function confirmOnboarding({ action, proposal = null, clientTimezone = "" }) {
-  return fetchJson("/api/onboarding/confirm", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      action,
-      proposal,
-      client_timezone: clientTimezone || "",
-    }),
-  });
-}
-
-export async function restartOnboardingForDebug({ clientTimezone = "" } = {}) {
-  return fetchJson("/api/onboarding/dev/restart", {
+export async function settingsBootstrap({ clientTimezone = "" } = {}) {
+  return fetchJson("/api/settings/bootstrap", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_timezone: clientTimezone || "" }),

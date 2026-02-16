@@ -10,7 +10,6 @@ import { fileURLToPath } from "node:url";
 import {
   askAssistant,
   streamAssistantResponse,
-  askOnboardingAssistant,
   proposeOnboardingChecklist,
   streamOnboardingChecklist,
   askSettingsAssistant,
@@ -50,9 +49,6 @@ const app = express();
 app.use(express.json({ limit: "1mb" }));
 
 const authRequired = String(process.env.SUPABASE_AUTH_REQUIRED || "").toLowerCase() === "true";
-const onboardingDevToolsEnabled =
-  String(process.env.ENABLE_ONBOARDING_DEV_TOOLS || "").toLowerCase() === "true" ||
-  process.env.NODE_ENV !== "production";
 const supabaseAuth = createSupabaseAuth({
   supabaseUrl: process.env.SUPABASE_URL || "",
   required: authRequired,
@@ -386,18 +382,6 @@ function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
   };
 }
 
-const ONBOARDING_STAGE_ORDER = ["goals", "checklist"];
-const ONBOARDING_STAGE_SET = new Set([...ONBOARDING_STAGE_ORDER, "complete"]);
-const ONBOARDING_CONFIRM_ACTION = {
-  finish: "finish_onboarding",
-};
-const ONBOARDING_PROMPTS = {
-  goals:
-    "Tell me broadly about your diet, fitness routine, and goals. Include constraints, preferences, and what progress you want.",
-  checklist:
-    "I created your goals context and a starter fitness checklist. Keep chatting to refine either one, then press Exit onboarding when you're ready.",
-};
-
 function hasNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -435,72 +419,6 @@ function extractGoalSummary(userProfile) {
   };
 }
 
-function normalizeOnboardingStage(value) {
-  const stage = typeof value === "string" ? value.trim().toLowerCase() : "";
-  return ONBOARDING_STAGE_SET.has(stage) ? stage : "goals";
-}
-
-function normalizeOnboardingChecklistCategories(value) {
-  return normalizeChecklistCategories(value);
-}
-
-function normalizeOnboardingChecklistProposal(value) {
-  if (!isPlainObject(value)) return null;
-  const categories = normalizeOnboardingChecklistCategories(value.checklist_categories);
-  if (!categories?.length) return null;
-  return { checklist_categories: categories };
-}
-
-function normalizeOnboardingDietProposal(value) {
-  if (!isPlainObject(value)) return null;
-  if (!isPlainObject(value.diet_philosophy_patch) || !Object.keys(value.diet_philosophy_patch).length) return null;
-  return { diet_philosophy_patch: structuredClone(value.diet_philosophy_patch) };
-}
-
-function getOnboardingMeta(userProfile) {
-  const profile = isPlainObject(userProfile) ? userProfile : {};
-  const metadata = isPlainObject(profile.metadata) ? profile.metadata : {};
-  const onboarding = isPlainObject(metadata.onboarding) ? metadata.onboarding : {};
-  return {
-    stage: normalizeOnboardingStage(onboarding.stage),
-    started_at: hasNonEmptyString(onboarding.started_at) ? onboarding.started_at.trim() : null,
-    completed_at: hasNonEmptyString(onboarding.completed_at) ? onboarding.completed_at.trim() : null,
-    checklist_proposal: normalizeOnboardingChecklistProposal(onboarding.checklist_proposal),
-    diet_proposal: normalizeOnboardingDietProposal(onboarding.diet_proposal),
-  };
-}
-
-function hasGoalContext(userProfile) {
-  const profile = isPlainObject(userProfile) ? userProfile : {};
-  const goals = isPlainObject(profile.goals) ? profile.goals : {};
-  const goalsText = normalizeGoalsText(asObject(profile.goals_text), { legacyGoals: goals });
-  const derived = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals: goals });
-  return hasNonEmptyArray(derived.diet_goals) && hasNonEmptyArray(derived.fitness_goals);
-}
-
-function hasChecklistConfigured(currentWeek) {
-  const week = isPlainObject(currentWeek) ? currentWeek : {};
-  const keys = getFitnessCategoryKeys(week);
-  if (!keys.length) return false;
-  return keys.some((key) => {
-    const list = Array.isArray(week[key]) ? week[key] : [];
-    return list.some((item) => hasNonEmptyString(item?.item));
-  });
-}
-
-function resolveOnboardingStage({ userProfile, currentWeek }) {
-  const onboarding = getOnboardingMeta(userProfile);
-  if (onboarding.completed_at || onboarding.stage === "complete") return "complete";
-  if (onboarding.stage === "checklist") return onboarding.stage;
-
-  const canBypass =
-    !onboarding.started_at &&
-    hasGoalContext(userProfile) &&
-    hasChecklistConfigured(currentWeek);
-  if (canBypass) return "complete";
-  return "goals";
-}
-
 function normalizeClientTimezone(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -526,110 +444,6 @@ function applyClientTimezone(userProfile, clientTimezone) {
   general.timezone = timezone;
   profile.general = general;
   return { profile, changed: true };
-}
-
-function updateOnboardingMetadata(
-  userProfile,
-  { stage = null, checklistProposal, dietProposal, clearChecklistProposal = false, clearDietProposal = false, completed = false, now = new Date() } = {},
-) {
-  const nextProfile = isPlainObject(userProfile) ? structuredClone(userProfile) : {};
-  const metadata = isPlainObject(nextProfile.metadata) ? nextProfile.metadata : {};
-  const onboarding = isPlainObject(metadata.onboarding) ? metadata.onboarding : {};
-
-  const timestamp = formatSeattleIso(now);
-  const normalizedStage = stage ? normalizeOnboardingStage(stage) : null;
-  if (!hasNonEmptyString(onboarding.started_at)) onboarding.started_at = timestamp;
-  if (normalizedStage) onboarding.stage = normalizedStage;
-
-  if (checklistProposal !== undefined) onboarding.checklist_proposal = checklistProposal;
-  if (dietProposal !== undefined) onboarding.diet_proposal = dietProposal;
-  if (clearChecklistProposal) delete onboarding.checklist_proposal;
-  if (clearDietProposal) delete onboarding.diet_proposal;
-
-  if (completed) {
-    onboarding.stage = "complete";
-    if (!hasNonEmptyString(onboarding.completed_at)) onboarding.completed_at = timestamp;
-  } else if (normalizedStage && normalizedStage !== "complete") {
-    delete onboarding.completed_at;
-  }
-
-  onboarding.last_active_at = timestamp;
-  metadata.onboarding = onboarding;
-  metadata.updated_at = timestamp;
-  nextProfile.metadata = metadata;
-  return nextProfile;
-}
-
-function restartOnboardingMetadata(userProfile, { now = new Date() } = {}) {
-  const nextProfile = isPlainObject(userProfile) ? structuredClone(userProfile) : {};
-  const metadata = isPlainObject(nextProfile.metadata) ? nextProfile.metadata : {};
-  const timestamp = formatSeattleIso(now);
-  metadata.onboarding = {
-    stage: "goals",
-    started_at: timestamp,
-    last_active_at: timestamp,
-  };
-  metadata.updated_at = timestamp;
-  nextProfile.metadata = metadata;
-  return nextProfile;
-}
-
-function checklistProposalToMarkdown(proposal) {
-  const categories = normalizeOnboardingChecklistCategories(proposal?.checklist_categories);
-  if (!categories?.length) return "";
-  return formatChecklistCategoriesMarkdown(categories, { heading: "Proposed fitness checklist:" });
-}
-
-function dietProposalToMarkdown(proposal) {
-  const patch = isPlainObject(proposal?.diet_philosophy_patch) ? proposal.diet_philosophy_patch : null;
-  if (!patch) return "";
-  const calories = isPlainObject(patch.calories) ? patch.calories : {};
-  const protein = isPlainObject(patch.protein) ? patch.protein : {};
-  const carbs = isPlainObject(patch.carbs) ? patch.carbs : {};
-  const fat = isPlainObject(patch.fat) ? patch.fat : {};
-
-  const lines = ["Proposed calorie and macro goals:"];
-  if (hasNonEmptyString(calories.target)) lines.push(`- Calories: **${calories.target.trim()}**`);
-  if (hasNonEmptyString(protein.target_g)) lines.push(`- Protein: **${protein.target_g.trim()} g**`);
-  if (hasNonEmptyString(carbs.target_g)) lines.push(`- Carbs: **${carbs.target_g.trim()} g**`);
-  if (hasNonEmptyString(fat.target_g)) lines.push(`- Fat: **${fat.target_g.trim()} g**`);
-  if (lines.length === 1) lines.push("- (No explicit calorie/macro targets found in proposal)");
-  return lines.join("\n");
-}
-
-function buildOnboardingResponse({
-  stage,
-  assistantMessage,
-  followupQuestion = null,
-  proposal = null,
-  confirmAction = null,
-  savedProfile = false,
-  updatedProfile = null,
-}) {
-  const normalizedStage = normalizeOnboardingStage(stage);
-  const onboardingComplete = normalizedStage === "complete";
-  const stageIndexRaw = ONBOARDING_STAGE_ORDER.indexOf(normalizedStage);
-  const stepIndex = onboardingComplete
-    ? ONBOARDING_STAGE_ORDER.length
-    : stageIndexRaw >= 0
-      ? stageIndexRaw + 1
-      : 1;
-  const stepTotal = ONBOARDING_STAGE_ORDER.length;
-  return {
-    ok: true,
-    needs_onboarding: !onboardingComplete,
-    onboarding_complete: onboardingComplete,
-    stage: normalizedStage,
-    step_index: stepIndex,
-    step_total: stepTotal,
-    assistant_message: assistantMessage,
-    followup_question: followupQuestion,
-    requires_confirmation: Boolean(proposal && confirmAction),
-    confirm_action: proposal && confirmAction ? confirmAction : null,
-    proposal: proposal ?? null,
-    saved_profile: savedProfile,
-    updated_profile: updatedProfile,
-  };
 }
 
 function normalizeChecklistCategoryKey(raw) {
@@ -772,6 +586,93 @@ function extractChecklistTemplate(week) {
   return template;
 }
 
+function buildStarterGoalsText() {
+  return {
+    overall_goals: "Build consistent nutrition and activity habits.",
+    fitness_goals: "Improve general fitness with consistent weekly movement.",
+    diet_goals: "Eat balanced meals regularly and stay hydrated.",
+  };
+}
+
+function buildStarterChecklistCategories() {
+  return normalizeChecklistCategories([
+    {
+      key: "cardio",
+      label: "Cardio",
+      items: ["Brisk walk (30 min)", "Brisk walk (30 min)", "Easy cardio session (30 min)"],
+    },
+    {
+      key: "strength",
+      label: "Strength",
+      items: ["Lower-body strength session (20-30 min)", "Lower-body strength session (20-30 min)"],
+    },
+    {
+      key: "mobility",
+      label: "Mobility",
+      items: ["Mobility routine (10-15 min)", "Mobility routine (10-15 min)"],
+    },
+  ]);
+}
+
+function hasSeedMarker(profile) {
+  const metadata = asObject(profile?.metadata);
+  return hasNonEmptyString(metadata.settings_seeded_at);
+}
+
+function applyStarterSeed(data, profile, { now = new Date() } = {}) {
+  let changed = false;
+  let goalsSeeded = false;
+  let checklistSeeded = false;
+  const timestamp = formatSeattleIso(now);
+  let nextProfile = isPlainObject(profile) ? structuredClone(profile) : {};
+  const metadata = isPlainObject(nextProfile.metadata) ? { ...nextProfile.metadata } : {};
+
+  const goalsText = normalizeGoalsText(asObject(nextProfile.goals_text), { legacyGoals: asObject(nextProfile.goals) });
+  const hasAnyGoalsText = ["overall_goals", "fitness_goals", "diet_goals"].some((key) => hasNonEmptyString(goalsText[key]));
+  if (!hasAnyGoalsText) {
+    nextProfile = mergeObjectPatch(nextProfile, { goals_text: buildStarterGoalsText() });
+    nextProfile = applyGoalTextDerivation(nextProfile, { now });
+    goalsSeeded = true;
+    changed = true;
+  }
+
+  const existingTemplate = extractChecklistTemplate(asObject(asObject(data.metadata).checklist_template));
+  if (!existingTemplate) {
+    const categories = buildStarterChecklistCategories();
+    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, categories);
+    const template = extractChecklistTemplate(remappedWeek);
+    if (template) {
+      const dataMetadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+      dataMetadata.checklist_template = template;
+      dataMetadata.last_updated = timestamp;
+      data.metadata = dataMetadata;
+      data.current_week = remappedWeek;
+      checklistSeeded = true;
+      changed = true;
+    }
+  }
+
+  if (!hasSeedMarker(nextProfile)) {
+    metadata.settings_seeded_at = timestamp;
+    metadata.settings_seed_version = 1;
+    metadata.onboarding = {
+      ...(isPlainObject(metadata.onboarding) ? metadata.onboarding : {}),
+      stage: "complete",
+      completed_at: timestamp,
+      last_active_at: timestamp,
+    };
+    metadata.updated_at = timestamp;
+    nextProfile.metadata = metadata;
+    changed = true;
+  }
+
+  return {
+    changed,
+    profile: nextProfile,
+    summary: { goals_seeded: goalsSeeded, checklist_seeded: checklistSeeded },
+  };
+}
+
 function hasPendingSettingsChanges(changes) {
   return Boolean(
     changes?.user_profile_patch ||
@@ -894,407 +795,49 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
   };
 }
 
-function getCurrentOnboardingState(data) {
-  const profile = isPlainObject(data?.user_profile) ? data.user_profile : {};
-  const stage = resolveOnboardingStage({
-    userProfile: profile,
-    currentWeek: data?.current_week ?? null,
-  });
-  const onboardingMeta = getOnboardingMeta(profile);
-  return { profile, stage, onboardingMeta };
-}
-
-async function buildChecklistDraft({
-  message = "",
-  messages = [],
-  data,
-  profile,
-  currentProposal = null,
-  onText,
-}) {
-  const proposalResult = onText
-    ? await streamOnboardingChecklist({
-        message,
-        messages,
-        userProfile: profile,
-        currentWeek: data?.current_week ?? null,
-        currentProposal,
-        onText,
-      })
-    : await proposeOnboardingChecklist({
-        message,
-        messages,
-        userProfile: profile,
-        currentWeek: data?.current_week ?? null,
-        currentProposal,
-      });
-  const proposal = { checklist_categories: proposalResult.checklist_categories };
-  const markdown = checklistProposalToMarkdown(proposal);
-  return {
-    proposal,
-    assistantMessage: [proposalResult.assistant_message, markdown].filter(Boolean).join("\n\n"),
-    followupQuestion:
-      proposalResult.followup_question ??
-      "Tell me what to change, then press Accept checklist when this looks right.",
-  };
-}
-
-function applyOnboardingChecklistProposal(data, proposal) {
-  const normalizedProposal = normalizeOnboardingChecklistProposal(proposal);
-  if (!normalizedProposal) throw new Error("Missing or invalid checklist proposal.");
-
-  const remappedWeek = applyChecklistCategories(data.current_week ?? {}, normalizedProposal.checklist_categories);
-  const template = extractChecklistTemplate(remappedWeek);
-  if (!template) throw new Error("Checklist proposal produced no valid template.");
-
-  const metadata = isPlainObject(data.metadata) ? data.metadata : {};
-  metadata.checklist_template = template;
-  metadata.last_updated = formatSeattleIso(new Date());
-  data.metadata = metadata;
-  data.current_week = remappedWeek;
-  return normalizedProposal;
-}
-
-app.get("/api/onboarding/state", async (req, res) => {
+app.post("/api/settings/bootstrap", async (req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
-
     let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
-    let savedProfile = false;
 
-    const clientTimezone = typeof req.query?.client_timezone === "string" ? req.query.client_timezone : "";
-    const timezoneApplied = applyClientTimezone(profile, clientTimezone);
-    if (timezoneApplied.changed) {
-      profile = timezoneApplied.profile;
-      savedProfile = true;
-    }
-
-    const runtime = getCurrentOnboardingState({ ...data, user_profile: profile });
-    const stage = runtime.stage;
-    const onboardingMeta = runtime.onboardingMeta;
-
-    if (stage === "complete") {
-      if (savedProfile) {
-        data.user_profile = profile;
-        await writeTrackingData(data);
-      }
-      return res.json(
-        buildOnboardingResponse({
-          stage,
-          assistantMessage: "Setup complete. You're ready to use the tracker.",
-          followupQuestion: null,
-          savedProfile,
-          updatedProfile: savedProfile ? profile : null,
-        }),
-      );
-    }
-
-    if (stage === "goals") {
-      if (savedProfile) {
-        profile = updateOnboardingMetadata(profile, { stage: "goals" });
-        data.user_profile = profile;
-        await writeTrackingData(data);
-      }
-      return res.json(
-        buildOnboardingResponse({
-          stage,
-          assistantMessage: ONBOARDING_PROMPTS.goals,
-          followupQuestion:
-            "What are your fitness and diet goals right now? Include any constraints or preferences.",
-          savedProfile,
-          updatedProfile: savedProfile ? profile : null,
-        }),
-      );
-    }
-
-    if (stage === "checklist") {
-      let proposal = onboardingMeta.checklist_proposal;
-      let assistantMessage = ONBOARDING_PROMPTS.checklist;
-      let followupQuestion = "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.";
-
-      if (!proposal) {
-        const draft = await buildChecklistDraft({ data, profile, message: "", messages: [] });
-        proposal = applyOnboardingChecklistProposal(data, draft.proposal);
-        assistantMessage = draft.assistantMessage;
-        followupQuestion = draft.followupQuestion;
-        profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: proposal });
-        data.user_profile = profile;
-        savedProfile = true;
-      } else {
-        const markdown = checklistProposalToMarkdown(proposal);
-        assistantMessage = [assistantMessage, markdown].filter(Boolean).join("\n\n");
-      }
-
-      if (savedProfile) await writeTrackingData(data);
-      return res.json(
-        buildOnboardingResponse({
-          stage,
-          assistantMessage,
-          followupQuestion,
-          proposal,
-          savedProfile,
-          updatedProfile: savedProfile ? profile : null,
-        }),
-      );
-    }
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/onboarding/chat", async (req, res) => {
-  try {
-    await ensureCurrentWeek();
-    const data = await readTrackingData();
-    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
-    if (stream) enableSseHeaders(res);
-
-    let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
     const clientTimezone = typeof req.body?.client_timezone === "string" ? req.body.client_timezone : "";
     const timezoneApplied = applyClientTimezone(profile, clientTimezone);
     if (timezoneApplied.changed) profile = timezoneApplied.profile;
 
-    const runtime = getCurrentOnboardingState({ ...data, user_profile: profile });
-    const stage = runtime.stage;
-    const onboardingMeta = runtime.onboardingMeta;
-    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-
-    const sendResult = (payload) => {
-      if (stream) {
-        sendStreamingAssistantDone(res, payload);
-        return res.end();
-      }
-      return res.json(payload);
-    };
-
-    if (stage === "complete") {
+    const seededAlready = hasSeedMarker(profile);
+    if (seededAlready) {
       if (timezoneApplied.changed) {
         data.user_profile = profile;
         await writeTrackingData(data);
       }
-      return sendResult(
-        buildOnboardingResponse({
-          stage,
-          assistantMessage: "Setup is already complete. Taking you to your tracker.",
-          followupQuestion: null,
-          savedProfile: timezoneApplied.changed,
-          updatedProfile: timezoneApplied.changed ? profile : null,
-        }),
-      );
+      return res.json({
+        ok: true,
+        seeded_now: false,
+        already_seeded: true,
+        default_open_view: null,
+        starter_summary: {
+          goals_seeded: false,
+          checklist_seeded: false,
+        },
+        updated_profile: timezoneApplied.changed ? profile : null,
+      });
     }
 
-    if (!message) {
-      return sendResult(
-        buildOnboardingResponse({
-          stage,
-          assistantMessage: ONBOARDING_PROMPTS[stage] ?? "Ready when you are.",
-          followupQuestion:
-            stage === "goals"
-              ? "Share your diet, fitness routine, and goals."
-              : "Tell me what to adjust in your goals or checklist. Use Exit onboarding when you're ready.",
-          proposal: stage === "checklist" ? onboardingMeta.checklist_proposal : null,
-          savedProfile: false,
-          updatedProfile: null,
-        }),
-      );
-    }
-
-    if (stage === "goals") {
-      const result = await askOnboardingAssistant({
-        message,
-        messages,
-        onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
-        userProfile: profile,
-      });
-
-      const patch =
-        isPlainObject(result?.user_profile_patch) && Object.keys(result.user_profile_patch).length
-          ? result.user_profile_patch
-          : null;
-      if (patch) profile = mergeObjectPatch(profile, patch);
-      if (patch && hasGoalsTextPatch(patch)) {
-        profile = applyGoalTextDerivation(profile, { now: new Date() });
-      }
-      const draft = await buildChecklistDraft({
-        message,
-        messages,
-        data,
-        profile,
-        currentProposal: null,
-        onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
-      });
-      const proposal = applyOnboardingChecklistProposal(data, draft.proposal);
-      profile = updateOnboardingMetadata(profile, {
-        stage: "checklist",
-        checklistProposal: proposal,
-        clearDietProposal: true,
-      });
-      data.user_profile = profile;
+    const seeded = applyStarterSeed(data, profile, { now: new Date() });
+    data.user_profile = seeded.profile;
+    if (seeded.changed) {
       await writeTrackingData(data);
-
-      return sendResult(
-        buildOnboardingResponse({
-          stage: "checklist",
-          assistantMessage: [result.assistant_message, draft.assistantMessage].filter(Boolean).join("\n\n"),
-          followupQuestion:
-            draft.followupQuestion ??
-            "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.",
-          proposal,
-          savedProfile: true,
-          updatedProfile: profile,
-        }),
-      );
     }
 
-    if (stage === "checklist") {
-      const onboardingUpdate = await askOnboardingAssistant({
-        message,
-        messages,
-        onboardingState: { stage, prompt: ONBOARDING_PROMPTS.checklist },
-        userProfile: profile,
-      });
-      const profilePatch =
-        isPlainObject(onboardingUpdate?.user_profile_patch) && Object.keys(onboardingUpdate.user_profile_patch).length
-          ? onboardingUpdate.user_profile_patch
-          : null;
-      if (profilePatch) {
-        profile = mergeObjectPatch(profile, profilePatch);
-        if (hasGoalsTextPatch(profilePatch)) profile = applyGoalTextDerivation(profile, { now: new Date() });
-      }
-
-      const draft = await buildChecklistDraft({
-        message,
-        messages,
-        data,
-        profile,
-        currentProposal: onboardingMeta.checklist_proposal,
-        onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
-      });
-      const proposal = applyOnboardingChecklistProposal(data, draft.proposal);
-      profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: proposal, clearDietProposal: true });
-      data.user_profile = profile;
-      await writeTrackingData(data);
-
-      const goalsUpdated = Boolean(profilePatch && hasGoalsTextPatch(profilePatch));
-      return sendResult(
-        buildOnboardingResponse({
-          stage: "checklist",
-          assistantMessage: [goalsUpdated ? "Updated your goals context from your latest message." : "", draft.assistantMessage]
-            .filter(Boolean)
-            .join("\n\n"),
-          followupQuestion:
-            draft.followupQuestion ??
-            "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.",
-          proposal,
-          savedProfile: true,
-          updatedProfile: profile,
-        }),
-      );
-    }
-  } catch (err) {
-    if (stream) {
-      sendStreamingAssistantError(res, err);
-      if (!res.writableEnded) res.end();
-      return;
-    }
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/onboarding/confirm", async (req, res) => {
-  try {
-    await ensureCurrentWeek();
-    const data = await readTrackingData();
-
-    let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
-    const clientTimezone = typeof req.body?.client_timezone === "string" ? req.body.client_timezone : "";
-    const timezoneApplied = applyClientTimezone(profile, clientTimezone);
-    if (timezoneApplied.changed) profile = timezoneApplied.profile;
-
-    const runtime = getCurrentOnboardingState({ ...data, user_profile: profile });
-    const stage = runtime.stage;
-    const onboardingMeta = runtime.onboardingMeta;
-    const action = typeof req.body?.action === "string" ? req.body.action.trim().toLowerCase() : "";
-    const rawProposal = isPlainObject(req.body?.proposal) ? req.body.proposal : null;
-
-    if (stage === "complete") {
-      if (timezoneApplied.changed) {
-        data.user_profile = profile;
-        await writeTrackingData(data);
-      }
-      return res.json(
-        buildOnboardingResponse({
-          stage: "complete",
-          assistantMessage: "Setup is already complete.",
-          followupQuestion: null,
-          savedProfile: timezoneApplied.changed,
-          updatedProfile: timezoneApplied.changed ? profile : null,
-        }),
-      );
-    }
-
-    if (action === ONBOARDING_CONFIRM_ACTION.finish) {
-      if (stage !== "checklist") {
-        return res.status(400).json({ ok: false, error: "Exit onboarding is available after the initial setup response." });
-      }
-      const proposal =
-        normalizeOnboardingChecklistProposal(rawProposal) ?? normalizeOnboardingChecklistProposal(onboardingMeta.checklist_proposal);
-      if (proposal) applyOnboardingChecklistProposal(data, proposal);
-      profile = updateOnboardingMetadata(profile, {
-        completed: true,
-        clearChecklistProposal: true,
-        clearDietProposal: true,
-      });
-      data.user_profile = profile;
-      await writeTrackingData(data);
-
-      return res.json(
-        buildOnboardingResponse({
-          stage: "complete",
-          assistantMessage: "Onboarding complete. Taking you to your tracker.",
-          followupQuestion: null,
-          savedProfile: true,
-          updatedProfile: profile,
-        }),
-      );
-    }
-
-    return res.status(400).json({ ok: false, error: "Unknown confirmation action." });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/onboarding/dev/restart", async (req, res) => {
-  try {
-    if (!onboardingDevToolsEnabled) {
-      return res.status(404).json({ ok: false, error: "Not found." });
-    }
-
-    await ensureCurrentWeek();
-    const data = await readTrackingData();
-
-    let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
-    const clientTimezone = typeof req.body?.client_timezone === "string" ? req.body.client_timezone : "";
-    const timezoneApplied = applyClientTimezone(profile, clientTimezone);
-    if (timezoneApplied.changed) profile = timezoneApplied.profile;
-
-    profile = restartOnboardingMetadata(profile);
-    data.user_profile = profile;
-    await writeTrackingData(data);
-
-    return res.json(
-      buildOnboardingResponse({
-        stage: "goals",
-        assistantMessage: ONBOARDING_PROMPTS.goals,
-        followupQuestion:
-          "What are your diet, fitness, and overall goals right now?",
-        savedProfile: true,
-        updatedProfile: profile,
-      }),
-    );
+    return res.json({
+      ok: true,
+      seeded_now: true,
+      already_seeded: false,
+      default_open_view: "settings",
+      starter_summary: seeded.summary,
+      updated_profile: seeded.profile,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
