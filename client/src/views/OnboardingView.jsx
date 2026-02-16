@@ -17,25 +17,26 @@ export default function OnboardingView({
   onboardingGoalSummary,
   onboardingWorkingChecklist,
   onSubmitOnboarding,
-  onConfirmOnboardingProposal,
+  canExitOnboarding,
+  onExitOnboarding,
   onOnboardingInputChange,
 }) {
-  const stageLabel =
-    onboardingStage === "checklist"
-      ? "Fitness Checklist"
-      : onboardingStage === "diet"
-        ? "Diet Targets"
-        : "Goals";
+  const stageLabel = onboardingStage === "checklist" ? "Refine goals and checklist" : "Initial intake";
 
   const stepIndex = typeof onboardingStepIndex === "number" ? onboardingStepIndex : 1;
-  const stepTotal = typeof onboardingStepTotal === "number" ? onboardingStepTotal : 3;
+  const stepTotal = typeof onboardingStepTotal === "number" ? onboardingStepTotal : 2;
 
   return (
     <section className="chatPanel onboardingPanel">
       <div className="onboardingHeader">
         <h1 className="onboardingTitle">Quick setup</h1>
         <p className="onboardingMeta">{`Step ${stepIndex}/${stepTotal}: ${stageLabel}`}</p>
-        <p className="onboardingHint">Iterate as much as you want before accepting each step.</p>
+        <p className="onboardingHint">After your first message, a starter goals + checklist draft appears for live refinement.</p>
+        {canExitOnboarding ? (
+          <button type="button" className="onboardingExitButton" disabled={onboardingLoading} onClick={onExitOnboarding}>
+            Exit onboarding
+          </button>
+        ) : null}
       </div>
 
       <div className="chatBox chatBoxFull">
@@ -58,18 +59,6 @@ export default function OnboardingView({
                       m.content
                     )}
                   </div>
-                  {m.role === "assistant" && m.requiresConfirmation && m.proposal ? (
-                    <div className="settingsConfirmRow">
-                      <button
-                        type="button"
-                        className="small"
-                        disabled={onboardingLoading}
-                        onClick={() => onConfirmOnboardingProposal(m.id)}
-                      >
-                        {m.confirmAction === "accept_diet" ? "Accept diet goals" : "Accept checklist"}
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               ))
             ) : (

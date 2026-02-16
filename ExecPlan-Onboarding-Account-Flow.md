@@ -16,6 +16,7 @@ After this change, newly authenticated users are routed into a guided onboarding
 - [x] (2026-02-12 01:41Z) Implement frontend onboarding route + chat UI + completion reroute.
 - [x] (2026-02-12 01:41Z) Update docs and validate with production build.
 - [x] (2026-02-12 02:00Z) Refactor onboarding into explicit stages with iterative checklist/diet proposals and accept-button confirmations.
+- [x] (2026-02-15 19:45Z) Simplify onboarding to one intake prompt, auto-create goals/checklist after first response, and add explicit exit-onboarding action/button.
 
 ## Surprises & Discoveries
 
@@ -47,10 +48,13 @@ After this change, newly authenticated users are routed into a guided onboarding
 - Decision: Introduce a dedicated confirmation endpoint (`POST /api/onboarding/confirm`) with `accept_checklist` / `accept_diet` actions.
   Rationale: Explicit button-driven acceptance is clearer and safer than inferring acceptance from freeform chat text.
   Date/Author: 2026-02-12 / Codex
+- Decision: Replace multi-accept staged onboarding with a single explicit `finish_onboarding` exit after auto-generating the initial goals/checklist from the first intake response.
+  Rationale: The desired UX is immediate setup generation after one broad intake answer, with optional continued refinement before leaving onboarding.
+  Date/Author: 2026-02-15 / Codex
 
 ## Outcomes & Retrospective
 
-Implemented end-to-end staged onboarding for authenticated users. Flow now supports broad goals collection followed by iterative proposal/accept cycles for fitness checklist and calorie/macro goals. Acceptance is explicit via UI buttons backed by a confirmation endpoint, and completion only occurs after both accepts. Build passes. Remaining opportunity: add deterministic onboarding e2e tests (currently only manual + build validation).
+Implemented end-to-end onboarding updates for authenticated users. Flow now starts with one broad intake prompt, auto-creates goals context and an initial checklist immediately after the first user response, allows iterative refinement via chat, and exits onboarding only when the user clicks the explicit exit button (`finish_onboarding`). Remaining opportunity: add deterministic onboarding e2e tests (currently manual + build validation).
 
 ## Context and Orientation
 
@@ -152,3 +156,4 @@ Plan change note (2026-02-12 01:36Z): Initial ExecPlan created for onboarding ch
 Plan change note (2026-02-12 01:41Z): Updated progress, decisions, outcomes, and artifacts after completing implementation and validating build.
 Plan change note (2026-02-12 01:47Z): Refined onboarding to remove timezone questioning and persist client timezone automatically.
 Plan change note (2026-02-12 02:00Z): Refactored onboarding to explicit staged flow with accept-button confirmation for checklist and diet targets.
+Plan change note (2026-02-15 19:45Z): Simplified onboarding to one intake prompt + auto-generated goals/checklist + explicit exit-onboarding action.

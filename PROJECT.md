@@ -46,10 +46,9 @@ This repo includes a minimal local web app that supports:
 - Asking questions in-app (OpenAI assistant, contextualized by the split tracking files)
 - A unified chat-style input that routes food/activity/questions via GPT‑5.2
 - Authenticated staged onboarding:
-  - broad goals chat (diet + fitness)
-  - iterative fitness checklist proposal with explicit “accept”
-  - iterative calorie/macro goal proposal with explicit “accept”
-  - auto-route to the main UI after acceptance
+  - one initial intake prompt for diet, fitness, and goals
+  - after the first response, auto-create goals context + fitness checklist draft
+  - users can keep chatting to refine goals/checklist, then exit onboarding with an explicit button
 - Weekly fitness checklist updates (`current_week`)
 - Settings chat for editing profile context, checklist template, and diet/fitness philosophy
 - A basic dashboard for browsing:
@@ -83,12 +82,11 @@ This repo includes a minimal local web app that supports:
 - `GET /api/onboarding/state` → returns onboarding completion state, progress, and next prompt
 - `POST /api/onboarding/chat` → JSON body: `message` + optional `messages`
   - Stage-aware onboarding chat:
-    - goals conversation (diet + fitness goals, with clarifying questions)
-    - checklist iteration (returns proposal + accept action)
-    - diet target iteration (returns proposal + accept action)
-- `POST /api/onboarding/confirm` → JSON body: `action` (`accept_checklist` or `accept_diet`) + optional `proposal`
-  - Applies accepted onboarding proposal and advances stage
-  - Completing `accept_diet` marks onboarding complete and routes user to main app
+    - initial goals intake
+    - ongoing goals/checklist refinement after initial draft creation
+- `POST /api/onboarding/confirm` → JSON body: `action` (`finish_onboarding`) + optional `proposal`
+  - `action: "finish_onboarding"` marks onboarding complete
+  - optional `proposal` can persist the latest checklist draft before exit
 - `POST /api/onboarding/dev/restart` (dev-only) → resets onboarding metadata for the current signed-in user and re-enters onboarding flow
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `POST /api/food/log` → multipart form:

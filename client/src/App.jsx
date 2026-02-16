@@ -294,9 +294,6 @@ export default function App() {
         role: "assistant",
         content: assistantText,
         format: "markdown",
-        requiresConfirmation: Boolean(json?.requires_confirmation),
-        confirmAction: json?.confirm_action ?? null,
-        proposal: json?.proposal ?? null,
       });
     }
 
@@ -943,16 +940,13 @@ export default function App() {
             prev.map((message) =>
               message.id === streamingAssistantMessageId
                 ? {
-                    ...message,
-                    content: assistantText,
-                    format: "markdown",
-                    requiresConfirmation: Boolean(json?.requires_confirmation),
-                    confirmAction: json?.confirm_action ?? null,
-                    proposal: json?.proposal ?? null,
-                  }
-                : message,
-            ),
-          );
+                  ...message,
+                  content: assistantText,
+                  format: "markdown",
+                }
+              : message,
+          ),
+        );
         } else {
           onboardingMessageIdRef.current += 1;
           setOnboardingMessages((prev) => [
@@ -962,9 +956,6 @@ export default function App() {
               role: "assistant",
               content: assistantText,
               format: "markdown",
-              requiresConfirmation: Boolean(json?.requires_confirmation),
-              confirmAction: json?.confirm_action ?? null,
-              proposal: json?.proposal ?? null,
             },
           ]);
         }
@@ -1031,6 +1022,7 @@ export default function App() {
       setOnboardingState(responsePayload);
       setOnboardingChecked(true);
       refreshAppContext().catch(() => {});
+      loadFitness();
       appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
       if (responsePayload?.onboarding_complete) {
         setView("chat");
@@ -1047,75 +1039,23 @@ export default function App() {
     await sendOnboardingMessage(onboardingInput);
   };
 
-  const onConfirmOnboardingProposal = async (messageId) => {
+  const onExitOnboarding = async () => {
     if (onboardingLoading || onboardingChecking) return;
     setOnboardingError("");
-
-    const target = onboardingMessages.find((msg) => msg.id === messageId);
-    const proposal = target?.proposal ?? null;
-    const action = typeof target?.confirmAction === "string" ? target.confirmAction : "";
-    if (!proposal || !action) return;
+    const stage = onboardingState?.stage;
+    if (stage !== "checklist") return;
 
     setOnboardingLoading(true);
     try {
       const json = await confirmOnboarding({
-        action,
-        proposal,
+        action: "finish_onboarding",
+        proposal: onboardingState?.proposal ?? null,
         clientTimezone: getClientTimezone(),
       });
       setOnboardingState(json);
       setOnboardingChecked(true);
       refreshAppContext().catch(() => {});
       loadFitness();
-
-      setOnboardingMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId
-            ? {
-                ...msg,
-                requiresConfirmation: false,
-                proposal: null,
-                confirmAction: null,
-              }
-            : msg,
-        ),
-      );
-
-      const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
-      const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
-      const isDuplicateFollowup =
-        Boolean(assistantText && followupText) &&
-        normalizeForCompare(assistantText) === normalizeForCompare(followupText);
-
-      if (assistantText) {
-        onboardingMessageIdRef.current += 1;
-        setOnboardingMessages((prev) => [
-          ...prev,
-          {
-            id: onboardingMessageIdRef.current,
-            role: "assistant",
-            content: assistantText,
-            format: "markdown",
-            requiresConfirmation: Boolean(json?.requires_confirmation),
-            confirmAction: json?.confirm_action ?? null,
-            proposal: json?.proposal ?? null,
-          },
-        ]);
-      }
-
-      if (followupText && !isDuplicateFollowup) {
-        onboardingMessageIdRef.current += 1;
-        setOnboardingMessages((prev) => [
-          ...prev,
-          {
-            id: onboardingMessageIdRef.current,
-            role: "assistant",
-            content: followupText,
-            format: "plain",
-          },
-        ]);
-      }
-
       if (json?.onboarding_complete) setView("chat");
     } catch (err) {
       setOnboardingError(err instanceof Error ? err.message : String(err));
@@ -1684,11 +1624,12 @@ export default function App() {
             onboardingError={onboardingError}
             onboardingStage={onboardingState?.stage ?? "goals"}
             onboardingStepIndex={onboardingState?.step_index ?? 1}
-            onboardingStepTotal={onboardingState?.step_total ?? 3}
+            onboardingStepTotal={onboardingState?.step_total ?? 2}
             onboardingGoalSummary={onboardingGoalSummary}
             onboardingWorkingChecklist={onboardingWorkingChecklist}
             onSubmitOnboarding={onSubmitOnboarding}
-            onConfirmOnboardingProposal={onConfirmOnboardingProposal}
+            canExitOnboarding={onboardingState?.stage === "checklist"}
+            onExitOnboarding={onExitOnboarding}
             onOnboardingInputChange={setOnboardingInput}
           />
         </main>

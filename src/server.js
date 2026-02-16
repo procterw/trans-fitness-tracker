@@ -11,11 +11,8 @@ import {
   askAssistant,
   streamAssistantResponse,
   askOnboardingAssistant,
-  streamOnboardingAssistant,
   proposeOnboardingChecklist,
   streamOnboardingChecklist,
-  proposeOnboardingDietGoals,
-  streamOnboardingDietGoals,
   askSettingsAssistant,
   streamSettingsAssistant,
   composeMealEntryResponse,
@@ -389,19 +386,16 @@ function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
   };
 }
 
-const ONBOARDING_STAGE_ORDER = ["goals", "checklist", "diet"];
+const ONBOARDING_STAGE_ORDER = ["goals", "checklist"];
 const ONBOARDING_STAGE_SET = new Set([...ONBOARDING_STAGE_ORDER, "complete"]);
 const ONBOARDING_CONFIRM_ACTION = {
-  checklist: "accept_checklist",
-  diet: "accept_diet",
+  finish: "finish_onboarding",
 };
 const ONBOARDING_PROMPTS = {
   goals:
-    "Tell me broadly about your fitness and diet goals. Include as much detail as you want, and I'll ask clarifying questions if needed.",
+    "Tell me broadly about your diet, fitness routine, and goals. Include constraints, preferences, and what progress you want.",
   checklist:
-    "Here's a draft fitness checklist based on your goals. Tell me what to change, then press Accept when it looks right.",
-  diet:
-    "Here's a draft calorie and macro target outline. Tell me what to change, then press Accept when it looks right.",
+    "I created your goals context and a starter fitness checklist. Keep chatting to refine either one, then press Exit onboarding when you're ready.",
 };
 
 function hasNonEmptyString(value) {
@@ -494,23 +488,15 @@ function hasChecklistConfigured(currentWeek) {
   });
 }
 
-function hasDietTargetsConfigured(dietPhilosophy) {
-  const diet = isPlainObject(dietPhilosophy) ? dietPhilosophy : {};
-  const calories = isPlainObject(diet.calories) ? diet.calories : {};
-  const protein = isPlainObject(diet.protein) ? diet.protein : {};
-  return hasNonEmptyString(calories.target) && hasNonEmptyString(protein.target_g);
-}
-
-function resolveOnboardingStage({ userProfile, currentWeek, dietPhilosophy }) {
+function resolveOnboardingStage({ userProfile, currentWeek }) {
   const onboarding = getOnboardingMeta(userProfile);
   if (onboarding.completed_at || onboarding.stage === "complete") return "complete";
-  if (onboarding.stage === "checklist" || onboarding.stage === "diet") return onboarding.stage;
+  if (onboarding.stage === "checklist") return onboarding.stage;
 
   const canBypass =
     !onboarding.started_at &&
     hasGoalContext(userProfile) &&
-    hasChecklistConfigured(currentWeek) &&
-    hasDietTargetsConfigured(dietPhilosophy);
+    hasChecklistConfigured(currentWeek);
   if (canBypass) return "complete";
   return "goals";
 }
@@ -913,7 +899,6 @@ function getCurrentOnboardingState(data) {
   const stage = resolveOnboardingStage({
     userProfile: profile,
     currentWeek: data?.current_week ?? null,
-    dietPhilosophy: data?.diet_philosophy ?? null,
   });
   const onboardingMeta = getOnboardingMeta(profile);
   return { profile, stage, onboardingMeta };
@@ -954,39 +939,20 @@ async function buildChecklistDraft({
   };
 }
 
-async function buildDietDraft({
-  message = "",
-  messages = [],
-  data,
-  profile,
-  currentProposal = null,
-  onText,
-}) {
-  const proposalResult = onText
-    ? await streamOnboardingDietGoals({
-        message,
-        messages,
-        userProfile: profile,
-        dietPhilosophy: data?.diet_philosophy ?? null,
-        currentProposal,
-        onText,
-      })
-    : await proposeOnboardingDietGoals({
-        message,
-        messages,
-        userProfile: profile,
-        dietPhilosophy: data?.diet_philosophy ?? null,
-        currentProposal,
-      });
-  const proposal = { diet_philosophy_patch: proposalResult.diet_philosophy_patch };
-  const markdown = dietProposalToMarkdown(proposal);
-  return {
-    proposal,
-    assistantMessage: [proposalResult.assistant_message, markdown].filter(Boolean).join("\n\n"),
-    followupQuestion:
-      proposalResult.followup_question ??
-      "Tell me what to change, then press Accept diet goals when this looks right.",
-  };
+function applyOnboardingChecklistProposal(data, proposal) {
+  const normalizedProposal = normalizeOnboardingChecklistProposal(proposal);
+  if (!normalizedProposal) throw new Error("Missing or invalid checklist proposal.");
+
+  const remappedWeek = applyChecklistCategories(data.current_week ?? {}, normalizedProposal.checklist_categories);
+  const template = extractChecklistTemplate(remappedWeek);
+  if (!template) throw new Error("Checklist proposal produced no valid template.");
+
+  const metadata = isPlainObject(data.metadata) ? data.metadata : {};
+  metadata.checklist_template = template;
+  metadata.last_updated = formatSeattleIso(new Date());
+  data.metadata = metadata;
+  data.current_week = remappedWeek;
+  return normalizedProposal;
 }
 
 app.get("/api/onboarding/state", async (req, res) => {
@@ -1045,11 +1011,11 @@ app.get("/api/onboarding/state", async (req, res) => {
     if (stage === "checklist") {
       let proposal = onboardingMeta.checklist_proposal;
       let assistantMessage = ONBOARDING_PROMPTS.checklist;
-      let followupQuestion = "Tell me what to change, or press Accept checklist.";
+      let followupQuestion = "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.";
 
       if (!proposal) {
         const draft = await buildChecklistDraft({ data, profile, message: "", messages: [] });
-        proposal = draft.proposal;
+        proposal = applyOnboardingChecklistProposal(data, draft.proposal);
         assistantMessage = draft.assistantMessage;
         followupQuestion = draft.followupQuestion;
         profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: proposal });
@@ -1067,43 +1033,11 @@ app.get("/api/onboarding/state", async (req, res) => {
           assistantMessage,
           followupQuestion,
           proposal,
-          confirmAction: ONBOARDING_CONFIRM_ACTION.checklist,
           savedProfile,
           updatedProfile: savedProfile ? profile : null,
         }),
       );
     }
-
-    // stage === "diet"
-    let proposal = onboardingMeta.diet_proposal;
-    let assistantMessage = ONBOARDING_PROMPTS.diet;
-    let followupQuestion = "Tell me what to change, or press Accept diet goals.";
-
-    if (!proposal) {
-      const draft = await buildDietDraft({ data, profile, message: "", messages: [] });
-      proposal = draft.proposal;
-      assistantMessage = draft.assistantMessage;
-      followupQuestion = draft.followupQuestion;
-      profile = updateOnboardingMetadata(profile, { stage: "diet", dietProposal: proposal });
-      data.user_profile = profile;
-      savedProfile = true;
-    } else {
-      const markdown = dietProposalToMarkdown(proposal);
-      assistantMessage = [assistantMessage, markdown].filter(Boolean).join("\n\n");
-    }
-
-    if (savedProfile) await writeTrackingData(data);
-    return res.json(
-      buildOnboardingResponse({
-        stage,
-        assistantMessage,
-        followupQuestion,
-        proposal,
-        confirmAction: ONBOARDING_CONFIRM_ACTION.diet,
-        savedProfile,
-        updatedProfile: savedProfile ? profile : null,
-      }),
-    );
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -1156,9 +1090,11 @@ app.post("/api/onboarding/chat", async (req, res) => {
         buildOnboardingResponse({
           stage,
           assistantMessage: ONBOARDING_PROMPTS[stage] ?? "Ready when you are.",
-          followupQuestion: stage === "goals" ? "Share your fitness and diet goals." : "Tell me what to adjust.",
-          proposal: stage === "checklist" ? onboardingMeta.checklist_proposal : stage === "diet" ? onboardingMeta.diet_proposal : null,
-          confirmAction: stage === "checklist" ? ONBOARDING_CONFIRM_ACTION.checklist : stage === "diet" ? ONBOARDING_CONFIRM_ACTION.diet : null,
+          followupQuestion:
+            stage === "goals"
+              ? "Share your diet, fitness routine, and goals."
+              : "Tell me what to adjust in your goals or checklist. Use Exit onboarding when you're ready.",
+          proposal: stage === "checklist" ? onboardingMeta.checklist_proposal : null,
           savedProfile: false,
           updatedProfile: null,
         }),
@@ -1166,20 +1102,12 @@ app.post("/api/onboarding/chat", async (req, res) => {
     }
 
     if (stage === "goals") {
-      const result = stream
-        ? await streamOnboardingAssistant({
-            message,
-            messages,
-            onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
-            userProfile: profile,
-            onText: (delta) => sendStreamingAssistantChunk(res, delta),
-          })
-        : await askOnboardingAssistant({
-            message,
-            messages,
-            onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
-            userProfile: profile,
-          });
+      const result = await askOnboardingAssistant({
+        message,
+        messages,
+        onboardingState: { stage, prompt: ONBOARDING_PROMPTS.goals },
+        userProfile: profile,
+      });
 
       const patch =
         isPlainObject(result?.user_profile_patch) && Object.keys(result.user_profile_patch).length
@@ -1189,49 +1117,31 @@ app.post("/api/onboarding/chat", async (req, res) => {
       if (patch && hasGoalsTextPatch(patch)) {
         profile = applyGoalTextDerivation(profile, { now: new Date() });
       }
-      profile = updateOnboardingMetadata(profile, { stage: "goals" });
-
-      if (hasGoalContext(profile)) {
-        const draft = await buildChecklistDraft({
-          message: "",
-          messages: [],
-          data,
-          profile,
-          currentProposal: null,
-          onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
-        });
-        profile = updateOnboardingMetadata(profile, {
-          stage: "checklist",
-          checklistProposal: draft.proposal,
-          clearDietProposal: true,
-        });
-        data.user_profile = profile;
-        await writeTrackingData(data);
-
-        return sendResult(
-          buildOnboardingResponse({
-            stage: "checklist",
-            assistantMessage: draft.assistantMessage,
-            followupQuestion: draft.followupQuestion,
-            proposal: draft.proposal,
-            confirmAction: ONBOARDING_CONFIRM_ACTION.checklist,
-            savedProfile: true,
-            updatedProfile: profile,
-          }),
-        );
-      }
-
+      const draft = await buildChecklistDraft({
+        message,
+        messages,
+        data,
+        profile,
+        currentProposal: null,
+        onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
+      });
+      const proposal = applyOnboardingChecklistProposal(data, draft.proposal);
+      profile = updateOnboardingMetadata(profile, {
+        stage: "checklist",
+        checklistProposal: proposal,
+        clearDietProposal: true,
+      });
       data.user_profile = profile;
       await writeTrackingData(data);
+
       return sendResult(
         buildOnboardingResponse({
-          stage: "goals",
-          assistantMessage:
-            result.assistant_message ||
-            "Thanks. Share more about both fitness and diet goals, and I'll draft your checklist next.",
+          stage: "checklist",
+          assistantMessage: [result.assistant_message, draft.assistantMessage].filter(Boolean).join("\n\n"),
           followupQuestion:
-            result.followup_question ||
-            "Anything else about your priorities, constraints, or preferences for workouts and nutrition?",
+            draft.followupQuestion ??
+            "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.",
+          proposal,
           savedProfile: true,
           updatedProfile: profile,
         }),
@@ -1239,6 +1149,21 @@ app.post("/api/onboarding/chat", async (req, res) => {
     }
 
     if (stage === "checklist") {
+      const onboardingUpdate = await askOnboardingAssistant({
+        message,
+        messages,
+        onboardingState: { stage, prompt: ONBOARDING_PROMPTS.checklist },
+        userProfile: profile,
+      });
+      const profilePatch =
+        isPlainObject(onboardingUpdate?.user_profile_patch) && Object.keys(onboardingUpdate.user_profile_patch).length
+          ? onboardingUpdate.user_profile_patch
+          : null;
+      if (profilePatch) {
+        profile = mergeObjectPatch(profile, profilePatch);
+        if (hasGoalsTextPatch(profilePatch)) profile = applyGoalTextDerivation(profile, { now: new Date() });
+      }
+
       const draft = await buildChecklistDraft({
         message,
         messages,
@@ -1247,47 +1172,27 @@ app.post("/api/onboarding/chat", async (req, res) => {
         currentProposal: onboardingMeta.checklist_proposal,
         onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
       });
-      profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: draft.proposal });
+      const proposal = applyOnboardingChecklistProposal(data, draft.proposal);
+      profile = updateOnboardingMetadata(profile, { stage: "checklist", checklistProposal: proposal, clearDietProposal: true });
       data.user_profile = profile;
       await writeTrackingData(data);
 
+      const goalsUpdated = Boolean(profilePatch && hasGoalsTextPatch(profilePatch));
       return sendResult(
         buildOnboardingResponse({
           stage: "checklist",
-          assistantMessage: draft.assistantMessage,
-          followupQuestion: draft.followupQuestion,
-          proposal: draft.proposal,
-          confirmAction: ONBOARDING_CONFIRM_ACTION.checklist,
+          assistantMessage: [goalsUpdated ? "Updated your goals context from your latest message." : "", draft.assistantMessage]
+            .filter(Boolean)
+            .join("\n\n"),
+          followupQuestion:
+            draft.followupQuestion ??
+            "Tell me what to refine in your goals or checklist. Use Exit onboarding when you're ready.",
+          proposal,
           savedProfile: true,
           updatedProfile: profile,
         }),
       );
     }
-
-    // stage === "diet"
-    const draft = await buildDietDraft({
-      message,
-      messages,
-      data,
-      profile,
-      currentProposal: onboardingMeta.diet_proposal,
-      onText: stream ? (delta) => sendStreamingAssistantChunk(res, delta) : undefined,
-    });
-    profile = updateOnboardingMetadata(profile, { stage: "diet", dietProposal: draft.proposal });
-    data.user_profile = profile;
-    await writeTrackingData(data);
-
-    return sendResult(
-      buildOnboardingResponse({
-        stage: "diet",
-        assistantMessage: draft.assistantMessage,
-        followupQuestion: draft.followupQuestion,
-        proposal: draft.proposal,
-        confirmAction: ONBOARDING_CONFIRM_ACTION.diet,
-        savedProfile: true,
-        updatedProfile: profile,
-      }),
-    );
   } catch (err) {
     if (stream) {
       sendStreamingAssistantError(res, err);
@@ -1330,62 +1235,13 @@ app.post("/api/onboarding/confirm", async (req, res) => {
       );
     }
 
-    if (action === ONBOARDING_CONFIRM_ACTION.checklist) {
+    if (action === ONBOARDING_CONFIRM_ACTION.finish) {
       if (stage !== "checklist") {
-        return res.status(400).json({ ok: false, error: "Checklist acceptance is only available during checklist setup." });
+        return res.status(400).json({ ok: false, error: "Exit onboarding is available after the initial setup response." });
       }
-
       const proposal =
         normalizeOnboardingChecklistProposal(rawProposal) ?? normalizeOnboardingChecklistProposal(onboardingMeta.checklist_proposal);
-      if (!proposal) return res.status(400).json({ ok: false, error: "Missing or invalid checklist proposal." });
-
-      const remappedWeek = applyChecklistCategories(data.current_week ?? {}, proposal.checklist_categories);
-      const template = extractChecklistTemplate(remappedWeek);
-      if (!template) return res.status(400).json({ ok: false, error: "Checklist proposal produced no valid template." });
-
-      const metadata = isPlainObject(data.metadata) ? data.metadata : {};
-      metadata.checklist_template = template;
-      metadata.last_updated = formatSeattleIso(new Date());
-      data.metadata = metadata;
-      data.current_week = remappedWeek;
-
-      const draft = await buildDietDraft({ message: "", messages: [], data, profile, currentProposal: null });
-      profile = updateOnboardingMetadata(profile, {
-        stage: "diet",
-        clearChecklistProposal: true,
-        dietProposal: draft.proposal,
-      });
-
-      data.user_profile = profile;
-      await writeTrackingData(data);
-
-      return res.json(
-        buildOnboardingResponse({
-          stage: "diet",
-          assistantMessage: draft.assistantMessage,
-          followupQuestion: draft.followupQuestion,
-          proposal: draft.proposal,
-          confirmAction: ONBOARDING_CONFIRM_ACTION.diet,
-          savedProfile: true,
-          updatedProfile: profile,
-        }),
-      );
-    }
-
-    if (action === ONBOARDING_CONFIRM_ACTION.diet) {
-      if (stage !== "diet") {
-        return res.status(400).json({ ok: false, error: "Diet acceptance is only available during diet setup." });
-      }
-
-      const proposal =
-        normalizeOnboardingDietProposal(rawProposal) ?? normalizeOnboardingDietProposal(onboardingMeta.diet_proposal);
-      if (!proposal) return res.status(400).json({ ok: false, error: "Missing or invalid diet proposal." });
-
-      data.diet_philosophy = mergeObjectPatch(data.diet_philosophy ?? {}, proposal.diet_philosophy_patch);
-      const metadata = isPlainObject(data.metadata) ? data.metadata : {};
-      metadata.last_updated = formatSeattleIso(new Date());
-      data.metadata = metadata;
-
+      if (proposal) applyOnboardingChecklistProposal(data, proposal);
       profile = updateOnboardingMetadata(profile, {
         completed: true,
         clearChecklistProposal: true,
@@ -1397,7 +1253,7 @@ app.post("/api/onboarding/confirm", async (req, res) => {
       return res.json(
         buildOnboardingResponse({
           stage: "complete",
-          assistantMessage: "Great. Your checklist and diet goals are set. Taking you to the main app now.",
+          assistantMessage: "Onboarding complete. Taking you to your tracker.",
           followupQuestion: null,
           savedProfile: true,
           updatedProfile: profile,
@@ -1434,7 +1290,7 @@ app.post("/api/onboarding/dev/restart", async (req, res) => {
         stage: "goals",
         assistantMessage: ONBOARDING_PROMPTS.goals,
         followupQuestion:
-          "What are your fitness and diet goals right now? Include any constraints or preferences.",
+          "What are your diet, fitness, and overall goals right now?",
         savedProfile: true,
         updatedProfile: profile,
       }),
