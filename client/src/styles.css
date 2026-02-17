@@ -1961,6 +1961,7 @@ ul {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
+    padding-bottom: calc(14px + 10px + env(safe-area-inset-bottom));
     margin-bottom: 0;
     border-radius: 0;
     border-left: none;
@@ -2011,7 +2012,7 @@ ul {
 
   .composerInput {
     min-width: 0;
-    font-size: 14px;
+    font-size: 16px;
   }
 
   .sendButton {
