@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
-import { formatChecklistCategoriesMarkdown, normalizeChecklistCategories } from "./checklistPolicy.js";
+import { normalizeChecklistCategories } from "./checklistPolicy.js";
 import { getFitnessCategories, getFitnessCategoryLabel, getFitnessCategoryKeys } from "./fitnessChecklist.js";
 import { normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
@@ -19,57 +19,22 @@ function isIsoDateString(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function pickTransitionContext(ctx) {
-  if (!ctx || typeof ctx !== "object") return null;
-  return {
-    core_goal: typeof ctx.core_goal === "string" ? ctx.core_goal : null,
-    comparison_set: typeof ctx.comparison_set === "string" ? ctx.comparison_set : null,
-    primary_current_work: typeof ctx.primary_current_work === "string" ? ctx.primary_current_work : null,
-    principle: typeof ctx?.timeline_and_expectations?.principle === "string" ? ctx.timeline_and_expectations.principle : null,
-  };
-}
-
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function pickUserProfileSummary(profile) {
-  const userProfile = asObject(profile);
-  const general = asObject(userProfile.general);
-  const goals = asObject(userProfile.goals);
-  const goalsText = normalizeGoalsText(asObject(userProfile.goals_text), { legacyGoals: goals });
-  const behavior = asObject(userProfile.behavior);
-  const medical = asObject(userProfile.medical);
-  const cycle = asObject(medical.cycle_hormonal_context);
-  const transContext = asObject(asObject(userProfile.modules).trans_care);
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
+}
 
+function pickSettingsProfiles(tracking) {
+  const safe = asObject(tracking);
   return {
-    general: {
-      age: typeof general.age === "number" ? general.age : null,
-      height_cm: typeof general.height_cm === "number" ? general.height_cm : null,
-      weight_lb_baseline: typeof general.weight_lb_baseline === "number" ? general.weight_lb_baseline : null,
-      timezone: typeof general.timezone === "string" ? general.timezone : null,
-    },
-    goals: {
-      diet_goals: Array.isArray(goals.diet_goals) ? goals.diet_goals : [],
-      fitness_goals: Array.isArray(goals.fitness_goals) ? goals.fitness_goals : [],
-      health_goals: Array.isArray(goals.health_goals) ? goals.health_goals : [],
-    },
-    goals_text: goalsText,
-    behavior: {
-      motivation_barriers: Array.isArray(behavior.motivation_barriers) ? behavior.motivation_barriers : [],
-      adherence_triggers: Array.isArray(behavior.adherence_triggers) ? behavior.adherence_triggers : [],
-    },
-    cycle_hormonal_context: {
-      relevant: cycle.relevant === true,
-      context_type: typeof cycle.context_type === "string" ? cycle.context_type : "",
-      phase_or_cycle_day: typeof cycle.phase_or_cycle_day === "string" ? cycle.phase_or_cycle_day : null,
-      symptom_patterns: Array.isArray(cycle.symptom_patterns) ? cycle.symptom_patterns : [],
-      training_nutrition_adjustments: Array.isArray(cycle.training_nutrition_adjustments)
-        ? cycle.training_nutrition_adjustments
-        : [],
-    },
-    trans_care: Object.keys(transContext).length ? pickTransitionContext(transContext) : null,
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
   };
 }
 
@@ -110,8 +75,7 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
 
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a helpful assistant for a personal health & fitness tracker.",
-  "Use the user_profile context as primary for personalization. Not all users are trans, so avoid assumptions.",
-  "If trans_care context exists, incorporate it; otherwise stay generic.",
+  "Use user_profile, training_profile, and diet_profile as primary personalization context.",
   "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
   "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
   "When referencing numbers, use the units as shown (kcal, g, mg).",
@@ -187,26 +151,15 @@ const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
 
 const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
-  "The user can update their checklist template, diet goals, fitness goals, and profile context.",
+  "The user can update four settings profile texts: user_profile, training_profile, diet_profile, and agent_profile.",
   "Always return JSON matching the schema.",
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
-  "Use minimal patches: include only fields that should change.",
-  "For user_profile_patch, diet_philosophy_patch, and fitness_philosophy_patch: return either null or a valid JSON object string.",
-  "For goal updates, prefer user_profile_patch.goals_text fields (overall_goals, fitness_goals, diet_goals).",
-  "Treat goals_text as the canonical goals source; legacy goals arrays are compatibility-only.",
-  "Use user_profile_patch for profile updates.",
+  "For profile updates, return full replacement text only for fields that should change.",
+  "Do not return checklist_categories, diet_philosophy_patch, or fitness_philosophy_patch.",
+  "Use plain text for each profile field. Preserve meaningful formatting and line breaks.",
   "Never include markdown code fences in assistant_message.",
-  "For checklist edits, return the full desired checklist_categories array when making checklist changes.",
-  "Checklist content must be workouts and activity sessions the user can complete and check off.",
-  "Do not include food, eating, meals, nutrition, or diet tasks in checklist categories or items.",
-  "Do not include planning/admin/recovery-support tasks such as scheduling calendar blocks, generic warmup reminders, logging sets/reps, or generic rest-day reminders.",
-  "Do not include exercise-programming directives (for example: include/add/progress patterns, set/rep prescriptions, load progression instructions).",
-  "Checklist category keys should be short snake_case strings.",
-  "Checklist item strings should be concise and action-oriented.",
-  "Every checklist item should describe a concrete activity session (what to do) instead of process guidance (how to manage training).",
-  "Each checkbox must represent exactly one session. If the target is 3 sessions, output 3 separate checklist items.",
   "If the user asks a pure question (no settings change), provide guidance and keep all changes null.",
-  "If the user asks to view/show/list their current goals, rules, checklist, or profile settings, include a followup_question asking if they want to make any changes.",
+  "If the user asks to view/show/list current profile settings, include a followup_question asking if they want to make changes.",
 ];
 
 const DEFAULT_MODEL = "gpt-5.2";
@@ -242,8 +195,16 @@ function getIngestModel() {
   return process.env.OPENAI_INGEST_MODEL || DEFAULT_MODEL;
 }
 
+function buildAgentProfileInstruction(tracking) {
+  const agentProfile = normalizeProfileText(asObject(tracking).agent_profile);
+  if (!agentProfile.trim()) return "";
+  return `Agent profile (apply these rules):\n${agentProfile}`;
+}
+
 function buildSystemInstructions({ tracking, sectionKey, fallback, extraInstructions = [] }) {
-  return readAssistantRuleInstructions(tracking, sectionKey, fallback).concat(extraInstructions).join(" ");
+  const base = readAssistantRuleInstructions(tracking, sectionKey, fallback).concat(extraInstructions).join(" ");
+  const agentInstruction = buildAgentProfileInstruction(tracking);
+  return agentInstruction ? `${base}\n\n${agentInstruction}` : base;
 }
 
 function buildModelInput({ system, contextLabel = "Context JSON", context, messages = [], userContent }) {
@@ -429,10 +390,10 @@ const SettingsChecklistCategorySchema = z.object({
 });
 
 const SettingsChangesSchema = z.object({
-  user_profile_patch: JsonPatchStringSchema,
-  diet_philosophy_patch: JsonPatchStringSchema,
-  fitness_philosophy_patch: JsonPatchStringSchema,
-  checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
+  user_profile: z.string().nullable(),
+  training_profile: z.string().nullable(),
+  diet_profile: z.string().nullable(),
+  agent_profile: z.string().nullable(),
 });
 
 const SettingsAssistantResponseSchema = z.object({
@@ -522,6 +483,7 @@ export async function decideIngestAction({
     selected_date: selectedDate,
     has_image: hasImage,
     checklist_categories: checklistCategories,
+    profiles: pickSettingsProfiles(tracking),
   };
 
   const safeMessage = cleanUserMessage(message);
@@ -574,7 +536,7 @@ export async function askAssistant({ question, date = null, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
-    user_profile: pickUserProfileSummary(tracking.user_profile),
+    profiles: pickSettingsProfiles(tracking),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
     food_log_for_date: foodLogRow,
@@ -617,7 +579,7 @@ export async function streamAssistantResponse({ question, date = null, messages 
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
-    user_profile: pickUserProfileSummary(tracking.user_profile),
+    profiles: pickSettingsProfiles(tracking),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
     food_log_for_date: foodLogRow,
@@ -671,27 +633,27 @@ function normalizeOnboardingAssistantOutput(parsed) {
   };
 }
 
-function normalizeSettingsAssistantOutput(parsed, { message = "", checklistTemplate = null } = {}) {
+function normalizeSettingsProfileChange(value) {
+  if (typeof value !== "string") return null;
+  return value.replace(/\r\n/g, "\n");
+}
+
+function normalizeSettingsAssistantOutput(parsed, { message = "" } = {}) {
   const changes = {
-    user_profile_patch: normalizeSettingsPatch(parsed?.changes?.user_profile_patch),
-    diet_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.diet_philosophy_patch),
-    fitness_philosophy_patch: normalizeSettingsPatch(parsed?.changes?.fitness_philosophy_patch),
-    checklist_categories: normalizeChecklistCategories(parsed?.changes?.checklist_categories),
+    user_profile: normalizeSettingsProfileChange(parsed?.changes?.user_profile),
+    training_profile: normalizeSettingsProfileChange(parsed?.changes?.training_profile),
+    diet_profile: normalizeSettingsProfileChange(parsed?.changes?.diet_profile),
+    agent_profile: normalizeSettingsProfileChange(parsed?.changes?.agent_profile),
   };
 
   const hasChanges = Boolean(
-    changes.user_profile_patch ||
-      changes.diet_philosophy_patch ||
-      changes.fitness_philosophy_patch ||
-      changes.checklist_categories,
+    changes.user_profile ||
+      changes.training_profile ||
+      changes.diet_profile ||
+      changes.agent_profile,
   );
 
   let assistantMessage = cleanRichText(parsed.assistant_message);
-  if (!hasChanges && messageLooksLikeChecklistReadRequest(message)) {
-    assistantMessage = formatChecklistCategoriesMarkdown(checklistTemplate ?? {}, {
-      heading: "Here is your current workout checklist structure:",
-    });
-  }
 
   let followupQuestion = cleanText(parsed.followup_question ?? "") || null;
   if (!hasChanges && !followupQuestion && messageLooksLikeSettingsReadRequest(message)) {
@@ -707,20 +669,20 @@ function normalizeSettingsAssistantOutput(parsed, { message = "", checklistTempl
 
 function buildEmptySettingsChanges() {
   return {
-    user_profile_patch: null,
-    diet_philosophy_patch: null,
-    fitness_philosophy_patch: null,
-    checklist_categories: null,
+    user_profile: null,
+    training_profile: null,
+    diet_profile: null,
+    agent_profile: null,
   };
 }
 
 function coerceSettingsChanges(value) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    user_profile_patch: normalizeSettingsPatch(raw.user_profile_patch),
-    diet_philosophy_patch: normalizeSettingsPatch(raw.diet_philosophy_patch),
-    fitness_philosophy_patch: normalizeSettingsPatch(raw.fitness_philosophy_patch),
-    checklist_categories: normalizeChecklistCategories(raw.checklist_categories),
+    user_profile: normalizeSettingsProfileChange(raw.user_profile),
+    training_profile: normalizeSettingsProfileChange(raw.training_profile),
+    diet_profile: normalizeSettingsProfileChange(raw.diet_profile),
+    agent_profile: normalizeSettingsProfileChange(raw.agent_profile),
   };
 }
 
@@ -735,10 +697,10 @@ function buildSettingsAssistantFallback(text) {
         const followupQuestion = cleanText(parsed.followup_question ?? "") || null;
         const changes = coerceSettingsChanges(parsed.changes);
         const hasChanges = Boolean(
-          changes.user_profile_patch ||
-            changes.diet_philosophy_patch ||
-            changes.fitness_philosophy_patch ||
-            changes.checklist_categories,
+          changes.user_profile ||
+            changes.training_profile ||
+            changes.diet_profile ||
+            changes.agent_profile,
         );
         if (assistantMessage || followupQuestion || hasChanges) {
           return {
@@ -784,7 +746,7 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
   const context = {
     timezone: "America/Los_Angeles",
     selected_date: selectedDate,
-    user_profile: pickUserProfileSummary(tracking.user_profile),
+    profiles: pickSettingsProfiles(tracking),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
     current_week: tracking.current_week ?? null,
@@ -931,6 +893,7 @@ export async function askOnboardingAssistant({ message, messages = [], onboardin
     timezone: "America/Los_Angeles",
     onboarding_state: onboardingState && typeof onboardingState === "object" ? onboardingState : null,
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
   };
 
   const input = buildModelInput({
@@ -974,6 +937,7 @@ export async function streamOnboardingAssistant({
     timezone: "America/Los_Angeles",
     onboarding_state: onboardingState && typeof onboardingState === "object" ? onboardingState : null,
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
   };
 
   const input = buildModelInput({
@@ -1017,6 +981,7 @@ export async function proposeOnboardingChecklist({
   const context = {
     timezone: "America/Los_Angeles",
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
     checklist_template: buildChecklistTemplateSnapshot(currentWeek ?? null),
     current_proposal: normalizeChecklistCategories(
       Array.isArray(currentProposal?.checklist_categories)
@@ -1080,6 +1045,7 @@ export async function streamOnboardingChecklist({
   const context = {
     timezone: "America/Los_Angeles",
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
     checklist_template: buildChecklistTemplateSnapshot(currentWeek ?? null),
     current_proposal: normalizeChecklistCategories(
       Array.isArray(currentProposal?.checklist_categories)
@@ -1141,6 +1107,7 @@ export async function proposeOnboardingDietGoals({
   const context = {
     timezone: "America/Los_Angeles",
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
     current_diet_philosophy: dietPhilosophy && typeof dietPhilosophy === "object" ? dietPhilosophy : null,
     current_proposal_patch: normalizeSettingsPatch(currentProposal?.diet_philosophy_patch),
   };
@@ -1197,6 +1164,7 @@ export async function streamOnboardingDietGoals({
   const context = {
     timezone: "America/Los_Angeles",
     user_profile: pickOnboardingProfileContext(userProfile),
+    profiles: pickSettingsProfiles(tracking),
     current_diet_philosophy: dietPhilosophy && typeof dietPhilosophy === "object" ? dietPhilosophy : null,
     current_proposal_patch: normalizeSettingsPatch(currentProposal?.diet_philosophy_patch),
   };
@@ -1241,17 +1209,13 @@ export async function askSettingsAssistant({ message, messages = [] }) {
 
   const context = {
     timezone: "America/Los_Angeles",
-    user_profile: tracking.user_profile ?? null,
-    diet_philosophy: tracking.diet_philosophy ?? null,
-    fitness_philosophy: tracking.fitness_philosophy ?? null,
-    checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
+    ...pickSettingsProfiles(tracking),
   };
 
   const system = buildSystemInstructions({
     tracking,
     sectionKey: "settings_assistant",
     fallback: DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
-    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
   });
   const input = buildModelInput({
     system,
@@ -1278,7 +1242,6 @@ export async function askSettingsAssistant({ message, messages = [] }) {
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    checklistTemplate: context.checklist_template,
   });
 }
 
@@ -1291,17 +1254,13 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
 
   const context = {
     timezone: "America/Los_Angeles",
-    user_profile: tracking.user_profile ?? null,
-    diet_philosophy: tracking.diet_philosophy ?? null,
-    fitness_philosophy: tracking.fitness_philosophy ?? null,
-    checklist_template: buildChecklistTemplateSnapshot(tracking.current_week ?? null),
+    ...pickSettingsProfiles(tracking),
   };
 
   const system = buildSystemInstructions({
     tracking,
     sectionKey: "settings_assistant",
     fallback: DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS,
-    extraInstructions: CHECKLIST_SESSION_GUARDRAILS,
   });
   const input = buildModelInput({
     system,
@@ -1331,6 +1290,5 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    checklistTemplate: context.checklist_template,
   });
 }

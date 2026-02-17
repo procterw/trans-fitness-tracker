@@ -811,16 +811,23 @@ ul {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
   align-items: stretch;
   min-width: 0;
   overflow: hidden;
 }
 
-.settingsChatSplit .sidebar {
-  width: min(100%, 420px);
-  max-width: 420px;
-  padding: 6px 18px 30px;
+.settingsProfilesPanel {
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+  padding: 12px 14px 20px;
+  overflow: auto;
+  min-height: 0;
+  font-size: 13px;
+}
+
+.settingsProfilesPanel .sidebarHeading {
+  font-size: 14px;
 }
 
 .settingsChatColumn {
@@ -836,6 +843,36 @@ ul {
   max-width: 768px;
   width: 100%;
   margin: auto;
+}
+
+.settingsProfilesHeader {
+  margin-bottom: 8px;
+}
+
+.settingsProfilesMeta {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.settingsProfilesFields {
+  display: grid;
+  gap: 10px;
+}
+
+.settingsProfilesField {
+  display: grid;
+  gap: 6px;
+}
+
+.settingsProfileTextarea {
+  min-height: 180px;
+  font-size: 13px;
+  line-height: 1.35;
+  resize: none;
+}
+
+.settingsProfilesActions {
+  margin-top: 12px;
 }
 
 .chatMsg {
@@ -1917,10 +1954,10 @@ ul {
     max-height: 40vh;
   }
 
-  .settingsChatSplit .sidebar {
+  .settingsProfilesPanel {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
-    border-left: none;
+    border-right: none;
     max-height: 40vh;
   }
 
@@ -2148,6 +2185,10 @@ ul {
   line-height: 1.35;
   resize: vertical;
   overflow: auto;
+}
+
+.onboardingTextarea.settingsProfileTextarea {
+  resize: none;
 }
 
 @media (max-width: 1000px) {

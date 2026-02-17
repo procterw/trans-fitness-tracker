@@ -6,7 +6,6 @@ import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { getFitnessCategoryKeys, getFitnessCategoryLabel, resolveFitnessCategoryKey } from "./fitnessChecklist.js";
-import { deriveGoalsListsFromGoalsText, normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import { readTrackingDataPostgres, writeTrackingDataPostgres } from "./trackingDataPostgres.js";
 
@@ -38,7 +37,6 @@ const TIME_ZONE = "America/Los_Angeles";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTO_FOOD_LOG_NOTE_PREFIX = "Daily summary:";
 const LEGACY_AUTO_FOOD_LOG_NOTES = new Set(["Auto-updated from food_events.", "Auto-generated from food_events."]);
-
 const FoodDayFlagsSchema = z.object({
   status: z.enum(["🟢", "🟡", "❌", "⚪"]),
   healthy: z.enum(["🟢", "🟡", "❌", "⚪"]),
@@ -115,95 +113,24 @@ function asStringArray(value) {
     .filter(Boolean);
 }
 
-function normalizeCycleHormonalContext(value) {
-  const safe = asObject(value);
-  return {
-    relevant: safe.relevant === true,
-    context_type: typeof safe.context_type === "string" ? safe.context_type : "",
-    phase_or_cycle_day: typeof safe.phase_or_cycle_day === "string" ? safe.phase_or_cycle_day : null,
-    symptom_patterns: asStringArray(safe.symptom_patterns),
-    training_nutrition_adjustments: asStringArray(safe.training_nutrition_adjustments),
-  };
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
 }
 
-function normalizeUserProfile(value) {
+function normalizeProfileBlobs(value) {
   const safe = asObject(value);
-  const safeModules = asObject(safe.modules);
-  const transFromProfile = asObject(safeModules.trans_care);
-  const legacyGoals = asObject(safe.goals);
-  const goalsText = normalizeGoalsText(asObject(safe.goals_text), { legacyGoals });
-  const derivedGoals = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
-  const safeMetadata = asObject(safe.metadata);
-
   return {
-    ...safe,
-    schema_version: Number.isInteger(safe.schema_version) ? safe.schema_version : 1,
-    general: asObject(safe.general),
-    medical: {
-      ...asObject(safe.medical),
-      history: asStringArray(asObject(safe.medical).history),
-      medications: asStringArray(asObject(safe.medical).medications),
-      surgeries: asStringArray(asObject(safe.medical).surgeries),
-      allergies: asStringArray(asObject(safe.medical).allergies),
-      cycle_hormonal_context: normalizeCycleHormonalContext(asObject(asObject(safe.medical).cycle_hormonal_context)),
-    },
-    nutrition: {
-      ...asObject(safe.nutrition),
-      food_restrictions: asStringArray(asObject(safe.nutrition).food_restrictions),
-      food_allergies: asStringArray(asObject(safe.nutrition).food_allergies),
-      preferences: asStringArray(asObject(safe.nutrition).preferences),
-      recipes_refs: asStringArray(asObject(safe.nutrition).recipes_refs),
-    },
-    fitness: {
-      ...asObject(safe.fitness),
-      experience_level: typeof asObject(safe.fitness).experience_level === "string" ? asObject(safe.fitness).experience_level : "",
-      injuries_limitations: asStringArray(asObject(safe.fitness).injuries_limitations),
-      equipment_access: asStringArray(asObject(safe.fitness).equipment_access),
-    },
-    goals_text: goalsText,
-    goals: {
-      ...legacyGoals,
-      diet_goals: asStringArray(derivedGoals.diet_goals),
-      fitness_goals: asStringArray(derivedGoals.fitness_goals),
-      health_goals: asStringArray(derivedGoals.health_goals),
-    },
-    behavior: {
-      ...asObject(safe.behavior),
-      motivation_barriers: asStringArray(asObject(safe.behavior).motivation_barriers),
-      adherence_triggers: asStringArray(asObject(safe.behavior).adherence_triggers),
-    },
-    modules: {
-      ...safeModules,
-      trans_care: transFromProfile,
-    },
-    assistant_preferences: {
-      ...asObject(safe.assistant_preferences),
-      tone: typeof asObject(safe.assistant_preferences).tone === "string" ? asObject(safe.assistant_preferences).tone : "supportive",
-      verbosity:
-        typeof asObject(safe.assistant_preferences).verbosity === "string"
-          ? asObject(safe.assistant_preferences).verbosity
-          : "concise",
-    },
-    metadata: {
-      ...safeMetadata,
-      updated_at: typeof safeMetadata.updated_at === "string" ? safeMetadata.updated_at : null,
-      settings_version: Number.isInteger(safeMetadata.settings_version)
-        ? safeMetadata.settings_version
-        : 1,
-      goals_text_updated_at: typeof safeMetadata.goals_text_updated_at === "string" ? safeMetadata.goals_text_updated_at : null,
-      goals_derivation_version: Number.isInteger(safeMetadata.goals_derivation_version)
-        ? safeMetadata.goals_derivation_version
-        : 1,
-    },
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
   };
 }
 
 function normalizeProfileDataPayload(data) {
   if (!data || typeof data !== "object") return data;
-
-  const userProfile = normalizeUserProfile(data.user_profile);
-  data.user_profile = userProfile;
-  delete data.transition_context;
+  Object.assign(data, normalizeProfileBlobs(data));
   return data;
 }
 
@@ -374,6 +301,9 @@ function splitTrackingData(data) {
     diet_philosophy,
     fitness_philosophy,
     user_profile,
+    training_profile,
+    diet_profile,
+    agent_profile,
     ...rest
   } = data ?? {};
 
@@ -394,7 +324,10 @@ function splitTrackingData(data) {
       fitness_weeks: Array.isArray(fitness_weeks) ? fitness_weeks : [],
     },
     profile: {
-      user_profile: user_profile && typeof user_profile === "object" ? user_profile : {},
+      user_profile: normalizeProfileText(user_profile),
+      training_profile: normalizeProfileText(training_profile),
+      diet_profile: normalizeProfileText(diet_profile),
+      agent_profile: normalizeProfileText(agent_profile),
     },
     rules: {
       metadata: rulesMeta,
@@ -460,7 +393,10 @@ async function ensureSplitFiles() {
         fitness_weeks: [],
         diet_philosophy: {},
         fitness_philosophy: {},
-        user_profile: {},
+        user_profile: "",
+        training_profile: "",
+        diet_profile: "",
+        agent_profile: "",
       }),
     );
     return;

@@ -1,6 +1,5 @@
 import React from "react";
 
-import GoalChecklistSidebar from "../components/GoalChecklistSidebar.jsx";
 import MarkdownContent from "../components/MarkdownContent.jsx";
 
 export default function SettingsView({
@@ -11,22 +10,80 @@ export default function SettingsView({
   settingsInput,
   settingsLoading,
   settingsError,
-  settingsGoalSummary,
-  settingsWorkingChecklist,
+  settingsProfiles,
+  settingsProfilesDirty,
+  settingsProfilesSaving,
   onSubmitSettings,
   onConfirmSettingsProposal,
   onSettingsInputChange,
   onSettingsInputAutoSize,
+  onSettingsProfileChange,
 }) {
+  const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
+
   return (
     <section className="chatPanel">
       <div className="chatBox chatBoxFull">
         <div className="settingsChatSplit">
-          <GoalChecklistSidebar
-            className="sidebar"
-            goalSummary={settingsGoalSummary}
-            checklistCategories={settingsWorkingChecklist}
-          />
+          <aside className="settingsProfilesPanel" aria-label="Settings profiles">
+            <div className="settingsProfilesHeader">
+              <h3 className="sidebarHeading">Settings profiles</h3>
+              <p className="muted settingsProfilesMeta">
+                {settingsProfilesSaving
+                  ? "Autosaving profile edits..."
+                  : settingsProfilesDirty
+                    ? "Waiting to autosave profile edits..."
+                    : "Profile edits autosave. Chat edits still require confirmation."}
+              </p>
+            </div>
+
+            <div className="settingsProfilesFields">
+              <label className="settingsProfilesField" htmlFor="user_profile_text">
+                <span className="settingsLabel">User profile</span>
+                <textarea
+                  id="user_profile_text"
+                  className="onboardingTextarea settingsProfileTextarea"
+                  value={typeof profiles.user_profile === "string" ? profiles.user_profile : ""}
+                  onChange={(e) => onSettingsProfileChange("user_profile", e.target.value)}
+                  placeholder="Overall goals, body/health context, lifestyle, meds/conditions, and key coaching context."
+                />
+              </label>
+
+              <label className="settingsProfilesField" htmlFor="training_profile_text">
+                <span className="settingsLabel">Training profile</span>
+                <textarea
+                  id="training_profile_text"
+                  className="onboardingTextarea settingsProfileTextarea"
+                  value={typeof profiles.training_profile === "string" ? profiles.training_profile : ""}
+                  onChange={(e) => onSettingsProfileChange("training_profile", e.target.value)}
+                  placeholder="Training plan, phases/blocks schedule, fitness goals, injuries, and logging shortcuts."
+                />
+              </label>
+
+              <label className="settingsProfilesField" htmlFor="diet_profile_text">
+                <span className="settingsLabel">Diet profile</span>
+                <textarea
+                  id="diet_profile_text"
+                  className="onboardingTextarea settingsProfileTextarea"
+                  value={typeof profiles.diet_profile === "string" ? profiles.diet_profile : ""}
+                  onChange={(e) => onSettingsProfileChange("diet_profile", e.target.value)}
+                  placeholder="Diet preferences, recipes, caloric targets, and food logging shortcuts."
+                />
+              </label>
+
+              <label className="settingsProfilesField" htmlFor="agent_profile_text">
+                <span className="settingsLabel">Agent profile</span>
+                <textarea
+                  id="agent_profile_text"
+                  className="onboardingTextarea settingsProfileTextarea"
+                  value={typeof profiles.agent_profile === "string" ? profiles.agent_profile : ""}
+                  onChange={(e) => onSettingsProfileChange("agent_profile", e.target.value)}
+                  placeholder="Broad rules for assistant behavior and response style."
+                />
+              </label>
+            </div>
+
+          </aside>
 
           <div className="settingsChatColumn">
             <div ref={settingsMessagesRef} className="chatMessages settingsChatMessages" aria-label="Settings conversation">
@@ -52,29 +109,18 @@ export default function SettingsView({
                         <button
                           type="button"
                           className="small"
-                          disabled={settingsLoading}
-                          onClick={() => onConfirmSettingsProposal(m.id, "now", m.proposal)}
+                          disabled={settingsLoading || settingsProfilesSaving || settingsProfilesDirty}
+                          onClick={() => onConfirmSettingsProposal(m.id, m.proposal)}
                         >
                           Confirm changes
                         </button>
-                        {Array.isArray(m.proposal?.checklist_categories) ? (
-                          <button
-                            type="button"
-                            className="secondary small"
-                            disabled={settingsLoading}
-                            onClick={() => onConfirmSettingsProposal(m.id, "next_week", m.proposal)}
-                          >
-                            Apply checklist next week
-                          </button>
-                        ) : null}
                       </div>
                     ) : null}
                   </div>
                 ))
               ) : (
                 <div className="muted">
-                  Ask GPT-5 to edit checklist items, diet/fitness goals, or profile context. Example: “Replace mobility
-                  checklist with two 10-minute hip sessions and one ankle session.”
+                  Ask to update any profile field. Example: “Rewrite my training profile with a 12-week progression and injury constraints.”
                 </div>
               )}
 
@@ -96,7 +142,7 @@ export default function SettingsView({
                   onInput={(e) => onSettingsInputAutoSize(e.currentTarget)}
                   onKeyDown={(e) => {
                     if (e.key !== "Enter" || e.shiftKey) return;
-                    if (settingsLoading) {
+                    if (settingsLoading || settingsProfilesSaving) {
                       e.preventDefault();
                       return;
                     }
@@ -110,7 +156,7 @@ export default function SettingsView({
                 <button
                   type="submit"
                   className="sendButton"
-                  disabled={settingsLoading}
+                  disabled={settingsLoading || settingsProfilesSaving}
                   aria-label="Send settings message"
                   onMouseDown={(e) => e.preventDefault()}
                 >

@@ -2,8 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { deriveGoalsListsFromGoalsText, normalizeGoalsText } from "../src/goalsText.js";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
@@ -16,95 +14,18 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function asStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-    .filter(Boolean);
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
 }
 
-function normalizeCycleHormonalContext(value) {
+function normalizeProfileBlobs(value) {
   const safe = asObject(value);
   return {
-    relevant: safe.relevant === true,
-    context_type: typeof safe.context_type === "string" ? safe.context_type : "",
-    phase_or_cycle_day: typeof safe.phase_or_cycle_day === "string" ? safe.phase_or_cycle_day : null,
-    symptom_patterns: asStringArray(safe.symptom_patterns),
-    training_nutrition_adjustments: asStringArray(safe.training_nutrition_adjustments),
-  };
-}
-
-function normalizeUserProfile(value, { fallbackTransitionContext = {} } = {}) {
-  const safe = asObject(value);
-  const safeModules = asObject(safe.modules);
-  const transFromProfile = asObject(safeModules.trans_care);
-  const fallbackTrans = asObject(fallbackTransitionContext);
-  const transCare = Object.keys(transFromProfile).length ? transFromProfile : fallbackTrans;
-  const legacyGoals = asObject(safe.goals);
-  const goalsText = normalizeGoalsText(asObject(safe.goals_text), { legacyGoals });
-  const derivedGoals = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
-  const metadata = asObject(safe.metadata);
-
-  return {
-    ...safe,
-    schema_version: Number.isInteger(safe.schema_version) ? safe.schema_version : 1,
-    general: asObject(safe.general),
-    medical: {
-      ...asObject(safe.medical),
-      history: asStringArray(asObject(safe.medical).history),
-      medications: asStringArray(asObject(safe.medical).medications),
-      surgeries: asStringArray(asObject(safe.medical).surgeries),
-      allergies: asStringArray(asObject(safe.medical).allergies),
-      cycle_hormonal_context: normalizeCycleHormonalContext(asObject(asObject(safe.medical).cycle_hormonal_context)),
-    },
-    nutrition: {
-      ...asObject(safe.nutrition),
-      food_restrictions: asStringArray(asObject(safe.nutrition).food_restrictions),
-      food_allergies: asStringArray(asObject(safe.nutrition).food_allergies),
-      preferences: asStringArray(asObject(safe.nutrition).preferences),
-      recipes_refs: asStringArray(asObject(safe.nutrition).recipes_refs),
-    },
-    fitness: {
-      ...asObject(safe.fitness),
-      experience_level: typeof asObject(safe.fitness).experience_level === "string" ? asObject(safe.fitness).experience_level : "",
-      injuries_limitations: asStringArray(asObject(safe.fitness).injuries_limitations),
-      equipment_access: asStringArray(asObject(safe.fitness).equipment_access),
-    },
-    goals_text: goalsText,
-    goals: {
-      ...legacyGoals,
-      diet_goals: asStringArray(derivedGoals.diet_goals),
-      fitness_goals: asStringArray(derivedGoals.fitness_goals),
-      health_goals: asStringArray(derivedGoals.health_goals),
-    },
-    behavior: {
-      ...asObject(safe.behavior),
-      motivation_barriers: asStringArray(asObject(safe.behavior).motivation_barriers),
-      adherence_triggers: asStringArray(asObject(safe.behavior).adherence_triggers),
-    },
-    modules: {
-      ...safeModules,
-      trans_care: transCare,
-    },
-    assistant_preferences: {
-      ...asObject(safe.assistant_preferences),
-      tone: typeof asObject(safe.assistant_preferences).tone === "string" ? asObject(safe.assistant_preferences).tone : "supportive",
-      verbosity:
-        typeof asObject(safe.assistant_preferences).verbosity === "string"
-          ? asObject(safe.assistant_preferences).verbosity
-          : "concise",
-    },
-    metadata: {
-      ...metadata,
-      updated_at: typeof metadata.updated_at === "string" ? metadata.updated_at : null,
-      settings_version: Number.isInteger(metadata.settings_version)
-        ? metadata.settings_version
-        : 1,
-      goals_text_updated_at: typeof metadata.goals_text_updated_at === "string" ? metadata.goals_text_updated_at : null,
-      goals_derivation_version: Number.isInteger(metadata.goals_derivation_version)
-        ? metadata.goals_derivation_version
-        : 1,
-    },
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
   };
 }
 
@@ -122,14 +43,9 @@ async function main() {
     }
 
     const parsed = asObject(JSON.parse(raw));
-    const transitionContext = asObject(parsed.transition_context);
-    const userProfile = normalizeUserProfile(parsed.user_profile, {
-      fallbackTransitionContext: transitionContext,
-    });
-
     const next = {
       ...parsed,
-      user_profile: userProfile,
+      ...normalizeProfileBlobs(parsed),
     };
     delete next.transition_context;
 

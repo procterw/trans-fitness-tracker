@@ -62,6 +62,21 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
+}
+
+function normalizeProfileBlobs(value) {
+  const safe = asObject(value);
+  return {
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
+  };
+}
+
 async function fetchUserProfileRow({ client, userId }) {
   return client
     .from("user_profiles")
@@ -240,6 +255,7 @@ export async function readTrackingDataPostgres() {
   assertNoError("select from fitness_current", fitnessCurrentResult.error);
   assertNoError("select from user_profiles", profileResult.error);
   assertNoError("select from user_rules", rulesResult.error);
+  const profileBlobs = normalizeProfileBlobs(profileResult.data?.user_profile);
 
   return {
     ...(rulesResult.data?.rules_data && typeof rulesResult.data.rules_data === "object"
@@ -249,10 +265,7 @@ export async function readTrackingDataPostgres() {
     food_events: foodEventsRows.map(mapFoodEventFromRow),
     current_week: mapCurrentWeekFromRow(fitnessCurrentResult.data),
     fitness_weeks: fitnessWeeksRows.map(mapFitnessWeekFromRow),
-    user_profile:
-      profileResult.data?.user_profile && typeof profileResult.data.user_profile === "object"
-        ? profileResult.data.user_profile
-        : {},
+    ...profileBlobs,
   };
 }
 
@@ -317,18 +330,21 @@ export async function writeTrackingDataPostgres(data) {
     });
 
   const currentWeek = safeData.current_week && typeof safeData.current_week === "object" ? safeData.current_week : null;
-  const userProfile = safeData.user_profile && typeof safeData.user_profile === "object" ? safeData.user_profile : {};
+  const profileBlobs = normalizeProfileBlobs(safeData);
   const {
     food_log: _foodLogOmitted,
     food_events: _foodEventsOmitted,
     current_week: _currentWeekOmitted,
     fitness_weeks: _fitnessWeeksOmitted,
     user_profile: _userProfileOmitted,
+    training_profile: _trainingProfileOmitted,
+    diet_profile: _dietProfileOmitted,
+    agent_profile: _agentProfileOmitted,
     ...rulesData
   } = safeData;
   const profilePayload = {
     user_id: userId,
-    user_profile: userProfile,
+    user_profile: profileBlobs,
     updated_at: new Date().toISOString(),
   };
   const rulesPayload = {

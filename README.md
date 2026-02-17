@@ -30,6 +30,17 @@ Minimal local web app that:
 - When `TRACKING_BACKEND=postgres`, these local files are optional and can remain empty template files.
 - Meal logs are appended to `food_events` (created automatically if missing)
 - If you logged events before `food_log` syncing existed, use Dashboard → “Sync unsynced events”.
+- `tracking-profile.json` stores four canonical text profiles:
+  - `user_profile`
+  - `training_profile`
+  - `diet_profile`
+  - `agent_profile`
+
+## Settings API (profiles)
+- `GET /api/settings/state` returns current settings profile text blobs.
+- `POST /api/settings/profiles` directly saves textarea edits for profile text blobs.
+- `POST /api/settings/chat` proposes text profile changes and requires confirmation when changes are present.
+- `POST /api/settings/confirm` applies proposed text profile changes.
 
 ## Supabase (optional, multi-user)
 You can enable Google login + Postgres storage via Supabase. The React login UI is gated by `VITE_SUPABASE_ENABLED` and the API auth requirement is gated by `SUPABASE_AUTH_REQUIRED`.
@@ -45,7 +56,7 @@ Backfill existing local JSON data into Postgres:
 2. Run `npm run migrate:postgres`.
 3. Re-run the same command safely; it is idempotent.
 
-Migrate local profile payloads to include generic `user_profile` and remove legacy `transition_context`:
+Normalize local profile payloads to the four text-profile shape:
 1. Run `npm run migrate:profile`.
 2. Re-run safely; it is idempotent.
    This migrates `tracking-profile.json`.

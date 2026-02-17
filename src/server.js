@@ -586,12 +586,17 @@ function extractChecklistTemplate(week) {
   return template;
 }
 
-function buildStarterGoalsText() {
-  return {
-    overall_goals: "Build consistent nutrition and activity habits.",
-    fitness_goals: "Improve general fitness with consistent weekly movement.",
-    diet_goals: "Eat balanced meals regularly and stay hydrated.",
-  };
+const SETTINGS_PROFILE_FIELDS = ["user_profile", "training_profile", "diet_profile", "agent_profile"];
+const SETTINGS_PROFILE_LABELS = {
+  user_profile: "user profile",
+  training_profile: "training profile",
+  diet_profile: "diet profile",
+  agent_profile: "agent profile",
+};
+
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
 }
 
 function buildStarterChecklistCategories() {
@@ -614,27 +619,50 @@ function buildStarterChecklistCategories() {
   ]);
 }
 
-function hasSeedMarker(profile) {
-  const metadata = asObject(profile?.metadata);
+function buildStarterUserProfileText() {
+  return [
+    "Overall goals:",
+    "- Build consistent nutrition and activity habits.",
+    "",
+    "Health context:",
+    "- Add any key medical context, medications, or conditions here.",
+    "",
+    "Lifestyle:",
+    "- Add schedule constraints and routines that matter for coaching.",
+  ].join("\n");
+}
+
+function getSettingsProfiles(data) {
+  const safe = isPlainObject(data) ? data : {};
+  return {
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
+  };
+}
+
+function hasSeedMarker(data) {
+  const metadata = asObject(data?.metadata);
   return hasNonEmptyString(metadata.settings_seeded_at);
 }
 
-function applyStarterSeed(data, profile, { now = new Date() } = {}) {
+function applyStarterSeed(data, { now = new Date() } = {}) {
   let changed = false;
-  let goalsSeeded = false;
+  let profileSeeded = false;
   let checklistSeeded = false;
   const timestamp = formatSeattleIso(now);
-  let nextProfile = isPlainObject(profile) ? structuredClone(profile) : {};
-  const metadata = isPlainObject(nextProfile.metadata) ? { ...nextProfile.metadata } : {};
+  const profiles = getSettingsProfiles(data);
+  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
 
-  const goalsText = normalizeGoalsText(asObject(nextProfile.goals_text), { legacyGoals: asObject(nextProfile.goals) });
-  const hasAnyGoalsText = ["overall_goals", "fitness_goals", "diet_goals"].some((key) => hasNonEmptyString(goalsText[key]));
-  if (!hasAnyGoalsText) {
-    nextProfile = mergeObjectPatch(nextProfile, { goals_text: buildStarterGoalsText() });
-    nextProfile = applyGoalTextDerivation(nextProfile, { now });
-    goalsSeeded = true;
+  if (!hasNonEmptyString(profiles.user_profile)) {
+    data.user_profile = buildStarterUserProfileText();
+    profileSeeded = true;
     changed = true;
   }
+  if (!hasNonEmptyString(profiles.training_profile)) data.training_profile = "";
+  if (!hasNonEmptyString(profiles.diet_profile)) data.diet_profile = "";
+  if (!hasNonEmptyString(profiles.agent_profile)) data.agent_profile = "";
 
   const existingTemplate = extractChecklistTemplate(asObject(asObject(data.metadata).checklist_template));
   if (!existingTemplate) {
@@ -642,17 +670,15 @@ function applyStarterSeed(data, profile, { now = new Date() } = {}) {
     const remappedWeek = applyChecklistCategories(data.current_week ?? {}, categories);
     const template = extractChecklistTemplate(remappedWeek);
     if (template) {
-      const dataMetadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
-      dataMetadata.checklist_template = template;
-      dataMetadata.last_updated = timestamp;
-      data.metadata = dataMetadata;
+      metadata.checklist_template = template;
+      metadata.last_updated = timestamp;
       data.current_week = remappedWeek;
       checklistSeeded = true;
       changed = true;
     }
   }
 
-  if (!hasSeedMarker(nextProfile)) {
+  if (!hasSeedMarker(data)) {
     metadata.settings_seeded_at = timestamp;
     metadata.settings_seed_version = 1;
     metadata.onboarding = {
@@ -661,174 +687,96 @@ function applyStarterSeed(data, profile, { now = new Date() } = {}) {
       completed_at: timestamp,
       last_active_at: timestamp,
     };
-    metadata.updated_at = timestamp;
-    nextProfile.metadata = metadata;
     changed = true;
   }
+  metadata.updated_at = timestamp;
+  data.metadata = metadata;
 
   return {
     changed,
-    profile: nextProfile,
-    summary: { goals_seeded: goalsSeeded, checklist_seeded: checklistSeeded },
+    summary: { profile_seeded: profileSeeded, checklist_seeded: checklistSeeded },
   };
 }
 
 function hasPendingSettingsChanges(changes) {
-  return Boolean(
-    changes?.user_profile_patch ||
-      changes?.diet_philosophy_patch ||
-      changes?.fitness_philosophy_patch ||
-      changes?.checklist_categories,
-  );
-}
-
-function canonicalizeUserProfilePatch(patch) {
-  if (!isPlainObject(patch)) return null;
-  const out = structuredClone(patch);
-
-  const moveKeys = (targetKey, keys) => {
-    const target = isPlainObject(out[targetKey]) ? { ...out[targetKey] } : {};
-    let moved = false;
-    for (const key of keys) {
-      if (!(key in out)) continue;
-      if (!(key in target)) target[key] = out[key];
-      delete out[key];
-      moved = true;
-    }
-    if (moved) out[targetKey] = target;
-  };
-
-  moveKeys("general", ["age", "height_cm", "weight_lb_baseline", "timezone"]);
-  moveKeys("behavior", ["motivation_barriers", "adherence_triggers"]);
-  moveKeys("fitness", ["experience_level", "injuries_limitations", "equipment_access"]);
-  moveKeys("nutrition", ["food_restrictions", "food_allergies", "preferences", "food_preferences"]);
-  moveKeys("assistant_preferences", ["tone", "verbosity"]);
-
-  const goalsText = isPlainObject(out.goals_text) ? { ...out.goals_text } : {};
-  let movedGoalsText = false;
-  for (const key of ["overall_goals", "diet_goals", "fitness_goals"]) {
-    if (!(key in out)) continue;
-    if (!(key in goalsText)) goalsText[key] = out[key];
-    delete out[key];
-    movedGoalsText = true;
-  }
-  if (movedGoalsText) out.goals_text = goalsText;
-
-  return out;
-}
-
-function isHighImpactSettingsProposal(changes) {
   if (!isPlainObject(changes)) return false;
-  if (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) return true;
-  if (isPlainObject(changes.diet_philosophy_patch) && Object.keys(changes.diet_philosophy_patch).length) return true;
-  if (isPlainObject(changes.fitness_philosophy_patch) && Object.keys(changes.fitness_philosophy_patch).length) return true;
-  if (isPlainObject(changes.user_profile_patch) && hasGoalsTextPatch(changes.user_profile_patch)) return true;
-  return false;
+  return SETTINGS_PROFILE_FIELDS.some((field) => typeof changes[field] === "string");
 }
 
 function isValidSettingsProposal(value) {
   if (!isPlainObject(value)) return false;
-  const keys = [
-    "user_profile_patch",
-    "diet_philosophy_patch",
-    "fitness_philosophy_patch",
-    "checklist_categories",
-  ];
   for (const key of Object.keys(value)) {
-    if (!keys.includes(key)) return false;
+    if (!SETTINGS_PROFILE_FIELDS.includes(key)) return false;
   }
-  if (value.user_profile_patch !== null && value.user_profile_patch !== undefined && !isPlainObject(value.user_profile_patch)) return false;
-  if (value.diet_philosophy_patch !== null && value.diet_philosophy_patch !== undefined && !isPlainObject(value.diet_philosophy_patch)) return false;
-  if (value.fitness_philosophy_patch !== null && value.fitness_philosophy_patch !== undefined && !isPlainObject(value.fitness_philosophy_patch)) return false;
-  if (value.checklist_categories !== null && value.checklist_categories !== undefined && !Array.isArray(value.checklist_categories)) return false;
+  for (const field of SETTINGS_PROFILE_FIELDS) {
+    const fieldValue = value[field];
+    if (fieldValue !== null && fieldValue !== undefined && typeof fieldValue !== "string") return false;
+  }
   return true;
 }
 
-async function applySettingsChanges({ proposal, applyMode = "now" }) {
+function normalizeSettingsProfileProposal(value) {
+  const raw = isPlainObject(value) ? value : {};
+  const out = {};
+  for (const field of SETTINGS_PROFILE_FIELDS) {
+    const fieldValue = raw[field];
+    if (fieldValue === null || fieldValue === undefined) {
+      out[field] = null;
+      continue;
+    }
+    if (typeof fieldValue === "string") out[field] = normalizeProfileText(fieldValue);
+    else out[field] = null;
+  }
+  return out;
+}
+
+function appendSettingsHistoryEvent(data, { domains }) {
+  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+  const appliedAt = formatSeattleIso(new Date());
+  const effectiveFrom = getSeattleDateString(new Date());
+  const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
+  const nextVersion = currentVersion + 1;
+  const event = {
+    version: nextVersion,
+    applied_at: appliedAt,
+    effective_from: effectiveFrom,
+    domains,
+  };
+  const previous = Array.isArray(metadata.settings_history) ? metadata.settings_history : [];
+  metadata.settings_version = nextVersion;
+  metadata.settings_history = [...previous.slice(-19), event];
+  metadata.last_updated = appliedAt;
+  data.metadata = metadata;
+  return { settingsVersion: nextVersion, effectiveFrom };
+}
+
+async function applySettingsChanges({ proposal }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
-  const mode = applyMode === "next_week" ? "next_week" : "now";
-  const normalizedUserProfilePatch = canonicalizeUserProfilePatch(proposal.user_profile_patch);
-  const normalizedChecklistCategories =
-    proposal.checklist_categories === null || proposal.checklist_categories === undefined
-      ? null
-      : normalizeChecklistCategories(proposal.checklist_categories);
-  if (proposal.checklist_categories && !normalizedChecklistCategories?.length) {
-    throw new Error("Checklist changes must only include workout or activity items.");
-  }
-
-  await ensureCurrentWeek();
   const data = await readTrackingData();
+  const normalized = normalizeSettingsProfileProposal(proposal);
   const changesApplied = [];
+  const domains = [];
 
-  if (normalizedUserProfilePatch) {
-    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, normalizedUserProfilePatch);
-    if (hasGoalsTextPatch(normalizedUserProfilePatch)) {
-      data.user_profile = applyGoalTextDerivation(data.user_profile, { now: new Date() });
-    }
-    changesApplied.push("Updated generic user profile.");
-  }
-
-  if (proposal.diet_philosophy_patch) {
-    data.diet_philosophy = mergeObjectPatch(data.diet_philosophy ?? {}, proposal.diet_philosophy_patch);
-    changesApplied.push("Updated diet goals/philosophy.");
-  }
-  if (proposal.fitness_philosophy_patch) {
-    data.fitness_philosophy = mergeObjectPatch(data.fitness_philosophy ?? {}, proposal.fitness_philosophy_patch);
-    changesApplied.push("Updated fitness goals/philosophy.");
-  }
-
-  if (normalizedChecklistCategories) {
-    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, normalizedChecklistCategories);
-    const template = extractChecklistTemplate(remappedWeek);
-    if (template) {
-      const metadata = isPlainObject(data.metadata) ? data.metadata : {};
-      metadata.checklist_template = template;
-      data.metadata = metadata;
-      if (mode === "now") {
-        data.current_week = remappedWeek;
-        changesApplied.push("Updated checklist template for current week and future weeks.");
-      } else {
-        changesApplied.push("Scheduled checklist template update for next week.");
-      }
-    }
+  for (const field of SETTINGS_PROFILE_FIELDS) {
+    const nextValue = normalized[field];
+    if (typeof nextValue !== "string") continue;
+    if (normalizeProfileText(data[field]) === nextValue) continue;
+    data[field] = nextValue;
+    domains.push(field);
+    const label = SETTINGS_PROFILE_LABELS[field] ?? field;
+    changesApplied.push(`Updated ${label}.`);
   }
 
   if (changesApplied.length) {
-    const metadata = isPlainObject(data.metadata) ? data.metadata : {};
-    const appliedAt = formatSeattleIso(new Date());
-    const effectiveFrom = normalizedChecklistCategories && mode === "next_week"
-      ? "next_week_rollover"
-      : getSeattleDateString(new Date());
-    const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
-    const nextVersion = currentVersion + 1;
-    const domains = [];
-    if (normalizedUserProfilePatch) domains.push("user_profile");
-    if (proposal.diet_philosophy_patch) domains.push("diet_philosophy");
-    if (proposal.fitness_philosophy_patch) domains.push("fitness_philosophy");
-    if (normalizedChecklistCategories) domains.push("checklist_template");
-    const event = {
-      version: nextVersion,
-      applied_at: appliedAt,
-      effective_from: effectiveFrom,
-      checklist_apply_mode: normalizedChecklistCategories ? mode : null,
-      domains,
-    };
-    const previous = Array.isArray(metadata.settings_history) ? metadata.settings_history : [];
-    metadata.settings_version = nextVersion;
-    metadata.settings_history = [...previous.slice(-19), event];
-    metadata.last_updated = appliedAt;
-    data.metadata = metadata;
+    const versionMeta = appendSettingsHistoryEvent(data, { domains });
     await writeTrackingData(data);
     return {
       changesApplied,
       updated: {
-        current_week: data.current_week ?? null,
-        user_profile: data.user_profile ?? null,
-        diet_philosophy: data.diet_philosophy ?? null,
-        fitness_philosophy: data.fitness_philosophy ?? null,
+        ...getSettingsProfiles(data),
       },
-      settingsVersion: nextVersion,
-      effectiveFrom,
+      settingsVersion: versionMeta.settingsVersion,
+      effectiveFrom: versionMeta.effectiveFrom,
     };
   }
 
@@ -840,40 +788,94 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
   };
 }
 
-app.post("/api/settings/bootstrap", async (req, res) => {
+async function saveSettingsProfilesDirect(changes) {
+  if (!isPlainObject(changes)) throw new Error("Invalid settings profiles payload.");
+  const data = await readTrackingData();
+  const changesApplied = [];
+  const domains = [];
+  for (const field of SETTINGS_PROFILE_FIELDS) {
+    if (!(field in changes)) continue;
+    if (typeof changes[field] !== "string") throw new Error(`Invalid field: ${field}`);
+    const nextValue = normalizeProfileText(changes[field]);
+    if (normalizeProfileText(data[field]) === nextValue) continue;
+    data[field] = nextValue;
+    domains.push(field);
+    const label = SETTINGS_PROFILE_LABELS[field] ?? field;
+    changesApplied.push(`Updated ${label}.`);
+  }
+  if (changesApplied.length) {
+    const versionMeta = appendSettingsHistoryEvent(data, { domains });
+    await writeTrackingData(data);
+    return {
+      changesApplied,
+      updated: getSettingsProfiles(data),
+      settingsVersion: versionMeta.settingsVersion,
+      effectiveFrom: versionMeta.effectiveFrom,
+    };
+  }
+  return {
+    changesApplied,
+    updated: getSettingsProfiles(data),
+    settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+    effectiveFrom: null,
+  };
+}
+
+app.get("/api/settings/state", async (_req, res) => {
+  try {
+    const data = await readTrackingData();
+    res.json({
+      ok: true,
+      profiles: getSettingsProfiles(data),
+      settings_version: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/settings/profiles", async (req, res) => {
+  try {
+    const payload = isPlainObject(req.body) ? req.body : {};
+    const hasAnyField = SETTINGS_PROFILE_FIELDS.some((field) => field in payload);
+    if (!hasAnyField) return res.status(400).json({ ok: false, error: "Provide at least one profile field to save." });
+
+    const saved = await saveSettingsProfilesDirect(payload);
+    res.json({
+      ok: true,
+      changes_applied: saved.changesApplied,
+      updated: saved.updated,
+      settings_version: saved.settingsVersion,
+      effective_from: saved.effectiveFrom,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isValidationError = message.startsWith("Invalid field:");
+    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
+  }
+});
+
+app.post("/api/settings/bootstrap", async (_req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
-    let profile = isPlainObject(data.user_profile) ? data.user_profile : {};
-
-    const clientTimezone = typeof req.body?.client_timezone === "string" ? req.body.client_timezone : "";
-    const timezoneApplied = applyClientTimezone(profile, clientTimezone);
-    if (timezoneApplied.changed) profile = timezoneApplied.profile;
-
-    const seededAlready = hasSeedMarker(profile);
+    const seededAlready = hasSeedMarker(data);
     if (seededAlready) {
-      if (timezoneApplied.changed) {
-        data.user_profile = profile;
-        await writeTrackingData(data);
-      }
       return res.json({
         ok: true,
         seeded_now: false,
         already_seeded: true,
         default_open_view: null,
         starter_summary: {
-          goals_seeded: false,
+          profile_seeded: false,
           checklist_seeded: false,
         },
-        updated_profile: timezoneApplied.changed ? profile : null,
+        updated_profiles: null,
       });
     }
 
-    const seeded = applyStarterSeed(data, profile, { now: new Date() });
-    data.user_profile = seeded.profile;
-    if (seeded.changed) {
-      await writeTrackingData(data);
-    }
+    const seeded = applyStarterSeed(data, { now: new Date() });
+    if (seeded.changed) await writeTrackingData(data);
 
     return res.json({
       ok: true,
@@ -881,7 +883,7 @@ app.post("/api/settings/bootstrap", async (req, res) => {
       already_seeded: false,
       default_open_view: "settings",
       starter_summary: seeded.summary,
-      updated_profile: seeded.profile,
+      updated_profiles: getSettingsProfiles(data),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -892,16 +894,95 @@ app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
-    const goalSummary = extractGoalSummary(data.user_profile);
     res.json({
       ok: true,
       suggested_date: getSuggestedLogDate(),
       diet_philosophy: data.diet_philosophy ?? null,
       fitness_philosophy: data.fitness_philosophy ?? null,
-      user_profile_goals: goalSummary,
+      user_profile_goals: {
+        diet_goals: [],
+        fitness_goals: [],
+        health_goals: [],
+      },
+      profiles: getSettingsProfiles(data),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/settings/chat", async (req, res) => {
+  try {
+    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
+    if (stream) enableSseHeaders(res);
+
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+    const result = stream
+      ? await streamSettingsAssistant({
+          message,
+          messages,
+          onText: (delta) => sendStreamingAssistantChunk(res, delta),
+        })
+      : await askSettingsAssistant({ message, messages });
+
+    const changes = normalizeSettingsProfileProposal(result?.changes ?? {});
+    const hasProposal = hasPendingSettingsChanges(changes);
+    const proposalId = hasProposal ? crypto.randomUUID() : null;
+    const assistantMessage = [
+      typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "",
+      hasProposal ? "Proposed settings profile changes are ready. Confirm to apply." : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const payload = {
+      ok: true,
+      assistant_message: assistantMessage,
+      followup_question: result.followup_question ?? null,
+      requires_confirmation: hasProposal,
+      proposal_id: proposalId,
+      proposal: hasProposal ? changes : null,
+      changes_applied: [],
+      updated: null,
+      settings_version: null,
+      effective_from: null,
+    };
+    if (stream) {
+      sendStreamingAssistantDone(res, payload);
+      return res.end();
+    }
+    return res.json(payload);
+  } catch (err) {
+    if (isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream)) {
+      sendStreamingAssistantError(res, err);
+      if (!res.writableEnded) res.end();
+      return;
+    }
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/settings/confirm", async (req, res) => {
+  try {
+    const proposal = req.body?.proposal;
+    if (!isValidSettingsProposal(proposal) || !hasPendingSettingsChanges(proposal)) {
+      return res.status(400).json({ ok: false, error: "Missing or invalid proposal." });
+    }
+    const applied = await applySettingsChanges({ proposal });
+    res.json({
+      ok: true,
+      changes_applied: applied.changesApplied,
+      updated: applied.updated,
+      settings_version: applied.settingsVersion,
+      effective_from: applied.effectiveFrom,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isValidationError = message === "Invalid settings proposal payload.";
+    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 
@@ -936,121 +1017,6 @@ app.post("/api/assistant/ask", async (req, res) => {
     res.json({ ok: true, answer });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/settings/chat", async (req, res) => {
-  try {
-    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
-    if (stream) enableSseHeaders(res);
-
-    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-    if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
-    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-
-    const result = stream
-      ? await streamSettingsAssistant({
-          message,
-          messages,
-          onText: (delta) => sendStreamingAssistantChunk(res, delta),
-        })
-      : await askSettingsAssistant({ message, messages });
-
-    const changes = result?.changes ?? {};
-    changes.user_profile_patch = canonicalizeUserProfilePatch(changes.user_profile_patch);
-    const goalsTextChanged = hasGoalsTextPatch(changes.user_profile_patch);
-    if (goalsTextChanged && !Array.isArray(changes.checklist_categories)) {
-      try {
-        await ensureCurrentWeek();
-        const data = await readTrackingData();
-        const patchedProfile = applyGoalTextDerivation(
-          mergeObjectPatch(data.user_profile ?? {}, changes.user_profile_patch ?? {}),
-          { now: new Date() },
-        );
-        const checklistDraft = await proposeOnboardingChecklist({
-          message: "Create an updated weekly workout checklist from my latest goals text.",
-          messages,
-          userProfile: patchedProfile,
-          currentWeek: data.current_week ?? null,
-          currentProposal: null,
-        });
-        changes.checklist_categories = checklistDraft.checklist_categories;
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("Checklist suggestion generation failed after goals_text update.", err);
-      }
-    }
-    const hasProposal = hasPendingSettingsChanges(changes);
-    const requiresConfirmation = hasProposal && isHighImpactSettingsProposal(changes);
-    const autoApplied = hasProposal && !requiresConfirmation
-      ? await applySettingsChanges({ proposal: changes, applyMode: "now" })
-      : null;
-
-    const proposalId = requiresConfirmation ? crypto.randomUUID() : null;
-    const checklistPreview = Array.isArray(changes?.checklist_categories) && requiresConfirmation
-      ? formatChecklistCategoriesMarkdown(changes.checklist_categories, {
-          heading: "Updated workout checklist to review before confirming:",
-        })
-      : "";
-    const assistantMessage = [
-      typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "",
-      checklistPreview,
-      requiresConfirmation ? "Proposed settings changes are ready. Confirm to apply." : "",
-      autoApplied?.changesApplied?.length ? "Applied settings changes." : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-
-    const payload = {
-      ok: true,
-      assistant_message: assistantMessage,
-      followup_question: result.followup_question ?? null,
-      requires_confirmation: requiresConfirmation,
-      proposal_id: proposalId,
-      proposal: requiresConfirmation ? changes : null,
-      changes_applied: Array.isArray(autoApplied?.changesApplied) ? autoApplied.changesApplied : [],
-      updated: autoApplied?.updated ?? null,
-      settings_version: autoApplied?.settingsVersion ?? null,
-      effective_from: autoApplied?.effectiveFrom ?? null,
-    };
-    if (stream) {
-      sendStreamingAssistantDone(res, payload);
-      return res.end();
-    }
-    return res.json(payload);
-  } catch (err) {
-    if (isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream)) {
-      sendStreamingAssistantError(res, err);
-      if (!res.writableEnded) res.end();
-      return;
-    }
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/settings/confirm", async (req, res) => {
-  try {
-    const proposal = req.body?.proposal;
-    if (!isValidSettingsProposal(proposal) || !hasPendingSettingsChanges(proposal)) {
-      return res.status(400).json({ ok: false, error: "Missing or invalid proposal." });
-    }
-    const applyModeRaw = typeof req.body?.apply_mode === "string" ? req.body.apply_mode.trim() : "now";
-    const applyMode = applyModeRaw === "next_week" ? "next_week" : "now";
-
-    const applied = await applySettingsChanges({ proposal, applyMode });
-    res.json({
-      ok: true,
-      changes_applied: applied.changesApplied,
-      updated: applied.updated,
-      settings_version: applied.settingsVersion,
-      effective_from: applied.effectiveFrom,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const isValidationError =
-      message === "Invalid settings proposal payload." ||
-      message === "Checklist changes must only include workout or activity items.";
-    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 

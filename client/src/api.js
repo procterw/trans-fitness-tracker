@@ -245,13 +245,34 @@ export async function settingsBootstrap({ clientTimezone = "" } = {}) {
   });
 }
 
-export async function confirmSettingsChanges({ proposal, applyMode = "now" }) {
+export async function getSettingsState() {
+  return fetchJson("/api/settings/state");
+}
+
+export async function saveSettingsProfiles({
+  userProfile = "",
+  trainingProfile = "",
+  dietProfile = "",
+  agentProfile = "",
+}) {
+  return fetchJson("/api/settings/profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_profile: userProfile,
+      training_profile: trainingProfile,
+      diet_profile: dietProfile,
+      agent_profile: agentProfile,
+    }),
+  });
+}
+
+export async function confirmSettingsChanges({ proposal }) {
   return fetchJson("/api/settings/confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       proposal,
-      apply_mode: applyMode === "next_week" ? "next_week" : "now",
     }),
   });
 }

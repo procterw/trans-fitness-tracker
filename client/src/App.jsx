@@ -8,6 +8,8 @@ import {
   getFoodForDate,
   getFoodLog,
   confirmSettingsChanges,
+  getSettingsState,
+  saveSettingsProfiles,
   settingsBootstrap,
   ingestAssistantStream,
   rollupFoodForDate,
@@ -29,7 +31,6 @@ import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
 import SettingsView from "./views/SettingsView.jsx";
-import { getFitnessCategories } from "./fitnessChecklist.js";
 
 function useDebouncedKeyedCallback(fn, ms) {
   const fnRef = useRef(fn);
@@ -73,77 +74,30 @@ function useSerialQueue() {
   }, []);
 }
 
-function normalizeGoalSummary(value) {
-  const asList = (items) => {
-    if (!Array.isArray(items)) return [];
-    const seen = new Set();
-    const out = [];
-    for (const entry of items) {
-      const text = typeof entry === "string" ? entry.trim() : "";
-      if (!text) continue;
-      const token = text.toLowerCase();
-      if (seen.has(token)) continue;
-      seen.add(token);
-      out.push(text);
-    }
-    return out;
-  };
+function normalizeProfileText(value) {
+  if (typeof value !== "string") return "";
+  return value.replace(/\r\n/g, "\n");
+}
 
+function normalizeSettingsProfiles(value) {
   const safe = value && typeof value === "object" ? value : {};
   return {
-    diet_goals: asList(safe.diet_goals),
-    fitness_goals: asList(safe.fitness_goals),
-    health_goals: asList(safe.health_goals),
+    user_profile: normalizeProfileText(safe.user_profile),
+    training_profile: normalizeProfileText(safe.training_profile),
+    diet_profile: normalizeProfileText(safe.diet_profile),
+    agent_profile: normalizeProfileText(safe.agent_profile),
   };
 }
 
-function parseChecklistItemText(value) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) return { item: "", description: "" };
-  const parts = text.split(/\s+-\s+/);
-  if (parts.length < 2) return { item: text, description: "" };
-  const item = (parts.shift() ?? "").trim();
-  const description = parts.join(" - ").trim();
-  return {
-    item,
-    description: item && description ? description : "",
-  };
-}
-
-function categoriesFromWeek(week) {
-  return getFitnessCategories(week)
-    .map((category) => ({
-      key: category.key,
-      label: category.label,
-      items: (Array.isArray(category.items) ? category.items : [])
-        .map((item) => {
-          const label = typeof item?.item === "string" ? item.item.trim() : "";
-          const description = typeof item?.description === "string" ? item.description.trim() : "";
-          return {
-            item: label,
-            description,
-            checked: item?.checked === true,
-          };
-        })
-        .filter((item) => item.item),
-    }))
-    .filter((category) => category.items.length);
-}
-
-function categoriesFromProposal(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((category) => ({
-      key: typeof category?.key === "string" ? category.key.trim() : "",
-      label: typeof category?.label === "string" ? category.label.trim() : null,
-      items: Array.isArray(category?.items)
-        ? category.items
-            .map((item) => (typeof item === "string" ? parseChecklistItemText(item) : { item: "", description: "" }))
-            .filter((item) => item.item)
-            .map((item) => ({ ...item, checked: false }))
-        : [],
-    }))
-    .filter((category) => category.key && category.items.length);
+function settingsProfilesEqual(a, b) {
+  const left = normalizeSettingsProfiles(a);
+  const right = normalizeSettingsProfiles(b);
+  return (
+    left.user_profile === right.user_profile &&
+    left.training_profile === right.training_profile &&
+    left.diet_profile === right.diet_profile &&
+    left.agent_profile === right.agent_profile
+  );
 }
 
 export default function App() {
@@ -175,19 +129,18 @@ export default function App() {
   const [settingsInput, setSettingsInput] = useState("");
   const [settingsMessages, setSettingsMessages] = useState([]);
   const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsProfilesSaving, setSettingsProfilesSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   const settingsMessageIdRef = useRef(0);
+  const settingsProfilesSaveSeqRef = useRef(0);
   const [settingsBootstrapChecking, setSettingsBootstrapChecking] = useState(false);
   const settingsBootstrapRoutedRef = useRef(false);
   const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
   const [sidebarDayStatus, setSidebarDayStatus] = useState("");
   const [sidebarDayError, setSidebarDayError] = useState("");
   const sidebarDaySeqRef = useRef(0);
-  const [profileGoalSummary, setProfileGoalSummary] = useState({
-    diet_goals: [],
-    fitness_goals: [],
-    health_goals: [],
-  });
+  const [settingsProfilesSaved, setSettingsProfilesSaved] = useState(() => normalizeSettingsProfiles({}));
+  const [settingsProfilesDraft, setSettingsProfilesDraft] = useState(() => normalizeSettingsProfiles({}));
 
   // Workouts view state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -245,20 +198,37 @@ export default function App() {
       .replace(/[?.!]+$/g, "")
       .trim();
 
+  const settingsProfilesDirty = useMemo(
+    () => JSON.stringify(settingsProfilesDraft) !== JSON.stringify(settingsProfilesSaved),
+    [settingsProfilesDraft, settingsProfilesSaved],
+  );
+
   const refreshAppContext = useCallback(async () => {
     const json = await getContext();
     const date = typeof json?.suggested_date === "string" ? json.suggested_date : "";
     setSuggestedDate(date);
     setFoodDate((prev) => prev || date);
     setDashDate((prev) => prev || date);
-    setProfileGoalSummary(normalizeGoalSummary(json?.user_profile_goals));
     return json;
+  }, []);
+
+  const loadSettingsProfilesState = useCallback(async () => {
+    const json = await getSettingsState();
+    const normalized = normalizeSettingsProfiles(json?.profiles);
+    setSettingsProfilesSaved(normalized);
+    setSettingsProfilesDraft(normalized);
+    return normalized;
   }, []);
 
   useEffect(() => {
     if (signedOut) return;
     refreshAppContext().catch(() => {});
   }, [refreshAppContext, signedOut]);
+
+  useEffect(() => {
+    if (signedOut) return;
+    loadSettingsProfilesState().catch(() => {});
+  }, [loadSettingsProfilesState, signedOut]);
 
   useEffect(() => {
     if (!authEnabled) return;
@@ -304,13 +274,14 @@ export default function App() {
             {
               id: settingsMessageIdRef.current,
               role: "assistant",
-              content: "Starter goals and checklist were added. Tell me what you want to change.",
+              content: "Starter settings profile and checklist were added. Tell me what you want to change.",
               format: "plain",
               tone: "status",
             },
             ...prev,
           ]);
         }
+        loadSettingsProfilesState().catch(() => {});
         if (!settingsBootstrapRoutedRef.current && json?.default_open_view === "settings") {
           settingsBootstrapRoutedRef.current = true;
           setView("settings");
@@ -328,7 +299,7 @@ export default function App() {
     return () => {
       canceled = true;
     };
-  }, [authEnabled, signedOut, authSession?.user?.id]);
+  }, [authEnabled, signedOut, authSession?.user?.id, loadSettingsProfilesState]);
 
   const loadFitness = async () => {
     setFitnessLoading(true);
@@ -559,9 +530,42 @@ export default function App() {
 
   useEffect(() => {
     if (view !== "settings") return;
-    if (settingsLoading) return;
+    if (settingsLoading || settingsProfilesSaving) return;
     settingsInputRef.current?.focus();
-  }, [settingsLoading, view]);
+  }, [settingsLoading, settingsProfilesSaving, view]);
+
+  useEffect(() => {
+    if (signedOut) return;
+    if (settingsLoading || settingsProfilesSaving || !settingsProfilesDirty) return;
+
+    const profileSnapshot = normalizeSettingsProfiles(settingsProfilesDraft);
+    const timeoutId = setTimeout(async () => {
+      const saveSeq = ++settingsProfilesSaveSeqRef.current;
+      setSettingsProfilesSaving(true);
+      try {
+        const json = await saveSettingsProfiles({
+          userProfile: profileSnapshot.user_profile,
+          trainingProfile: profileSnapshot.training_profile,
+          dietProfile: profileSnapshot.diet_profile,
+          agentProfile: profileSnapshot.agent_profile,
+        });
+        const normalized = normalizeSettingsProfiles(json?.updated ?? profileSnapshot);
+        setSettingsProfilesSaved(normalized);
+        setSettingsProfilesDraft((prev) => (settingsProfilesEqual(prev, profileSnapshot) ? normalized : prev));
+        setSettingsError("");
+      } catch (err) {
+        if (saveSeq === settingsProfilesSaveSeqRef.current) {
+          setSettingsError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (saveSeq === settingsProfilesSaveSeqRef.current) {
+          setSettingsProfilesSaving(false);
+        }
+      }
+    }, 700);
+
+    return () => clearTimeout(timeoutId);
+  }, [settingsProfilesDraft, settingsProfilesDirty, settingsLoading, settingsProfilesSaving, signedOut]);
 
   const onSignIn = async () => {
     setAuthActionLoading(true);
@@ -830,7 +834,7 @@ export default function App() {
   };
 
   const sendSettingsMessage = async (rawMessage) => {
-    if (settingsLoading) return;
+    if (settingsLoading || settingsProfilesSaving) return;
     setSettingsError("");
 
     const messageText = typeof rawMessage === "string" ? rawMessage.trim() : "";
@@ -967,11 +971,10 @@ export default function App() {
       if (!responsePayload) throw new Error("Streaming response did not complete.");
 
       appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
-      if (responsePayload?.updated?.current_week) {
-        setFitnessWeek(responsePayload.updated.current_week);
-      }
-      if (Array.isArray(responsePayload?.changes_applied) && responsePayload.changes_applied.length) {
-        refreshAppContext().catch(() => {});
+      const updatedProfiles = normalizeSettingsProfiles(responsePayload?.updated);
+      if (responsePayload?.updated) {
+        setSettingsProfilesSaved(updatedProfiles);
+        setSettingsProfilesDraft(updatedProfiles);
       }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
@@ -985,9 +988,19 @@ export default function App() {
     await sendSettingsMessage(settingsInput);
   };
 
-  const onConfirmSettingsProposal = async (messageId, applyMode = "now", proposalOverride = null) => {
-    if (settingsLoading) return;
+  const onSettingsProfileChange = (field, value) => {
+    if (!["user_profile", "training_profile", "diet_profile", "agent_profile"].includes(field)) return;
     setSettingsError("");
+    setSettingsProfilesDraft((prev) => ({ ...prev, [field]: normalizeProfileText(value) }));
+  };
+
+  const onConfirmSettingsProposal = async (messageId, proposalOverride = null) => {
+    if (settingsLoading || settingsProfilesSaving) return;
+    setSettingsError("");
+    if (settingsProfilesDirty) {
+      setSettingsError("Wait for profile autosave to finish before confirming chat changes.");
+      return;
+    }
 
     const target = settingsMessages.find((msg) => msg.id === messageId);
     const proposal = proposalOverride ?? target?.proposal ?? null;
@@ -998,7 +1011,7 @@ export default function App() {
 
     setSettingsLoading(true);
     try {
-      const json = await confirmSettingsChanges({ proposal, applyMode });
+      const json = await confirmSettingsChanges({ proposal });
 
       setSettingsMessages((prev) =>
         prev.map((msg) =>
@@ -1045,10 +1058,11 @@ export default function App() {
         ]);
       }
 
-      if (json?.updated?.current_week) {
-        setFitnessWeek(json.updated.current_week);
+      const updatedProfiles = normalizeSettingsProfiles(json?.updated);
+      if (json?.updated) {
+        setSettingsProfilesSaved(updatedProfiles);
+        setSettingsProfilesDraft(updatedProfiles);
       }
-      refreshAppContext().catch(() => {});
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1316,22 +1330,6 @@ export default function App() {
 
   const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
 
-  const settingsProposalCategories = useMemo(() => {
-    for (let i = settingsMessages.length - 1; i >= 0; i -= 1) {
-      const msg = settingsMessages[i];
-      if (!msg?.requiresConfirmation) continue;
-      if (!Array.isArray(msg?.proposal?.checklist_categories)) continue;
-      return msg.proposal.checklist_categories;
-    }
-    return null;
-  }, [settingsMessages]);
-
-  const settingsWorkingChecklist = useMemo(() => {
-    const proposal = categoriesFromProposal(settingsProposalCategories);
-    if (proposal.length) return proposal;
-    return categoriesFromWeek(fitnessWeek);
-  }, [fitnessWeek, settingsProposalCategories]);
-
   if (signedOut) {
     return (
       <SignedOutView authStatus={authStatus} authActionLoading={authActionLoading} onSignIn={onSignIn} />
@@ -1377,13 +1375,15 @@ export default function App() {
             settingsMessages={settingsMessages}
             settingsInput={settingsInput}
             settingsLoading={settingsLoading}
+            settingsProfilesSaving={settingsProfilesSaving}
             settingsError={settingsError}
-            settingsGoalSummary={profileGoalSummary}
-            settingsWorkingChecklist={settingsWorkingChecklist}
+            settingsProfiles={settingsProfilesDraft}
+            settingsProfilesDirty={settingsProfilesDirty}
             onSubmitSettings={onSubmitSettings}
             onConfirmSettingsProposal={onConfirmSettingsProposal}
             onSettingsInputChange={setSettingsInput}
             onSettingsInputAutoSize={autosizeComposerTextarea}
+            onSettingsProfileChange={onSettingsProfileChange}
           />
         ) : (
           <div className="mainContentRow">

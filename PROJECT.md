@@ -15,11 +15,11 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `food_log` + `food_events`
 - `tracking-activity.json` — `fitness_weeks` + `current_week`
-- `tracking-profile.json` — `user_profile` (generic profile)
+- `tracking-profile.json` — profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (JSON backend / local fallback source)
 These files are optional when `TRACKING_BACKEND=postgres`; empty template files are valid for future local JSON development.
 
-To backfill existing profile payloads into the generic shape and remove legacy keys, run `npm run migrate:profile` (idempotent). This migrates `tracking-profile.json`.
+To normalize existing profile payloads into the text-blob shape, run `npm run migrate:profile` (idempotent). This migrates `tracking-profile.json`.
 
 When `TRACKING_BACKEND=postgres`, rules/philosophy are stored per-user in Postgres (`user_rules.rules_data`).
 When `TRACKING_BACKEND=json` (or split-file mode), rules are loaded from `tracking-rules.json`.
@@ -46,11 +46,11 @@ This repo includes a minimal local web app that supports:
 - Asking questions in-app (OpenAI assistant, contextualized by the split tracking files)
 - A unified chat-style input that routes food/activity/questions via GPT‑5.2
 - First-visit settings bootstrap:
-  - on first authenticated visit, the app seeds minimal starter goals + checklist defaults
+  - on first authenticated visit, the app seeds minimal starter profile text + checklist defaults
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
-  - settings chat remains the surface for refining goals/checklist/profile preferences
+  - settings supports direct textarea editing and chat-proposed profile edits with confirmation
 - Weekly fitness checklist updates (`current_week`)
-- Settings chat for editing profile context, checklist template, and diet/fitness philosophy
+- Settings for editing four profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
 - A basic dashboard for browsing:
   - food events + daily totals for a selected date
   - a full `food_log` table across all days (including each day’s notes)
@@ -80,8 +80,12 @@ This repo includes a minimal local web app that supports:
 ### Endpoints
 - `GET /` → React UI (Food / Fitness / Dashboard)
 - `POST /api/settings/bootstrap` → JSON body: optional `client_timezone`
-  - Idempotently seeds starter goals/checklist defaults for first-time users
-  - Returns `seeded_now`, `already_seeded`, `default_open_view`, starter summary, and optional updated profile
+  - Idempotently seeds starter profile/checklist defaults for first-time users
+  - Returns `seeded_now`, `already_seeded`, `default_open_view`, starter summary, and optional updated profiles
+- `GET /api/settings/state` → returns current profile text blobs + `settings_version`
+- `POST /api/settings/profiles` → JSON body with any of:
+  - `user_profile`, `training_profile`, `diet_profile`, `agent_profile` (all text)
+  - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `POST /api/food/log` → multipart form:
   - optional `image` (if present, uses vision)
@@ -109,14 +113,11 @@ This repo includes a minimal local web app that supports:
   - GPT‑5.2 decides if the input is food, activity, or a question; logs the result or answers/clarifies
   - For image inputs, routing inspects image content (for example meal photos vs Strava/workout screenshots)
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
-  - GPT‑5.2 settings assistant that can answer settings questions and propose structured updates to:
-    - `user_profile` (generic profile)
-    - `diet_philosophy` and `fitness_philosophy` (goals/philosophy)
-    - `current_week` checklist categories/items template
-  - Returns `requires_confirmation` + proposal payload when high-impact changes are requested
-- `POST /api/settings/confirm` → JSON body: `proposal` + optional `apply_mode` (`"now"` or `"next_week"`)
+  - GPT‑5.2 settings assistant that can answer settings questions and propose updates to:
+    - `user_profile`, `training_profile`, `diet_profile`, `agent_profile`
+  - Returns `requires_confirmation` + proposal payload when changes are requested
+- `POST /api/settings/confirm` → JSON body: `proposal`
   - Applies a previously proposed settings change with explicit user confirmation
-  - Checklist changes can be applied immediately or staged for next week rollover
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format
@@ -144,7 +145,7 @@ Implementation: `src/visionNutrition.js`
 ## File layout
 - `tracking-food.json` — food events + daily food log
 - `tracking-activity.json` — weekly fitness checklist data
-- `tracking-profile.json` — generic user profile + legacy transition-context mirror
+- `tracking-profile.json` — canonical settings profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
 - `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules (JSON backend or migration source)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups
