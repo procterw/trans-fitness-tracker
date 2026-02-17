@@ -268,10 +268,9 @@ function extractResponseTextDelta(chunk) {
 }
 
 async function streamResponseText({ client, model, input, onText }) {
-  const stream = await client.responses.create({
+  const stream = client.responses.stream({
     model,
     input,
-    stream: true,
   });
 
   let answer = "";
@@ -282,7 +281,8 @@ async function streamResponseText({ client, model, input, onText }) {
     if (typeof onText === "function") onText(delta);
   }
 
-  const finalResponse = await stream.finalResponse();
+  const finalResponse =
+    typeof stream.finalResponse === "function" ? await stream.finalResponse() : null;
   const finalText = typeof finalResponse?.output_text === "string" ? finalResponse.output_text : "";
   if (finalText && finalText !== answer) {
     answer = finalText;
@@ -321,6 +321,22 @@ function parseJsonText({ text, schema, errorMessage }) {
   return result.data;
 }
 
+function extractResponseText(response) {
+  if (!response || typeof response !== "object") return "";
+  if (typeof response.output_text === "string") return response.output_text;
+
+  const output = Array.isArray(response.output) ? response.output : [];
+  for (const item of output) {
+    if (!item || item.type !== "message" || !Array.isArray(item.content)) continue;
+    for (const part of item.content) {
+      if (part?.type === "output_text" && typeof part.text === "string" && part.text.trim()) {
+        return part.text;
+      }
+    }
+  }
+  return "";
+}
+
 async function streamStructuredResponse({ client, model, input, schema, onText, errorMessage }) {
   const output = await streamResponseText({
     client,
@@ -332,7 +348,7 @@ async function streamStructuredResponse({ client, model, input, schema, onText, 
   return parseJsonText({ text: output, schema, errorMessage });
 }
 
-async function parseStructuredResponse({ client, model, input, format, errorMessage }) {
+async function parseStructuredResponse({ client, model, input, format, schema = null, errorMessage }) {
   const response = await client.responses.parse({
     model,
     input,
@@ -340,8 +356,12 @@ async function parseStructuredResponse({ client, model, input, format, errorMess
   });
 
   const parsed = response.output_parsed;
-  if (!parsed) throw new Error(errorMessage);
-  return parsed;
+  if (parsed) return parsed;
+  if (schema) {
+    return parseJsonText({ text: extractResponseText(response), schema, errorMessage });
+  }
+
+  throw new Error(errorMessage);
 }
 
 const ActivitySelectionSchema = z.object({
@@ -531,6 +551,7 @@ export async function decideIngestAction({
     model,
     input,
     format: IngestDecisionFormat,
+    schema: IngestDecisionSchema,
     errorMessage: "OpenAI response did not include parsed output.",
   });
   return parsed;
@@ -684,6 +705,66 @@ function normalizeSettingsAssistantOutput(parsed, { message = "", checklistTempl
   };
 }
 
+function buildEmptySettingsChanges() {
+  return {
+    user_profile_patch: null,
+    diet_philosophy_patch: null,
+    fitness_philosophy_patch: null,
+    checklist_categories: null,
+  };
+}
+
+function coerceSettingsChanges(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    user_profile_patch: normalizeSettingsPatch(raw.user_profile_patch),
+    diet_philosophy_patch: normalizeSettingsPatch(raw.diet_philosophy_patch),
+    fitness_philosophy_patch: normalizeSettingsPatch(raw.fitness_philosophy_patch),
+    checklist_categories: normalizeChecklistCategories(raw.checklist_categories),
+  };
+}
+
+function buildSettingsAssistantFallback(text) {
+  const rawText = typeof text === "string" ? text : "";
+  const candidate = extractJsonCandidate(rawText);
+  if (candidate) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const assistantMessage = cleanRichText(parsed.assistant_message ?? "");
+        const followupQuestion = cleanText(parsed.followup_question ?? "") || null;
+        const changes = coerceSettingsChanges(parsed.changes);
+        const hasChanges = Boolean(
+          changes.user_profile_patch ||
+            changes.diet_philosophy_patch ||
+            changes.fitness_philosophy_patch ||
+            changes.checklist_categories,
+        );
+        if (assistantMessage || followupQuestion || hasChanges) {
+          return {
+            assistant_message: assistantMessage || "I prepared a settings response.",
+            followup_question: followupQuestion,
+            changes,
+          };
+        }
+      }
+    } catch {
+      // Fall through to text fallback.
+    }
+  }
+
+  const message = cleanRichText(rawText);
+  const looksJson = typeof candidate === "string" && candidate.trim().startsWith("{");
+  return {
+    assistant_message:
+      looksJson
+        ? "I could not parse structured settings changes from the model response. Please try again."
+        : message || "I could not parse structured settings changes from the model response.",
+    followup_question: null,
+    changes: buildEmptySettingsChanges(),
+  };
+}
+
 export async function composeMealEntryResponse({ payload, date = null, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
@@ -745,6 +826,7 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     model,
     input,
     format: MealEntryResponseFormat,
+    schema: MealEntryResponseSchema,
     errorMessage: "OpenAI response did not include parsed meal entry output.",
   });
 
@@ -864,6 +946,7 @@ export async function askOnboardingAssistant({ message, messages = [], onboardin
     model,
     input,
     format: OnboardingAssistantResponseFormat,
+    schema: OnboardingAssistantResponseSchema,
     errorMessage: "OpenAI response did not include parsed onboarding output.",
   });
 
@@ -959,6 +1042,7 @@ export async function proposeOnboardingChecklist({
     model,
     input,
     format: OnboardingChecklistProposalFormat,
+    schema: OnboardingChecklistProposalSchema,
     errorMessage: "OpenAI response did not include parsed onboarding checklist output.",
   });
 
@@ -1076,6 +1160,7 @@ export async function proposeOnboardingDietGoals({
     model,
     input,
     format: OnboardingDietProposalFormat,
+    schema: OnboardingDietProposalSchema,
     errorMessage: "OpenAI response did not include parsed onboarding diet output.",
   });
 
@@ -1176,13 +1261,20 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     userContent: cleanUserMessage(message),
   });
 
-  const parsed = await parseStructuredResponse({
-    client,
-    model,
-    input,
-    format: SettingsAssistantResponseFormat,
-    errorMessage: "OpenAI response did not include parsed settings output.",
-  });
+  let parsed;
+  try {
+    parsed = await parseStructuredResponse({
+      client,
+      model,
+      input,
+      format: SettingsAssistantResponseFormat,
+      schema: SettingsAssistantResponseSchema,
+      errorMessage: "OpenAI response did not include parsed settings output.",
+    });
+  } catch {
+    const response = await client.responses.create({ model, input });
+    parsed = buildSettingsAssistantFallback(response?.output_text ?? "");
+  }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
@@ -1190,7 +1282,7 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   });
 }
 
-export async function streamSettingsAssistant({ message, messages = [], onText }) {
+export async function streamSettingsAssistant({ message, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
@@ -1219,14 +1311,23 @@ export async function streamSettingsAssistant({ message, messages = [], onText }
     userContent: cleanUserMessage(message),
   });
 
-  const parsed = await streamStructuredResponse({
+  // Do not stream structured JSON deltas into the UI; wait for the full text and parse once.
+  const output = await streamResponseText({
     client,
     model,
     input,
-    schema: SettingsAssistantResponseSchema,
-    onText,
-    errorMessage: "OpenAI response did not include parsed settings output.",
   });
+
+  let parsed;
+  try {
+    parsed = parseJsonText({
+      text: output,
+      schema: SettingsAssistantResponseSchema,
+      errorMessage: "OpenAI response did not include parsed settings output.",
+    });
+  } catch {
+    parsed = buildSettingsAssistantFallback(output);
+  }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,

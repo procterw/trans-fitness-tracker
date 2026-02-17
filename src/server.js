@@ -682,6 +682,50 @@ function hasPendingSettingsChanges(changes) {
   );
 }
 
+function canonicalizeUserProfilePatch(patch) {
+  if (!isPlainObject(patch)) return null;
+  const out = structuredClone(patch);
+
+  const moveKeys = (targetKey, keys) => {
+    const target = isPlainObject(out[targetKey]) ? { ...out[targetKey] } : {};
+    let moved = false;
+    for (const key of keys) {
+      if (!(key in out)) continue;
+      if (!(key in target)) target[key] = out[key];
+      delete out[key];
+      moved = true;
+    }
+    if (moved) out[targetKey] = target;
+  };
+
+  moveKeys("general", ["age", "height_cm", "weight_lb_baseline", "timezone"]);
+  moveKeys("behavior", ["motivation_barriers", "adherence_triggers"]);
+  moveKeys("fitness", ["experience_level", "injuries_limitations", "equipment_access"]);
+  moveKeys("nutrition", ["food_restrictions", "food_allergies", "preferences", "food_preferences"]);
+  moveKeys("assistant_preferences", ["tone", "verbosity"]);
+
+  const goalsText = isPlainObject(out.goals_text) ? { ...out.goals_text } : {};
+  let movedGoalsText = false;
+  for (const key of ["overall_goals", "diet_goals", "fitness_goals"]) {
+    if (!(key in out)) continue;
+    if (!(key in goalsText)) goalsText[key] = out[key];
+    delete out[key];
+    movedGoalsText = true;
+  }
+  if (movedGoalsText) out.goals_text = goalsText;
+
+  return out;
+}
+
+function isHighImpactSettingsProposal(changes) {
+  if (!isPlainObject(changes)) return false;
+  if (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) return true;
+  if (isPlainObject(changes.diet_philosophy_patch) && Object.keys(changes.diet_philosophy_patch).length) return true;
+  if (isPlainObject(changes.fitness_philosophy_patch) && Object.keys(changes.fitness_philosophy_patch).length) return true;
+  if (isPlainObject(changes.user_profile_patch) && hasGoalsTextPatch(changes.user_profile_patch)) return true;
+  return false;
+}
+
 function isValidSettingsProposal(value) {
   if (!isPlainObject(value)) return false;
   const keys = [
@@ -703,6 +747,7 @@ function isValidSettingsProposal(value) {
 async function applySettingsChanges({ proposal, applyMode = "now" }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
   const mode = applyMode === "next_week" ? "next_week" : "now";
+  const normalizedUserProfilePatch = canonicalizeUserProfilePatch(proposal.user_profile_patch);
   const normalizedChecklistCategories =
     proposal.checklist_categories === null || proposal.checklist_categories === undefined
       ? null
@@ -715,9 +760,9 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
   const data = await readTrackingData();
   const changesApplied = [];
 
-  if (proposal.user_profile_patch) {
-    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, proposal.user_profile_patch);
-    if (hasGoalsTextPatch(proposal.user_profile_patch)) {
+  if (normalizedUserProfilePatch) {
+    data.user_profile = mergeObjectPatch(data.user_profile ?? {}, normalizedUserProfilePatch);
+    if (hasGoalsTextPatch(normalizedUserProfilePatch)) {
       data.user_profile = applyGoalTextDerivation(data.user_profile, { now: new Date() });
     }
     changesApplied.push("Updated generic user profile.");
@@ -757,7 +802,7 @@ async function applySettingsChanges({ proposal, applyMode = "now" }) {
     const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
     const nextVersion = currentVersion + 1;
     const domains = [];
-    if (proposal.user_profile_patch) domains.push("user_profile");
+    if (normalizedUserProfilePatch) domains.push("user_profile");
     if (proposal.diet_philosophy_patch) domains.push("diet_philosophy");
     if (proposal.fitness_philosophy_patch) domains.push("fitness_philosophy");
     if (normalizedChecklistCategories) domains.push("checklist_template");
@@ -912,6 +957,7 @@ app.post("/api/settings/chat", async (req, res) => {
       : await askSettingsAssistant({ message, messages });
 
     const changes = result?.changes ?? {};
+    changes.user_profile_patch = canonicalizeUserProfilePatch(changes.user_profile_patch);
     const goalsTextChanged = hasGoalsTextPatch(changes.user_profile_patch);
     if (goalsTextChanged && !Array.isArray(changes.checklist_categories)) {
       try {
@@ -921,22 +967,13 @@ app.post("/api/settings/chat", async (req, res) => {
           mergeObjectPatch(data.user_profile ?? {}, changes.user_profile_patch ?? {}),
           { now: new Date() },
         );
-        const checklistDraft = await (stream
-          ? streamOnboardingChecklist({
-              message: "Create an updated weekly workout checklist from my latest goals text.",
-              messages,
-              userProfile: patchedProfile,
-              currentWeek: data.current_week ?? null,
-              currentProposal: null,
-              onText: (delta) => sendStreamingAssistantChunk(res, delta),
-            })
-          : proposeOnboardingChecklist({
-              message: "Create an updated weekly workout checklist from my latest goals text.",
-              messages,
-              userProfile: patchedProfile,
-              currentWeek: data.current_week ?? null,
-              currentProposal: null,
-            }));
+        const checklistDraft = await proposeOnboardingChecklist({
+          message: "Create an updated weekly workout checklist from my latest goals text.",
+          messages,
+          userProfile: patchedProfile,
+          currentWeek: data.current_week ?? null,
+          currentProposal: null,
+        });
         changes.checklist_categories = checklistDraft.checklist_categories;
       } catch (err) {
         // eslint-disable-next-line no-console
@@ -944,8 +981,13 @@ app.post("/api/settings/chat", async (req, res) => {
       }
     }
     const hasProposal = hasPendingSettingsChanges(changes);
-    const proposalId = hasProposal ? crypto.randomUUID() : null;
-    const checklistPreview = Array.isArray(changes?.checklist_categories)
+    const requiresConfirmation = hasProposal && isHighImpactSettingsProposal(changes);
+    const autoApplied = hasProposal && !requiresConfirmation
+      ? await applySettingsChanges({ proposal: changes, applyMode: "now" })
+      : null;
+
+    const proposalId = requiresConfirmation ? crypto.randomUUID() : null;
+    const checklistPreview = Array.isArray(changes?.checklist_categories) && requiresConfirmation
       ? formatChecklistCategoriesMarkdown(changes.checklist_categories, {
           heading: "Updated workout checklist to review before confirming:",
         })
@@ -953,7 +995,8 @@ app.post("/api/settings/chat", async (req, res) => {
     const assistantMessage = [
       typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "",
       checklistPreview,
-      hasProposal ? "Proposed settings changes are ready. Confirm to apply." : "",
+      requiresConfirmation ? "Proposed settings changes are ready. Confirm to apply." : "",
+      autoApplied?.changesApplied?.length ? "Applied settings changes." : "",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -962,11 +1005,13 @@ app.post("/api/settings/chat", async (req, res) => {
       ok: true,
       assistant_message: assistantMessage,
       followup_question: result.followup_question ?? null,
-      requires_confirmation: hasProposal,
+      requires_confirmation: requiresConfirmation,
       proposal_id: proposalId,
-      proposal: hasProposal ? changes : null,
-      changes_applied: [],
-      updated: null,
+      proposal: requiresConfirmation ? changes : null,
+      changes_applied: Array.isArray(autoApplied?.changesApplied) ? autoApplied.changesApplied : [],
+      updated: autoApplied?.updated ?? null,
+      settings_version: autoApplied?.settingsVersion ?? null,
+      effective_from: autoApplied?.effectiveFrom ?? null,
     };
     if (stream) {
       sendStreamingAssistantDone(res, payload);

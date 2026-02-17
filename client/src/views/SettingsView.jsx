@@ -53,7 +53,7 @@ export default function SettingsView({
                           type="button"
                           className="small"
                           disabled={settingsLoading}
-                          onClick={() => onConfirmSettingsProposal(m.id, "now")}
+                          onClick={() => onConfirmSettingsProposal(m.id, "now", m.proposal)}
                         >
                           Confirm changes
                         </button>
@@ -62,7 +62,7 @@ export default function SettingsView({
                             type="button"
                             className="secondary small"
                             disabled={settingsLoading}
-                            onClick={() => onConfirmSettingsProposal(m.id, "next_week")}
+                            onClick={() => onConfirmSettingsProposal(m.id, "next_week", m.proposal)}
                           >
                             Apply checklist next week
                           </button>

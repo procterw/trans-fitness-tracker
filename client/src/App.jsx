@@ -903,6 +903,23 @@ export default function App() {
         });
       }
 
+      if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
+        settingsMessageIdRef.current += 1;
+        const versionLabel =
+          typeof json?.settings_version === "number" ? ` (settings v${json.settings_version})` : "";
+        const effectiveLabel =
+          typeof json?.effective_from === "string" && json.effective_from
+            ? ` Effective: ${json.effective_from}.`
+            : "";
+        assistantMessages.push({
+          id: settingsMessageIdRef.current,
+          role: "assistant",
+          content: `✓ ${json.changes_applied.join(" ")}${versionLabel}.${effectiveLabel}`,
+          format: "plain",
+          tone: "status",
+        });
+      }
+
       if (assistantMessages.length) {
         setSettingsMessages((prev) => [...prev, ...assistantMessages]);
       }
@@ -953,6 +970,9 @@ export default function App() {
       if (responsePayload?.updated?.current_week) {
         setFitnessWeek(responsePayload.updated.current_week);
       }
+      if (Array.isArray(responsePayload?.changes_applied) && responsePayload.changes_applied.length) {
+        refreshAppContext().catch(() => {});
+      }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -965,13 +985,16 @@ export default function App() {
     await sendSettingsMessage(settingsInput);
   };
 
-  const onConfirmSettingsProposal = async (messageId, applyMode = "now") => {
+  const onConfirmSettingsProposal = async (messageId, applyMode = "now", proposalOverride = null) => {
     if (settingsLoading) return;
     setSettingsError("");
 
     const target = settingsMessages.find((msg) => msg.id === messageId);
-    const proposal = target?.proposal ?? null;
-    if (!proposal) return;
+    const proposal = proposalOverride ?? target?.proposal ?? null;
+    if (!proposal) {
+      setSettingsError("Could not find pending settings changes to confirm.");
+      return;
+    }
 
     setSettingsLoading(true);
     try {
@@ -1004,6 +1027,18 @@ export default function App() {
             id: settingsMessageIdRef.current,
             role: "assistant",
             content: `✓ ${json.changes_applied.join(" ")}${versionLabel}.${effectiveLabel}`,
+            format: "plain",
+            tone: "status",
+          },
+        ]);
+      } else {
+        settingsMessageIdRef.current += 1;
+        setSettingsMessages((prev) => [
+          ...prev,
+          {
+            id: settingsMessageIdRef.current,
+            role: "assistant",
+            content: "No settings changes were applied.",
             format: "plain",
             tone: "status",
           },
