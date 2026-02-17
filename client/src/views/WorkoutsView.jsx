@@ -146,7 +146,7 @@ export default function WorkoutsView({
   const categories = getFitnessCategories(fitnessWeek);
 
   return (
-    <div className="mainScroll">
+    <div className="mainScroll workoutsView">
       <section className="card fitnessCard workoutsCard">
         <h2>
           Workouts this week

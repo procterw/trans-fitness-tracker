@@ -28,12 +28,12 @@ export default function GoalChecklistSidebar({ className = "", goalSummary = nul
   const dietGoals = asGoalList(goalSummary?.diet_goals);
   const fitnessGoals = asGoalList(goalSummary?.fitness_goals);
   const healthGoals = asGoalList(goalSummary?.health_goals);
-  const rootClassName = `workflowSidebar ${className}`.trim();
+  const rootClassName = `workflowSidebar settingsGoalChecklistSidebar ${className}`.trim();
   const overallGoalSummary = buildOverallGoalSummary({ dietGoals, fitnessGoals, healthGoals });
 
   return (
     <aside className={rootClassName} aria-label="Goals and weekly checklist">
-      <h3 className="workflowSidebarHeading">Goals</h3>
+      <h3 className="sidebarHeading">Goals</h3>
       <p className="workflowSidebarSummary">{overallGoalSummary}</p>
 
       <div className="workflowSidebarGoalBlock">
@@ -66,7 +66,7 @@ export default function GoalChecklistSidebar({ className = "", goalSummary = nul
         )}
       </div>
 
-      <h3 className="workflowSidebarHeading workflowChecklistHeading">Weekly checklist</h3>
+      <h3 className="sidebarHeading">Weekly checklist</h3>
       {Array.isArray(checklistCategories) && checklistCategories.length ? (
         <div className="sidebarChecklist">
           {checklistCategories.map((category) => {
@@ -75,19 +75,15 @@ export default function GoalChecklistSidebar({ className = "", goalSummary = nul
             const items = Array.isArray(category?.items) ? category.items : [];
             return (
               <div key={key || label} className="sidebarChecklistGroup">
-                <h4 className="sidebarChecklistHeader">{label}</h4>
+                <h4 className="sidebarSectionLabel">{label}</h4>
                 <div className="sidebarChecklistItems">
                   {items.length ? (
                     items.map((it, idx) => {
                       const itemLabel = typeof it?.item === "string" ? it.item : "";
                       if (!itemLabel) return null;
                       const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
-                      const checked = it?.checked === true;
                       return (
-                        <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : "todo"}`}>
-                          <span className={`sidebarChecklistMark ${checked ? "checked" : "unchecked"}`} aria-hidden="true">
-                            {checked ? "✓" : ""}
-                          </span>
+                        <div key={idx} className="sidebarChecklistItem">
                           <span className="sidebarChecklistText">
                             <span>{itemLabel}</span>
                             {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}

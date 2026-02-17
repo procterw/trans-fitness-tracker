@@ -120,9 +120,9 @@ export default function DietView({
   const dayEatingSummary = buildTodayNarrative({ recentEvents, dayTotals });
 
   return (
-    <div className="mainScroll">
+    <div className="mainScroll foodLogView">
       <section className="card fitnessCard dietCard">
-        <h2>Diet</h2>
+        <h2>Food log</h2>
 
         {dashError ? (
           <div className="status dietErrorStatus">

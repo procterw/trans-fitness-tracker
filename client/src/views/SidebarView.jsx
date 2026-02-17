@@ -1,11 +1,8 @@
 import React from "react";
 
-import TabButton from "../components/TabButton.jsx";
 import { getFitnessCategories } from "../fitnessChecklist.js";
 
 export default function SidebarView({
-  activeView,
-  onChangeView,
   foodDate,
   suggestedDate,
   sidebarDayError,
@@ -23,33 +20,6 @@ export default function SidebarView({
 
   return (
     <aside id="app-sidebar-nav" className="sidebar">
-      <nav className="sidebarTabs" aria-label="Sections">
-        <TabButton active={activeView === "chat"} onClick={() => onChangeView("chat")}>
-          <span className="tabIcon" aria-hidden="true">
-            💬
-          </span>
-          <span>Chat</span>
-        </TabButton>
-        <TabButton active={activeView === "workouts"} onClick={() => onChangeView("workouts")}>
-          <span className="tabIcon" aria-hidden="true">
-            ⚖️
-          </span>
-          <span>Workouts</span>
-        </TabButton>
-        <TabButton active={activeView === "diet"} onClick={() => onChangeView("diet")}>
-          <span className="tabIcon" aria-hidden="true">
-            🍎
-          </span>
-          <span>Diet</span>
-        </TabButton>
-        <TabButton active={activeView === "settings"} onClick={() => onChangeView("settings")}>
-          <span className="tabIcon" aria-hidden="true">
-            ⚙️
-          </span>
-          <span>Settings</span>
-        </TabButton>
-      </nav>
-
       <section className="sidebarCard">
         <div className="sidebarSectionHeader">
           <h2 className="sidebarHeading">Day so far</h2>
@@ -62,17 +32,17 @@ export default function SidebarView({
         {!sidebarDayStatus && !sidebarDayError ? (
           <ul className="sidebarList">
             <li className="sidebarListItem">
-              <span className="sidebarListLabel">Meals</span>
+              <span className="sidebarSectionLabel">Meals</span>
               <span>{sidebarDayMealsSummary}</span>
             </li>
             <li className="sidebarListItem">
-              <span className="sidebarListLabel">Totals</span>
+              <span className="sidebarSectionLabel">Totals</span>
               <span>
                 {fmt(sidebarCalories)} kcal • P {fmt(sidebarProtein)} g • C {fmt(sidebarCarbs)} g • F {fmt(sidebarFat)} g
               </span>
             </li>
             <li className="sidebarListItem">
-              <span className="sidebarListLabel">Quality</span>
+              <span className="sidebarSectionLabel">Quality</span>
               <span>{sidebarQualitySummary}</span>
             </li>
           </ul>
@@ -92,7 +62,7 @@ export default function SidebarView({
             {fitnessCategories.length ? (
               fitnessCategories.map(({ key, label, items }) => (
                 <div key={key} className="sidebarChecklistGroup">
-                  <h3 className="sidebarChecklistHeader">{label}</h3>
+                <h3 className="sidebarSectionLabel">{label}</h3>
                   <div className="sidebarChecklistItems">
                     {items.length ? (
                       items.map((it, idx) => {

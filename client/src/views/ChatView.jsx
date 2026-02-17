@@ -20,10 +20,16 @@ export default function ChatView({
   onComposerInputChange,
   onComposerInputAutoSize,
 }) {
+  const isEmptyChat = composerMessages.length === 0 && !composerLoading;
+
   return (
-    <section className="chatPanel">
+    <section className={`chatPanel ${isEmptyChat ? "chatPanelEmpty" : ""}`}>
       <div className="chatBox chatBoxFull">
-        <div ref={chatMessagesRef} className="chatMessages" aria-label="Conversation">
+        <div
+          ref={chatMessagesRef}
+          className={`chatMessages ${isEmptyChat ? "chatMessagesEmpty" : ""}`}
+          aria-label="Conversation"
+        >
           {composerMessages.length ? (
             composerMessages.map((m, idx) => (
               <div
@@ -58,8 +64,13 @@ export default function ChatView({
             ))
           ) : (
             <div className="chatEmptyState">
-              <span className="chatEmptyEmoji" role="img" aria-label="Peach">
-                🍑
+              <span className="chatEmptyEmojiWrap" aria-hidden="true">
+                <span className="chatEmptyEmoji" role="img" aria-label="Peach">
+                  🍑
+                </span>
+                <span className="chatEmptyEmojiReflection" role="presentation" aria-hidden="true">
+                  🍑
+                </span>
               </span>
             </div>
           )}

@@ -1315,36 +1315,11 @@ export default function App() {
   }
 
   return (
-    <div className={`appShell ${mobileNavOpen ? "mobileNavOpen" : ""}`}>
-      <SidebarView
-        activeView={view}
-        onChangeView={(nextView) => {
-          setView(nextView);
-          setMobileNavOpen(false);
-        }}
-        foodDate={foodDate}
-        suggestedDate={suggestedDate}
-        sidebarDayError={sidebarDayError}
-        sidebarDayStatus={sidebarDayStatus}
-        sidebarDayMealsSummary={sidebarDayMealsSummary}
-        sidebarCalories={sidebarCalories}
-        sidebarProtein={sidebarProtein}
-        sidebarCarbs={sidebarCarbs}
-        sidebarFat={sidebarFat}
-        sidebarQualitySummary={sidebarQualitySummary}
-        fitnessWeek={fitnessWeek}
-        fmt={fmt}
-      />
-      <button
-        type="button"
-        className="sidebarBackdrop"
-        aria-label="Close navigation menu"
-        onClick={() => setMobileNavOpen(false)}
-      />
-
+    <div className={`appShell`}>
       <main className="mainColumn">
         <AppNavbar
           title="Get fit and hot"
+          activeView={view}
           authEnabled={authEnabled}
           authSession={authSession}
           authStatus={authStatus}
@@ -1352,52 +1327,12 @@ export default function App() {
           onSignIn={onSignIn}
           onSignOut={onSignOut}
           mobileNavOpen={mobileNavOpen}
-          onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
+          onToggleMobileNav={null}
+          onChangeView={(nextView) => {
+            setView(nextView);
+            setMobileNavOpen(false);
+          }}
         />
-
-        {view === "chat" ? (
-          <ChatView
-            chatMessagesRef={chatMessagesRef}
-            composerMessages={composerMessages}
-            composerLoading={composerLoading}
-            composerError={composerError}
-            foodFormRef={foodFormRef}
-            foodFileInputRef={foodFileInputRef}
-            composerInputRef={composerInputRef}
-            foodAttachments={foodAttachments}
-            foodDate={foodDate}
-            composerInput={composerInput}
-            onSubmitFood={onSubmitFood}
-            onPickFoodFiles={onPickFoodFiles}
-            onRemoveFoodAttachment={removeFoodAttachment}
-            onFoodDateChange={setFoodDate}
-            onComposerInputChange={setComposerInput}
-            onComposerInputAutoSize={autosizeComposerTextarea}
-          />
-        ) : null}
-
-        {view === "workouts" ? (
-          <WorkoutsView
-            fitnessWeek={fitnessWeek}
-            fitnessLoading={fitnessLoading}
-            fitnessHistory={fitnessHistory}
-            fitnessHistoryError={fitnessHistoryError}
-            fitnessHistoryLoading={fitnessHistoryLoading}
-            onToggleFitness={onToggleFitness}
-            onEditFitnessDetails={onEditFitnessDetails}
-          />
-        ) : null}
-
-        {view === "diet" ? (
-          <DietView
-            dashError={dashError}
-            dashRecentEvents={dashRecentEvents}
-            dashRecentEventsLoading={dashRecentEventsLoading}
-            dashRecentEventsError={dashRecentEventsError}
-            dashFoodLogRows={dashFoodLogRows}
-            fmt={fmt}
-          />
-        ) : null}
 
         {view === "settings" ? (
           <SettingsView
@@ -1413,8 +1348,71 @@ export default function App() {
             onSubmitSettings={onSubmitSettings}
             onConfirmSettingsProposal={onConfirmSettingsProposal}
             onSettingsInputChange={setSettingsInput}
+            onSettingsInputAutoSize={autosizeComposerTextarea}
           />
-        ) : null}
+        ) : (
+          <div className="mainContentRow">
+            <SidebarView
+              foodDate={foodDate}
+              suggestedDate={suggestedDate}
+              sidebarDayError={sidebarDayError}
+              sidebarDayStatus={sidebarDayStatus}
+              sidebarDayMealsSummary={sidebarDayMealsSummary}
+              sidebarCalories={sidebarCalories}
+              sidebarProtein={sidebarProtein}
+              sidebarCarbs={sidebarCarbs}
+              sidebarFat={sidebarFat}
+              sidebarQualitySummary={sidebarQualitySummary}
+              fitnessWeek={fitnessWeek}
+              fmt={fmt}
+            />
+            <div className="mainPrimaryColumn">
+              {view === "chat" ? (
+                <ChatView
+                  chatMessagesRef={chatMessagesRef}
+                  composerMessages={composerMessages}
+                  composerLoading={composerLoading}
+                  composerError={composerError}
+                  foodFormRef={foodFormRef}
+                  foodFileInputRef={foodFileInputRef}
+                  composerInputRef={composerInputRef}
+                  foodAttachments={foodAttachments}
+                  foodDate={foodDate}
+                  composerInput={composerInput}
+                  onSubmitFood={onSubmitFood}
+                  onPickFoodFiles={onPickFoodFiles}
+                  onRemoveFoodAttachment={removeFoodAttachment}
+                  onFoodDateChange={setFoodDate}
+                  onComposerInputChange={setComposerInput}
+                  onComposerInputAutoSize={autosizeComposerTextarea}
+                />
+              ) : null}
+
+              {view === "workouts" ? (
+                <WorkoutsView
+                  fitnessWeek={fitnessWeek}
+                  fitnessLoading={fitnessLoading}
+                  fitnessHistory={fitnessHistory}
+                  fitnessHistoryError={fitnessHistoryError}
+                  fitnessHistoryLoading={fitnessHistoryLoading}
+                  onToggleFitness={onToggleFitness}
+                  onEditFitnessDetails={onEditFitnessDetails}
+                />
+              ) : null}
+
+              {view === "diet" ? (
+                <DietView
+                  dashError={dashError}
+                  dashRecentEvents={dashRecentEvents}
+                  dashRecentEventsLoading={dashRecentEventsLoading}
+                  dashRecentEventsError={dashRecentEventsError}
+                  dashFoodLogRows={dashFoodLogRows}
+                  fmt={fmt}
+                />
+              ) : null}
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

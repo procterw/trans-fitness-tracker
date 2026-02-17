@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import TabButton from "./TabButton.jsx";
 
 function getUserLabel(user) {
   if (!user) return "";
@@ -18,6 +19,7 @@ function getAvatarText(userLabel) {
 
 export default function AppNavbar({
   title,
+  activeView,
   authEnabled,
   authSession,
   authStatus,
@@ -26,6 +28,7 @@ export default function AppNavbar({
   onSignOut,
   mobileNavOpen,
   onToggleMobileNav,
+  onChangeView,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -73,6 +76,20 @@ export default function AppNavbar({
           </button>
         ) : null}
         <div className="appNavbarTitle">{title}</div>
+        <div className="navbarTabs">
+          <TabButton active={activeView === "chat"} onClick={() => onChangeView?.("chat")}>
+            <span>Chat</span>
+          </TabButton>
+          <TabButton active={activeView === "workouts"} onClick={() => onChangeView?.("workouts")}>
+            <span>Workouts</span>
+          </TabButton>
+          <TabButton active={activeView === "diet"} onClick={() => onChangeView?.("diet")}>
+            <span>Food log</span>
+          </TabButton>
+          <TabButton active={activeView === "settings"} onClick={() => onChangeView?.("settings")}>
+            <span>Settings</span>
+          </TabButton>
+        </div>
       </div>
 
       <div className="appNavbarSide appNavbarSideRight">

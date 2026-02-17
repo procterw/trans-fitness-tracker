@@ -2,7 +2,7 @@
 
 :root {
   color-scheme: light dark;
-  --bg: #f2f4f9;
+  --bg: #ffffff;
   --card: #ffffff;
   --text: #1b1e27;
   --muted: #667085;
@@ -17,6 +17,7 @@
   --chat-bubble: #dbe8ff;
   --chat-bubble-border: #b5cbff;
   --composer-border: #777;
+  --sidebar-label: #111;
   --inline-card: #f9fafc;
   --pill-border: var(--border);
 }
@@ -38,6 +39,7 @@
     --chat-bubble: #1848d9;
     --chat-bubble-border: transparent;
     --composer-border: #3b4454;
+    --sidebar-label: #eef1f6;
     --inline-card: #161c26;
     --pill-border: #3b4454;
   }
@@ -50,7 +52,7 @@
 body {
   margin: 0;
   font-family: "Noto Sans", sans-serif;
-  background: linear-gradient(180deg, var(--card) 0%, var(--bg) 100%);
+  background: var(--bg);
   color: var(--text);
 }
 
@@ -72,7 +74,7 @@ a {
   top: 0;
   z-index: 20;
   min-height: 50px;
-  padding: 8px 14px;
+  padding: 8px 18px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--card) 90%, transparent);
   backdrop-filter: blur(5px);
@@ -88,6 +90,26 @@ a {
   gap: 14px;
   flex: 1;
   min-width: 0;
+}
+
+.navbarTabs {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+  justify-content: center;
+}
+
+.navbarTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.navbarTabs .tab {
+  flex: 0 0 auto;
+  width: auto;
 }
 
 .appNavbarSide {
@@ -108,7 +130,7 @@ a {
   font-size: clamp(12px, 1.3vw, 15px);
   line-height: 1;
   font-weight: 900;
-  font-style: italic;
+  font-style: normal;
   text-transform: uppercase;
   letter-spacing: 0.01em;
 }
@@ -164,7 +186,7 @@ a {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  background: var(--chat-bubble);
+  background: #28496f;
   color: #fff;
   display: inline-grid;
   place-items: center;
@@ -219,28 +241,58 @@ a {
 
 .appShell {
   min-height: 100vh;
-  height: 100vh;
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  min-height: 100dvh;
+  height: 100dvh;
+  display: block;
   background: transparent;
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  border-right: 1px solid var(--border);
+  position: static;
+  top: auto;
+  height: 100%;
+  min-height: 0;
   background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  width: min(100%, 370px);
+  max-width: 370px;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding-bottom: 30px;
+  padding-top: 10px;
   overflow-y: auto;
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.mainContentRow {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 370px) minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mainPrimaryColumn {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
 }
 
 .mainColumn {
   min-height: 100vh;
-  height: 100vh;
+  min-height: 100dvh;
+  height: 100dvh;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -319,9 +371,9 @@ a {
   gap: 10px;
 }
 
-.workflowSidebarHeading {
-  margin: 0 0 10px;
-  font-size: 14px;
+.sidebarHeading {
+  margin: 0;
+  font-size: 16px;
 }
 
 .workflowSidebarSubheading {
@@ -341,10 +393,6 @@ a {
 
 .workflowSidebarGoalBlock + .workflowSidebarGoalBlock {
   margin-top: 10px;
-}
-
-.workflowChecklistHeading {
-  margin-top: 14px;
 }
 
 .workflowSidebarList {
@@ -401,6 +449,12 @@ a {
   min-height: 0;
 }
 
+.foodLogView,
+.workoutsView {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
 p.appSubtitle {
   margin: 0;
   font-size: 13px;
@@ -430,8 +484,12 @@ h1,
 h2,
 h3 {
   font-weight: 900;
-  font-style: italic;
-  text-transform: uppercase;
+  font-style: normal;
+  text-transform: none;
+}
+
+h2 {
+  font-weight: 700;
 }
 
 h2:focus {
@@ -471,8 +529,8 @@ h2:focus {
 }
 
 .tab.active {
-  background: color-mix(in srgb, var(--chat-bubble) 22%, transparent);
-  color: var(--text);
+  background: #28496f;
+  color: #ffffff;
 }
 
 .sidebarTabs {
@@ -497,13 +555,12 @@ h2:focus {
   padding: 10px 10px;
 }
 
-.tabIcon {
-  width: 16px;
+.navbarTabs .tab {
   display: inline-flex;
-  justify-content: center;
   align-items: center;
-  font-size: 14px;
-  line-height: 1;
+  gap: 12px;
+  text-align: left;
+  padding: 8px 10px;
 }
 
 label {
@@ -699,7 +756,7 @@ ul {
 
 .chatBox {
   border: none;
-  border-radius: 20px;
+  border-radius: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -710,6 +767,9 @@ ul {
 .chatBoxFull {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .chatBodySplit {
@@ -721,9 +781,10 @@ ul {
 
 .chatMessages {
   flex: 1;
+  min-height: 0;
   max-height: none;
   overflow: auto;
-  padding: 22px 24px 18px;
+  padding: 24px 24px 20px;
   background: var(--chat-bg);
   color: var(--chat-text);
   display: flex;
@@ -732,7 +793,7 @@ ul {
   font-family: inherit;
   font-size: 14px;
   line-height: 1.45;
-  max-width: 800px;
+  max-width: 768px;
   margin: auto;
   width: 100%;
 }
@@ -742,9 +803,35 @@ ul {
   max-width: none;
 }
 
-.chatContextPanel.workflowSidebar {
-  border-left: 1px solid var(--border);
-  background: color-mix(in srgb, var(--chat-bg) 94%, var(--sidebar));
+.settingsChatSplit {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.settingsChatSplit .sidebar {
+  width: min(100%, 420px);
+  max-width: 420px;
+  padding: 6px 18px 30px;
+}
+
+.settingsChatColumn {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+}
+
+.settingsChatMessages {
+  max-width: 768px;
+  width: 100%;
+  margin: auto;
 }
 
 .chatMsg {
@@ -764,9 +851,8 @@ ul {
   width: auto;
   max-width: min(68%, 580px);
   background: var(--chat-bubble);
-  border: 1px solid var(--chat-bubble-border);
-  border-radius: 100px;
-  padding: 8px 14px;
+  border-radius: 24px 2px 24px 24px;
+  padding: 12px 22px;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 
@@ -831,11 +917,42 @@ ul {
   width: 100%;
   display: grid;
   place-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.chatEmptyEmojiWrap {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+  opacity: 0;
+  visibility: hidden;
+}
+
+.chatEmptyEmojiReflection {
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 170%;
+  transform: translateX(-50%) scaleY(-1);
+  transform-origin: top;
+  font-size: clamp(40px, 10vw, 72px);
+  line-height: 1;
+  opacity: 0.28;
+  pointer-events: none;
+  filter: blur(1.5px);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+  overflow: hidden;
+  max-height: 60%;
 }
 
 .chatEmptyEmoji {
-  font-size: clamp(56px, 14vw, 104px);
+  font-size: clamp(40px, 10vw, 72px);
   line-height: 1;
+  filter: drop-shadow(0 1px 2px color-mix(in srgb, black 18%, transparent));
+  position: relative;
+  z-index: 1;
 }
 
 .chatInlineCard {
@@ -849,10 +966,30 @@ ul {
 
 .chatPanel {
   flex: 1;
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.chatPanelEmpty .chatBoxFull {
+  justify-content: center;
+}
+
+.chatPanelEmpty .chatMessagesEmpty {
+  flex: 0 0 auto;
+}
+
+.chatPanelEmpty .chatComposer {
+  transform: translateY(-60vh);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chatMessagesEmpty {
+  flex: 0 0 clamp(140px, 28vh, 240px) !important;
+  max-height: clamp(140px, 28vh, 240px) !important;
+  overflow: auto;
 }
 
 .chatRole {
@@ -970,6 +1107,11 @@ ul {
   position: sticky;
   bottom: 0;
   z-index: 2;
+  max-width: 768px;
+  width: 100%;
+  margin: 0 auto;
+  transform: translateY(0);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .composerPreviewRow {
@@ -1022,13 +1164,14 @@ ul {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  padding: 10px 12px;
-  border: none;
-  border-top: 1px solid var(--composer-border);
-  border-radius: 0;
+  padding: 17px 18px;
+  margin-bottom: 15px;
+  border: 1px solid color-mix(in srgb, var(--composer-border) 20%, transparent);
+  border-radius: 25px;
   background: var(--chat-bg);
   flex-wrap: wrap;
   row-gap: 8px;
+  box-shadow: 0 3px 10px color-mix(in srgb, black 4%, transparent);
 }
 
 .composerPreviewRow + .composerBar {
@@ -1039,6 +1182,11 @@ ul {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+}
+
+.composerTopRow .iconButton,
+.composerTopRow input.composerDateInput {
+  align-self: stretch;
 }
 
 .composerBottomRow {
@@ -1090,6 +1238,14 @@ ul {
   place-items: center;
 }
 
+.composerTopRow .iconButton {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 0;
+}
+
 .iconButton {
   background: transparent;
   color: var(--chat-text);
@@ -1100,9 +1256,9 @@ ul {
 }
 
 .sendButton {
-  background: var(--chat-bubble);
+  background: #28496f;
   color: white;
-  border-color: var(--chat-bubble-border);
+  border-color: #28496f;
   border-radius: 999px;
 }
 
@@ -1189,23 +1345,30 @@ ul {
   margin: 0;
   padding: 6px 10px;
   border-radius: 0;
-  font-weight: 900;
+  font-weight: 500;
   font-size: 12px;
   background: transparent;
   color: var(--chat-text);
   border: 1px solid var(--pill-border);
 }
 
+.composerTopRow .datePillInput.composerDateInput {
+  margin-top: 0;
+}
+
 .composerDateInput {
-  height: 38px;
+  height: 40px;
+  min-height: 40px;
   margin-top: 0;
   width: auto !important;
   min-width: 0;
   max-width: 120px;
   inline-size: max-content;
-  padding: 6px 8px;
+  padding: 0 8px;
   font-size: 11px;
+  line-height: 40px;
   flex: 0 0 auto;
+  box-sizing: border-box;
 }
 
 .pillRow {
@@ -1282,7 +1445,7 @@ ul {
 .sidebarDate {
   font-size: 12px;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .sidebarList {
@@ -1299,12 +1462,13 @@ ul {
   gap: 4px;
 }
 
-.sidebarListLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  font-weight: 800;
+.sidebarSectionLabel {
+  margin: 0;
+  font-size: 13px;
+  font-style: normal;
+  color: #111;
+  color: var(--sidebar-label);
+  font-weight: 700;
 }
 
 .sidebarProgress {
@@ -1324,16 +1488,19 @@ ul {
   gap: 12px;
 }
 
-.sidebarChecklistHeader {
-  margin: 0;
-  font-size: 14px;
-}
-
 .sidebarChecklistItems {
   margin-top: 6px;
   display: grid;
   gap: 4px;
   font-size: 12px;
+}
+
+.settingsGoalChecklistSidebar .sidebarHeading {
+  margin-top: 12px;
+}
+
+.settingsGoalChecklistSidebar .workflowSidebarGoalBlock + .sidebarHeading {
+  margin-top: 18px;
 }
 
 .sidebarChecklistItem {
@@ -1626,60 +1793,40 @@ ul {
     gap: 8px;
   }
 
+  .navbarTabs .tab {
+    padding: 8px 9px;
+  }
+
   .mobileMenuButton {
     display: inline-grid;
   }
 
   .appShell {
-    grid-template-columns: 1fr;
     min-height: 100vh;
     height: 100dvh;
     position: relative;
   }
 
   .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    height: 100dvh;
-    width: min(84vw, 320px);
-    border-right: 1px solid var(--border);
-    border-bottom: none;
-    transform: translateX(-105%);
-    transition: transform 180ms ease;
-    z-index: 35;
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
-    padding-top: 54px;
-  }
-
-  .appShell.mobileNavOpen .sidebar {
-    transform: translateX(0);
-  }
-
-  .sidebarTabs {
+    border-bottom: 1px solid var(--border);
+    border-right: none;
+    transform: none;
+    width: min(100%, 370px);
+    max-width: 370px;
+    flex: 0 0 auto;
+    box-shadow: none;
+    z-index: auto;
+    padding-top: 0;
+    height: auto;
     position: static;
-    border-bottom: none;
+    left: auto;
   }
-
-  .sidebarCard {
+  .sidebarBackdrop {
     display: none;
   }
 
-  .sidebarBackdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 30;
-    border: none;
-    background: rgba(0, 0, 0, 0.42);
-    opacity: 0;
-    pointer-events: none;
+  .mainContentRow {
     display: block;
-    transition: opacity 180ms ease;
-  }
-
-  .appShell.mobileNavOpen .sidebarBackdrop {
-    opacity: 1;
-    pointer-events: auto;
   }
 
   .mainColumn {
@@ -1706,10 +1853,21 @@ ul {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .settingsChatSplit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .chatContextPanel.workflowSidebar {
     border-left: none;
     border-top: 1px solid var(--border);
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    max-height: 40vh;
+  }
+
+  .settingsChatSplit .sidebar {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    border-left: none;
     max-height: 40vh;
   }
 
@@ -1725,8 +1883,7 @@ ul {
   }
 
   .composerBar {
-    padding: 8px 10px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
     gap: 8px;
     flex-direction: column;
     align-items: stretch;
@@ -1893,27 +2050,6 @@ ul {
   flex-wrap: wrap;
 }
 
-.settingsComposerBar {
-  border-top: none;
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: nowrap;
-}
-
-.settingsComposerBar .composerInput {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.settingsInputSingleLine {
-  height: 38px;
-  min-height: 38px;
-  padding: 0 10px;
-  line-height: 38px;
-  resize: none;
-  overflow: hidden;
-}
-
 .onboardingTextarea {
   min-height: 76px;
   padding: 8px 10px;
@@ -1947,8 +2083,4 @@ ul {
     order: 3;
   }
 
-  .settingsComposerBar {
-    flex-direction: row;
-    align-items: center;
-  }
 }
