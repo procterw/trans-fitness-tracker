@@ -1327,7 +1327,7 @@ export default function App() {
           onSignIn={onSignIn}
           onSignOut={onSignOut}
           mobileNavOpen={mobileNavOpen}
-          onToggleMobileNav={null}
+          onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
           onChangeView={(nextView) => {
             setView(nextView);
             setMobileNavOpen(false);

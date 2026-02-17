@@ -155,6 +155,10 @@ a {
   display: none;
 }
 
+.mobileNavMenu {
+  display: none;
+}
+
 .settingsIcon {
   width: 18px;
   height: 18px;
@@ -1787,10 +1791,20 @@ ul {
 
   .appNavbarTitle {
     font-size: clamp(11px, 3.3vw, 14px);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
   }
 
   .appNavbarMain {
     gap: 8px;
+    position: relative;
+    z-index: 3;
+  }
+
+  .navbarTabs {
+    display: none;
   }
 
   .navbarTabs .tab {
@@ -1801,6 +1815,44 @@ ul {
     display: inline-grid;
   }
 
+  .mobileNavMenu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    border-bottom: 1px solid transparent;
+    background: var(--card);
+    box-shadow: none;
+    max-height: 260px;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .mobileNavMenu.open {
+    display: flex;
+    transform: translateY(0);
+    pointer-events: auto;
+    border-bottom-color: var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  .mobileNavMenu .tab {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
+
+  .appNavbarSideRight {
+    position: relative;
+    z-index: 4;
+  }
+
   .appShell {
     min-height: 100vh;
     height: 100dvh;
@@ -1808,25 +1860,20 @@ ul {
   }
 
   .sidebar {
-    border-bottom: 1px solid var(--border);
-    border-right: none;
-    transform: none;
-    width: min(100%, 370px);
-    max-width: 370px;
-    flex: 0 0 auto;
-    box-shadow: none;
-    z-index: auto;
-    padding-top: 0;
-    height: auto;
-    position: static;
-    left: auto;
+    display: none;
   }
   .sidebarBackdrop {
     display: none;
   }
 
   .mainContentRow {
-    display: block;
+    display: flex;
+    min-height: 0;
+  }
+
+  .mainPrimaryColumn {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .mainColumn {
@@ -1839,6 +1886,12 @@ ul {
   .mainScroll {
     padding-right: 0;
     overflow-x: hidden;
+  }
+
+  .foodLogView,
+  .workoutsView {
+    padding-left: 10px;
+    padding-right: 10px;
   }
 
   .onboardingMain {
@@ -1882,8 +1935,36 @@ ul {
     max-width: 82%;
   }
 
+  .chatPanelEmpty .chatComposer {
+    transform: none;
+  }
+
+  .chatPanelEmpty .chatBoxFull {
+    justify-content: flex-start;
+  }
+
+  .chatPanelEmpty .chatMessagesEmpty {
+    flex: 1 1 auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  .chatComposer {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    bottom: 0;
+  }
+
   .composerBar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
+    margin-bottom: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
     gap: 8px;
     flex-direction: column;
     align-items: stretch;
@@ -1895,6 +1976,8 @@ ul {
   }
 
   .composerTopRow {
+    grid-column: 1;
+    grid-row: 1;
     justify-content: flex-start;
     flex-wrap: nowrap;
     align-items: stretch;
@@ -1911,7 +1994,7 @@ ul {
   .composerTopRow input.composerDateInput {
     padding: 0 10px;
     line-height: 40px;
-    font-size: 16px;
+    font-size: 13px;
   }
 
   .composerTopRow input.composerDateInput::-webkit-date-and-time-value {
@@ -1920,17 +2003,25 @@ ul {
   }
 
   .composerBottomRow {
+    grid-column: 1;
+    grid-row: 2;
     flex: 0 0 auto;
     min-width: 0;
   }
 
   .composerInput {
     min-width: 0;
-    font-size: 16px;
+    font-size: 14px;
+  }
+
+  .sendButton {
+    width: 34px;
+    height: 34px;
   }
 
   .composerDateInput {
-    max-width: 110px;
+    width: clamp(132px, 42vw, 156px) !important;
+    max-width: none;
   }
 
   .fitnessHistory,

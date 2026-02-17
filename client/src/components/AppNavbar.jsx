@@ -33,6 +33,8 @@ export default function AppNavbar({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const triggerRef = useRef(null);
+  const mobileMenuRef = useRef(null);
+  const mobileTriggerRef = useRef(null);
   const user = authSession?.user ?? null;
 
   const userLabel = useMemo(() => getUserLabel(user), [user]);
@@ -58,15 +60,29 @@ export default function AppNavbar({
     };
   }, [menuOpen]);
 
+  useEffect(() => {
+    if (!mobileNavOpen || typeof onToggleMobileNav !== "function") return;
+    const onDocumentClick = (event) => {
+      if (mobileMenuRef.current?.contains(event.target)) return;
+      if (mobileTriggerRef.current?.contains(event.target)) return;
+      onToggleMobileNav();
+    };
+    document.addEventListener("mousedown", onDocumentClick);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentClick);
+    };
+  }, [mobileNavOpen, onToggleMobileNav]);
+
   return (
     <header className="appNavbar">
       <div className="appNavbarMain">
         {typeof onToggleMobileNav === "function" ? (
           <button
+            ref={mobileTriggerRef}
             type="button"
             className={`navbarIconButton mobileMenuButton ${mobileNavOpen ? "active" : ""}`}
             aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"}
-            aria-controls="app-sidebar-nav"
+            aria-controls="app-mobile-nav-menu"
             aria-expanded={Boolean(mobileNavOpen)}
             onClick={onToggleMobileNav}
           >
@@ -156,6 +172,28 @@ export default function AppNavbar({
             </div>
           ) : null}
         </div>
+      </div>
+
+      <div
+        ref={mobileMenuRef}
+        id="app-mobile-nav-menu"
+        className={`mobileNavMenu ${mobileNavOpen ? "open" : ""}`}
+        role="menu"
+        aria-label="Navigation tabs"
+        aria-hidden={!mobileNavOpen}
+      >
+        <TabButton active={activeView === "chat"} onClick={() => onChangeView?.("chat")}>
+          <span>Chat</span>
+        </TabButton>
+        <TabButton active={activeView === "workouts"} onClick={() => onChangeView?.("workouts")}>
+          <span>Workouts</span>
+        </TabButton>
+        <TabButton active={activeView === "diet"} onClick={() => onChangeView?.("diet")}>
+          <span>Food log</span>
+        </TabButton>
+        <TabButton active={activeView === "settings"} onClick={() => onChangeView?.("settings")}>
+          <span>Settings</span>
+        </TabButton>
       </div>
     </header>
   );
