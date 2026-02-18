@@ -78,6 +78,10 @@ export async function getContext() {
   return fetchJson("/api/context");
 }
 
+export async function exportUserData() {
+  return fetchJson("/api/user/export");
+}
+
 export async function logFoodPhoto({
   file,
   date,

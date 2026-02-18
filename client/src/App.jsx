@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import "./styles.css";
 import {
   getContext,
+  exportUserData,
   getFitnessCurrent,
   getFitnessHistory,
   getFoodForDate,
@@ -174,6 +175,8 @@ export default function App() {
   const [authSession, setAuthSession] = useState(null);
   const [authStatus, setAuthStatus] = useState("");
   const [authActionLoading, setAuthActionLoading] = useState(false);
+  const [exportStatus, setExportStatus] = useState("");
+  const [exportActionLoading, setExportActionLoading] = useState(false);
   const signedOut = authEnabled && !authSession?.user;
 
   const fmt = (n) => {
@@ -594,6 +597,36 @@ export default function App() {
       setAuthStatus(err instanceof Error ? err.message : String(err));
     } finally {
       setAuthActionLoading(false);
+    }
+  };
+
+  const onExportData = async () => {
+    if (exportActionLoading) return;
+    setExportActionLoading(true);
+    setExportStatus("");
+    try {
+      const json = await exportUserData();
+      const exported = json?.export;
+      if (!exported || typeof exported !== "object") throw new Error("Export payload was empty.");
+
+      const now = new Date();
+      const dateLabel = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const filename = `data_export_${dateLabel}.json`;
+      const content = JSON.stringify(exported, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+      setExportStatus(`Saved ${filename}`);
+    } catch (err) {
+      setExportStatus(err instanceof Error ? err.message : "Could not export data.");
+    } finally {
+      setExportActionLoading(false);
     }
   };
 
@@ -1356,9 +1389,12 @@ export default function App() {
           authEnabled={authEnabled}
           authSession={authSession}
           authStatus={authStatus}
+          exportStatus={exportStatus}
           authActionLoading={authActionLoading}
+          exportActionLoading={exportActionLoading}
           onSignIn={onSignIn}
           onSignOut={onSignOut}
+          onExportData={onExportData}
           mobileNavOpen={mobileNavOpen}
           onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
           onChangeView={(nextView) => {

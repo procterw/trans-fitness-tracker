@@ -23,9 +23,12 @@ export default function AppNavbar({
   authEnabled,
   authSession,
   authStatus,
+  exportStatus,
   authActionLoading,
+  exportActionLoading,
   onSignIn,
   onSignOut,
+  onExportData,
   mobileNavOpen,
   onToggleMobileNav,
   onChangeView,
@@ -127,6 +130,7 @@ export default function AppNavbar({
           {menuOpen ? (
             <div className="accountMenuDropdown" role="menu">
               {authStatus ? <p className="accountMenuStatus muted">{authStatus}</p> : null}
+              {exportStatus ? <p className="accountMenuStatus muted">{exportStatus}</p> : null}
 
               {user ? (
                 <>
@@ -139,6 +143,16 @@ export default function AppNavbar({
                       {userEmail}
                     </div>
                   ) : null}
+                  <button
+                    type="button"
+                    className="secondary small accountMenuAction"
+                    disabled={exportActionLoading}
+                    onClick={async () => {
+                      await onExportData?.();
+                    }}
+                  >
+                    {exportActionLoading ? "Exporting…" : "Export data"}
+                  </button>
                   <button
                     type="button"
                     className="secondary small accountMenuAction"

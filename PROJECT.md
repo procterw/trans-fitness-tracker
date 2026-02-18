@@ -87,6 +87,8 @@ This repo includes a minimal local web app that supports:
   - `user_profile`, `training_profile`, `diet_profile`, `agent_profile` (all text)
   - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
+- `GET /api/user/export` → returns all user tracking data for export/download
+  - includes `exported_at`, authenticated `user_id`, and full tracking payload (`data`)
 - `POST /api/food/log` → multipart form:
   - optional `image` (if present, uses vision)
   - optional `description` (if no image, required; if image is present, used as additional context)

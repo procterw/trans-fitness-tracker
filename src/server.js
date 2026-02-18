@@ -911,6 +911,22 @@ app.get("/api/context", async (_req, res) => {
   }
 });
 
+app.get("/api/user/export", async (req, res) => {
+  try {
+    const data = await readTrackingData();
+    res.json({
+      ok: true,
+      export: {
+        exported_at: new Date().toISOString(),
+        user_id: req.user?.id ?? null,
+        data,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.post("/api/settings/chat", async (req, res) => {
   try {
     const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
