@@ -48,7 +48,7 @@ This repo includes a minimal local web app that supports:
 - First-visit settings bootstrap:
   - on first authenticated visit, the app seeds minimal starter profile text + checklist defaults
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
-  - settings supports direct textarea editing and chat-proposed profile edits with confirmation
+  - settings supports direct textarea editing and chat-driven profile/checklist edits without UI confirmation
 - Weekly fitness checklist updates (`current_week`)
 - Settings for editing four profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
 - A basic dashboard for browsing:
@@ -117,9 +117,9 @@ This repo includes a minimal local web app that supports:
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
   - GPT‑5.2 settings assistant that can answer settings questions and propose updates to:
     - `user_profile`, `training_profile`, `diet_profile`, `agent_profile`
-  - Returns `requires_confirmation` + proposal payload when changes are requested
+  - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
-  - Applies a previously proposed settings change with explicit user confirmation
+  - Applies a previously proposed settings change for manual confirmation workflows
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
 
 ## Food event logging format

@@ -346,25 +346,6 @@ a {
   justify-content: center;
 }
 
-.onboardingApp {
-  min-height: 100vh;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.onboardingMain {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  padding: 10px 18px 18px;
-}
-
-.onboardingPanel {
-  width: min(1360px, 100%);
-}
-
 .workflowSidebar {
   min-height: 0;
   overflow: auto;
@@ -409,41 +390,6 @@ a {
 
 .workflowSidebarListItem {
   line-height: 1.3;
-}
-
-.onboardingHeader {
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 8px 24px 0;
-}
-
-.onboardingTitle {
-  margin: 0;
-  font-size: 18px;
-}
-
-.onboardingMeta {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.onboardingHint {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.onboardingExitButton {
-  margin-top: 12px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--bg);
-  padding: 10px 14px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 .mainScroll {
@@ -811,7 +757,7 @@ ul {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 360px) minmax(260px, 330px) minmax(0, 1fr);
   align-items: stretch;
   min-width: 0;
   overflow: hidden;
@@ -820,14 +766,33 @@ ul {
 .settingsProfilesPanel {
   border-right: 1px solid var(--border);
   background: var(--sidebar);
-  padding: 12px 14px 20px;
+  padding: 12px 12px 16px;
   overflow: auto;
   min-height: 0;
   font-size: 13px;
 }
 
-.settingsProfilesPanel .sidebarHeading {
-  font-size: 14px;
+.settingsChecklistPanel {
+  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+  padding: 12px 12px 16px;
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.settingsChecklistBody {
+  display: grid;
+  min-height: 0;
+  overflow: auto;
+}
+
+.settingsChecklistGroup {
+  display: grid;
+  gap: 6px;
 }
 
 .settingsChatColumn {
@@ -846,22 +811,68 @@ ul {
 }
 
 .settingsProfilesHeader {
-  margin-bottom: 8px;
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 
 .settingsProfilesMeta {
-  margin-top: 6px;
+  margin: 0;
+  text-transform: none;
+  max-width: 250px;
+  text-align: right;
+}
+
+.settingsSaveStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settingsSaveStatusSaved {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.settingsSaveCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.settingsSaveLabel {
   font-size: 12px;
+}
+
+.settingsSaveSpinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--ok) 42%, transparent);
+  border-top-color: var(--ok);
+  border-radius: 50%;
+  display: inline-block;
+  animation: settingsSpinner 0.8s linear infinite;
+}
+
+@keyframes settingsSpinner {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .settingsProfilesFields {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  padding-top: 12px;
 }
 
 .settingsProfilesField {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  margin: 0;
 }
 
 .settingsProfileTextarea {
@@ -869,6 +880,8 @@ ul {
   font-size: 13px;
   line-height: 1.35;
   resize: none;
+  background: var(--card);
+  color: var(--text);
 }
 
 .settingsProfilesActions {
@@ -1931,14 +1944,6 @@ ul {
     padding-right: 10px;
   }
 
-  .onboardingMain {
-    padding: 8px 0 0;
-  }
-
-  .onboardingHeader {
-    padding: 8px 14px 0;
-  }
-
   .chatBodySplit {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1955,6 +1960,13 @@ ul {
   }
 
   .settingsProfilesPanel {
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    border-right: none;
+    max-height: 40vh;
+  }
+
+  .settingsChecklistPanel {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     border-right: none;
@@ -2179,16 +2191,13 @@ ul {
   flex-wrap: wrap;
 }
 
-.onboardingTextarea {
-  min-height: 76px;
-  padding: 8px 10px;
+.settingsProfileTextarea {
+  min-height: 180px;
+  font-size: 13px;
   line-height: 1.35;
-  resize: vertical;
-  overflow: auto;
-}
-
-.onboardingTextarea.settingsProfileTextarea {
   resize: none;
+  background: var(--card);
+  color: var(--text);
 }
 
 @media (max-width: 1000px) {

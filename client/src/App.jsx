@@ -8,7 +8,6 @@ import {
   getFitnessHistory,
   getFoodForDate,
   getFoodLog,
-  confirmSettingsChanges,
   getSettingsState,
   saveSettingsProfiles,
   settingsBootstrap,
@@ -18,6 +17,7 @@ import {
   syncFoodForDate,
   updateFitnessItem,
 } from "./api.js";
+import { getFitnessCategories } from "./fitnessChecklist.js";
 import {
   getSession,
   isSupabaseEnabled,
@@ -565,7 +565,7 @@ export default function App() {
           setSettingsProfilesSaving(false);
         }
       }
-    }, 700);
+    }, 1500);
 
     return () => clearTimeout(timeoutId);
   }, [settingsProfilesDraft, settingsProfilesDirty, settingsLoading, settingsProfilesSaving, signedOut]);
@@ -909,9 +909,6 @@ export default function App() {
                     ...message,
                     content: assistantText,
                     format: "markdown",
-                    requiresConfirmation: Boolean(json?.requires_confirmation),
-                    proposalId: json?.proposal_id ?? null,
-                    proposal: json?.proposal ?? null,
                   }
                 : message,
             ),
@@ -923,9 +920,6 @@ export default function App() {
             role: "assistant",
             content: assistantText,
             format: "markdown",
-            requiresConfirmation: Boolean(json?.requires_confirmation),
-            proposalId: json?.proposal_id ?? null,
-            proposal: json?.proposal ?? null,
           });
         }
       }
@@ -1004,6 +998,7 @@ export default function App() {
       if (!responsePayload) throw new Error("Streaming response did not complete.");
 
       appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
+      if (responsePayload?.current_week) setFitnessWeek(responsePayload.current_week);
       const updatedProfiles = normalizeSettingsProfiles(responsePayload?.updated);
       if (responsePayload?.updated) {
         setSettingsProfilesSaved(updatedProfiles);
@@ -1025,82 +1020,6 @@ export default function App() {
     if (!["user_profile", "training_profile", "diet_profile", "agent_profile"].includes(field)) return;
     setSettingsError("");
     setSettingsProfilesDraft((prev) => ({ ...prev, [field]: normalizeProfileText(value) }));
-  };
-
-  const onConfirmSettingsProposal = async (messageId, proposalOverride = null) => {
-    if (settingsLoading || settingsProfilesSaving) return;
-    setSettingsError("");
-    if (settingsProfilesDirty) {
-      setSettingsError("Wait for profile autosave to finish before confirming chat changes.");
-      return;
-    }
-
-    const target = settingsMessages.find((msg) => msg.id === messageId);
-    const proposal = proposalOverride ?? target?.proposal ?? null;
-    if (!proposal) {
-      setSettingsError("Could not find pending settings changes to confirm.");
-      return;
-    }
-
-    setSettingsLoading(true);
-    try {
-      const json = await confirmSettingsChanges({ proposal });
-
-      setSettingsMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId
-            ? {
-                ...msg,
-                requiresConfirmation: false,
-                proposal: null,
-                proposalId: null,
-              }
-            : msg,
-        ),
-      );
-
-      if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
-        settingsMessageIdRef.current += 1;
-        const versionLabel =
-          typeof json?.settings_version === "number" ? ` (settings v${json.settings_version})` : "";
-        const effectiveLabel =
-          typeof json?.effective_from === "string" && json.effective_from
-            ? ` Effective: ${json.effective_from}.`
-            : "";
-        setSettingsMessages((prev) => [
-          ...prev,
-          {
-            id: settingsMessageIdRef.current,
-            role: "assistant",
-            content: `✓ ${json.changes_applied.join(" ")}${versionLabel}.${effectiveLabel}`,
-            format: "plain",
-            tone: "status",
-          },
-        ]);
-      } else {
-        settingsMessageIdRef.current += 1;
-        setSettingsMessages((prev) => [
-          ...prev,
-          {
-            id: settingsMessageIdRef.current,
-            role: "assistant",
-            content: "No settings changes were applied.",
-            format: "plain",
-            tone: "status",
-          },
-        ]);
-      }
-
-      const updatedProfiles = normalizeSettingsProfiles(json?.updated);
-      if (json?.updated) {
-        setSettingsProfilesSaved(updatedProfiles);
-        setSettingsProfilesDraft(updatedProfiles);
-      }
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSettingsLoading(false);
-    }
   };
 
   const enqueueFitnessSave = useSerialQueue();
@@ -1416,10 +1335,11 @@ export default function App() {
             settingsProfiles={settingsProfilesDraft}
             settingsProfilesDirty={settingsProfilesDirty}
             onSubmitSettings={onSubmitSettings}
-            onConfirmSettingsProposal={onConfirmSettingsProposal}
             onSettingsInputChange={setSettingsInput}
             onSettingsInputAutoSize={autosizeComposerTextarea}
             onSettingsProfileChange={onSettingsProfileChange}
+            checklistCategories={getFitnessCategories(fitnessWeek)}
+            checklistWeekLabel={fitnessWeek?.week_label || ""}
           />
         ) : (
           <div className="mainContentRow">

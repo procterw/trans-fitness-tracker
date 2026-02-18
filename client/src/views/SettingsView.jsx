@@ -14,10 +14,11 @@ export default function SettingsView({
   settingsProfilesDirty,
   settingsProfilesSaving,
   onSubmitSettings,
-  onConfirmSettingsProposal,
   onSettingsInputChange,
   onSettingsInputAutoSize,
   onSettingsProfileChange,
+  checklistCategories = [],
+  checklistWeekLabel = "",
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
 
@@ -26,63 +27,120 @@ export default function SettingsView({
       <div className="chatBox chatBoxFull">
         <div className="settingsChatSplit">
           <aside className="settingsProfilesPanel" aria-label="Settings profiles">
-            <div className="settingsProfilesHeader">
-              <h3 className="sidebarHeading">Settings profiles</h3>
-              <p className="muted settingsProfilesMeta">
-                {settingsProfilesSaving
-                  ? "Autosaving profile edits..."
-                  : settingsProfilesDirty
-                    ? "Waiting to autosave profile edits..."
-                    : "Profile edits autosave. Chat edits still require confirmation."}
+            <div className="settingsProfilesHeader sidebarSectionHeader">
+              <h2 className="sidebarHeading">Settings profiles</h2>
+              <p className="settingsProfilesMeta sidebarDate">
+                {settingsProfilesSaving || settingsProfilesDirty ? (
+                  <span className="settingsSaveStatus">
+                    <span className="settingsSaveSpinner" aria-hidden="true" />
+                    <span className="settingsSaveLabel">Saving…</span>
+                  </span>
+                ) : (
+                  <span className="settingsSaveStatus settingsSaveStatusSaved">
+                    <span className="settingsSaveCheck" aria-hidden="true">
+                      ✓
+                    </span>
+                    <span className="settingsSaveLabel">Saved</span>
+                  </span>
+                )}
               </p>
             </div>
-
             <div className="settingsProfilesFields">
               <label className="settingsProfilesField" htmlFor="user_profile_text">
-                <span className="settingsLabel">User profile</span>
+                <span className="sidebarSectionLabel">User profile</span>
                 <textarea
                   id="user_profile_text"
-                  className="onboardingTextarea settingsProfileTextarea"
+                  className="settingsProfileTextarea"
                   value={typeof profiles.user_profile === "string" ? profiles.user_profile : ""}
                   onChange={(e) => onSettingsProfileChange("user_profile", e.target.value)}
                   placeholder="Overall goals, body/health context, lifestyle, meds/conditions, and key coaching context."
                 />
               </label>
-
               <label className="settingsProfilesField" htmlFor="training_profile_text">
-                <span className="settingsLabel">Training profile</span>
+                <span className="sidebarSectionLabel">Training profile</span>
                 <textarea
                   id="training_profile_text"
-                  className="onboardingTextarea settingsProfileTextarea"
+                  className="settingsProfileTextarea"
                   value={typeof profiles.training_profile === "string" ? profiles.training_profile : ""}
                   onChange={(e) => onSettingsProfileChange("training_profile", e.target.value)}
                   placeholder="Training plan, phases/blocks schedule, fitness goals, injuries, and logging shortcuts."
                 />
               </label>
-
               <label className="settingsProfilesField" htmlFor="diet_profile_text">
-                <span className="settingsLabel">Diet profile</span>
+                <span className="sidebarSectionLabel">Diet profile</span>
                 <textarea
                   id="diet_profile_text"
-                  className="onboardingTextarea settingsProfileTextarea"
+                  className="settingsProfileTextarea"
                   value={typeof profiles.diet_profile === "string" ? profiles.diet_profile : ""}
                   onChange={(e) => onSettingsProfileChange("diet_profile", e.target.value)}
                   placeholder="Diet preferences, recipes, caloric targets, and food logging shortcuts."
                 />
               </label>
-
               <label className="settingsProfilesField" htmlFor="agent_profile_text">
-                <span className="settingsLabel">Agent profile</span>
+                <span className="sidebarSectionLabel">Agent profile</span>
                 <textarea
                   id="agent_profile_text"
-                  className="onboardingTextarea settingsProfileTextarea"
+                  className="settingsProfileTextarea"
                   value={typeof profiles.agent_profile === "string" ? profiles.agent_profile : ""}
                   onChange={(e) => onSettingsProfileChange("agent_profile", e.target.value)}
                   placeholder="Broad rules for assistant behavior and response style."
                 />
               </label>
             </div>
+          </aside>
 
+          <aside className="settingsChecklistPanel" aria-label="Current checklist">
+            <div className="sidebarSectionHeader">
+              <h2 className="sidebarHeading">Current checklist</h2>
+              {checklistWeekLabel ? <span className="sidebarDate">{checklistWeekLabel}</span> : null}
+            </div>
+
+            <div className="settingsChecklistBody">
+              {Array.isArray(checklistCategories) && checklistCategories.length ? (
+                <div className="sidebarChecklist">
+                  {checklistCategories.map((category) => {
+                    const key = typeof category?.key === "string" ? category.key : "";
+                    const label =
+                      typeof category?.label === "string" && category.label.trim() ? category.label.trim() : key || "Category";
+                    const items = Array.isArray(category?.items) ? category.items : [];
+
+                    return (
+                      <div key={key || label} className="settingsChecklistGroup">
+                        <h3 className="sidebarSectionLabel">{label}</h3>
+                        <div className="sidebarChecklistItems">
+                          {items.length ? (
+                            items.map((it, idx) => {
+                              const itemLabel = typeof it?.item === "string" ? it.item : "";
+                              const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
+                              const checked = it?.checked === true;
+
+                              return (
+                                <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : "todo"}`}>
+                                  <span
+                                    className={`sidebarChecklistMark ${checked ? "checked" : "unchecked"}`}
+                                    aria-hidden="true"
+                                  >
+                                    {checked ? "✓" : ""}
+                                  </span>
+                                  <span className="sidebarChecklistText">
+                                    <span>{itemLabel}</span>
+                                    {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="sidebarChecklistItem muted">No items.</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="muted">No checklist categories yet.</div>
+              )}
+            </div>
           </aside>
 
           <div className="settingsChatColumn">
@@ -104,18 +162,7 @@ export default function SettingsView({
                         m.content
                       )}
                     </div>
-                    {m.role === "assistant" && m.requiresConfirmation && m.proposal ? (
-                      <div className="settingsConfirmRow">
-                        <button
-                          type="button"
-                          className="small"
-                          disabled={settingsLoading || settingsProfilesSaving || settingsProfilesDirty}
-                          onClick={() => onConfirmSettingsProposal(m.id, m.proposal)}
-                        >
-                          Confirm changes
-                        </button>
-                      </div>
-                    ) : null}
+                    
                   </div>
                 ))
               ) : (

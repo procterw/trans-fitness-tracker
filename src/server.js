@@ -587,11 +587,14 @@ function extractChecklistTemplate(week) {
 }
 
 const SETTINGS_PROFILE_FIELDS = ["user_profile", "training_profile", "diet_profile", "agent_profile"];
+const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
+const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_FIELDS, SETTINGS_CHECKLIST_FIELD];
 const SETTINGS_PROFILE_LABELS = {
   user_profile: "user profile",
   training_profile: "training profile",
   diet_profile: "diet profile",
   agent_profile: "agent profile",
+  [SETTINGS_CHECKLIST_FIELD]: "training checklist template",
 };
 
 function normalizeProfileText(value) {
@@ -700,24 +703,42 @@ function applyStarterSeed(data, { now = new Date() } = {}) {
 
 function hasPendingSettingsChanges(changes) {
   if (!isPlainObject(changes)) return false;
-  return SETTINGS_PROFILE_FIELDS.some((field) => typeof changes[field] === "string");
+  const hasProfileChange = SETTINGS_PROFILE_FIELDS.some((field) => typeof changes[field] === "string");
+  const hasChecklistChange =
+    Array.isArray(changes?.[SETTINGS_CHECKLIST_FIELD]) && changes[SETTINGS_CHECKLIST_FIELD].length > 0;
+  return hasProfileChange || hasChecklistChange;
 }
 
 function isValidSettingsProposal(value) {
   if (!isPlainObject(value)) return false;
   for (const key of Object.keys(value)) {
-    if (!SETTINGS_PROFILE_FIELDS.includes(key)) return false;
+    if (!SETTINGS_PROPOSAL_FIELDS.includes(key)) return false;
   }
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const fieldValue = value[field];
     if (fieldValue !== null && fieldValue !== undefined && typeof fieldValue !== "string") return false;
   }
-  return true;
+  const checklistValue = value[SETTINGS_CHECKLIST_FIELD];
+  if (checklistValue === null || checklistValue === undefined) return true;
+  const normalizedChecklist = normalizeChecklistCategories(checklistValue);
+  return !!normalizedChecklist;
 }
 
-function normalizeSettingsProfileProposal(value) {
+function normalizeChecklistProposal(value) {
+  const normalized = normalizeChecklistCategories(value);
+  return normalized ? normalized : null;
+}
+
+function normalizeSettingsProposal(value) {
   const raw = isPlainObject(value) ? value : {};
-  const out = {};
+  const out = {
+    [SETTINGS_CHECKLIST_FIELD]: null,
+    user_profile: null,
+    training_profile: null,
+    diet_profile: null,
+    agent_profile: null,
+  };
+  out[SETTINGS_CHECKLIST_FIELD] = normalizeChecklistProposal(raw[SETTINGS_CHECKLIST_FIELD]);
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const fieldValue = raw[field];
     if (fieldValue === null || fieldValue === undefined) {
@@ -752,8 +773,11 @@ function appendSettingsHistoryEvent(data, { domains }) {
 
 async function applySettingsChanges({ proposal }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
+  const normalized = normalizeSettingsProposal(proposal);
+  if (normalized[SETTINGS_CHECKLIST_FIELD]) {
+    await ensureCurrentWeek();
+  }
   const data = await readTrackingData();
-  const normalized = normalizeSettingsProfileProposal(proposal);
   const changesApplied = [];
   const domains = [];
 
@@ -767,6 +791,24 @@ async function applySettingsChanges({ proposal }) {
     changesApplied.push(`Updated ${label}.`);
   }
 
+  const requestedTemplate = normalized[SETTINGS_CHECKLIST_FIELD];
+  if (Array.isArray(requestedTemplate) && requestedTemplate.length) {
+    const currentWeek = isPlainObject(data.current_week) ? data.current_week : {};
+    const existingTemplate = extractChecklistTemplate(currentWeek);
+    const nextWeek = applyChecklistCategories(currentWeek, requestedTemplate);
+    const nextTemplate = extractChecklistTemplate(nextWeek);
+    if (JSON.stringify(existingTemplate ?? null) !== JSON.stringify(nextTemplate ?? null)) {
+      data.current_week = nextWeek;
+      const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+      if (nextTemplate) metadata.checklist_template = nextTemplate;
+      else delete metadata.checklist_template;
+      data.metadata = metadata;
+      domains.push(SETTINGS_CHECKLIST_FIELD);
+      const label = SETTINGS_PROFILE_LABELS[SETTINGS_CHECKLIST_FIELD] ?? SETTINGS_CHECKLIST_FIELD;
+      changesApplied.push(`Updated ${label}.`);
+    }
+  }
+
   if (changesApplied.length) {
     const versionMeta = appendSettingsHistoryEvent(data, { domains });
     await writeTrackingData(data);
@@ -775,6 +817,7 @@ async function applySettingsChanges({ proposal }) {
       updated: {
         ...getSettingsProfiles(data),
       },
+      current_week: data.current_week ?? null,
       settingsVersion: versionMeta.settingsVersion,
       effectiveFrom: versionMeta.effectiveFrom,
     };
@@ -783,6 +826,7 @@ async function applySettingsChanges({ proposal }) {
   return {
     changesApplied,
     updated: null,
+    current_week: data.current_week ?? null,
     settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
     effectiveFrom: null,
   };
@@ -944,27 +988,31 @@ app.post("/api/settings/chat", async (req, res) => {
         })
       : await askSettingsAssistant({ message, messages });
 
-    const changes = normalizeSettingsProfileProposal(result?.changes ?? {});
+    const changes = normalizeSettingsProposal(result?.changes ?? {});
     const hasProposal = hasPendingSettingsChanges(changes);
-    const proposalId = hasProposal ? crypto.randomUUID() : null;
-    const assistantMessage = [
-      typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "",
-      hasProposal ? "Proposed settings profile changes are ready. Confirm to apply." : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const applied = hasProposal
+      ? await applySettingsChanges({ proposal: changes })
+      : {
+          changesApplied: [],
+          updated: null,
+          current_week: null,
+          settingsVersion: null,
+          effectiveFrom: null,
+        };
+    const assistantMessage = typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "";
 
     const payload = {
       ok: true,
       assistant_message: assistantMessage,
       followup_question: result.followup_question ?? null,
-      requires_confirmation: hasProposal,
-      proposal_id: proposalId,
-      proposal: hasProposal ? changes : null,
-      changes_applied: [],
-      updated: null,
-      settings_version: null,
-      effective_from: null,
+      requires_confirmation: false,
+      proposal_id: null,
+      proposal: null,
+      changes_applied: applied.changesApplied,
+      updated: applied.updated,
+      settings_version: applied.settingsVersion,
+      effective_from: applied.effectiveFrom,
+      current_week: applied.current_week,
     };
     if (stream) {
       sendStreamingAssistantDone(res, payload);
@@ -992,6 +1040,7 @@ app.post("/api/settings/confirm", async (req, res) => {
       ok: true,
       changes_applied: applied.changesApplied,
       updated: applied.updated,
+      current_week: applied.current_week,
       settings_version: applied.settingsVersion,
       effective_from: applied.effectiveFrom,
     });

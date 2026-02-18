@@ -39,8 +39,8 @@ Minimal local web app that:
 ## Settings API (profiles)
 - `GET /api/settings/state` returns current settings profile text blobs.
 - `POST /api/settings/profiles` directly saves textarea edits for profile text blobs.
-- `POST /api/settings/chat` proposes text profile changes and requires confirmation when changes are present.
-- `POST /api/settings/confirm` applies proposed text profile changes.
+- `POST /api/settings/chat` proposes and applies settings changes directly when possible (no additional UI confirmation required).
+- `POST /api/settings/confirm` applies a previously returned proposal payload for manual confirmation workflows.
 
 ## Supabase (optional, multi-user)
 You can enable Google login + Postgres storage via Supabase. The React login UI is gated by `VITE_SUPABASE_ENABLED` and the API auth requirement is gated by `SUPABASE_AUTH_REQUIRED`.

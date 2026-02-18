@@ -152,10 +152,14 @@ const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
 const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
   "The user can update four settings profile texts: user_profile, training_profile, diet_profile, and agent_profile.",
+  "The user can also update the current week's checklist template by returning checklist_categories.",
   "Always return JSON matching the schema.",
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
   "For profile updates, return full replacement text only for fields that should change.",
-  "Do not return checklist_categories, diet_philosophy_patch, or fitness_philosophy_patch.",
+  "When a checklist is requested, provide checklist_categories with full category and item details.",
+  "For checklist edits that are clearly actionable (for example adding or removing a concrete workout session), infer the best category when it is obvious.",
+  "Only ask a category clarification when the activity is ambiguous and could plausibly belong to multiple categories.",
+  "Do not return diet_philosophy_patch or fitness_philosophy_patch.",
   "Use plain text for each profile field. Preserve meaningful formatting and line breaks.",
   "Never include markdown code fences in assistant_message.",
   "If the user asks a pure question (no settings change), provide guidance and keep all changes null.",
@@ -394,6 +398,7 @@ const SettingsChangesSchema = z.object({
   training_profile: z.string().nullable(),
   diet_profile: z.string().nullable(),
   agent_profile: z.string().nullable(),
+  checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
 });
 
 const SettingsAssistantResponseSchema = z.object({
@@ -638,19 +643,30 @@ function normalizeSettingsProfileChange(value) {
   return value.replace(/\r\n/g, "\n");
 }
 
-function normalizeSettingsAssistantOutput(parsed, { message = "" } = {}) {
+function normalizeSettingsChecklistProposal(value) {
+  const raw = normalizeChecklistCategories(value);
+  return raw ? raw : null;
+}
+
+function normalizeSettingsAssistantOutput(
+  parsed,
+  { message = "", currentWeek = null } = {},
+) {
+  const rawMessage = typeof message === "string" ? message : "";
   const changes = {
     user_profile: normalizeSettingsProfileChange(parsed?.changes?.user_profile),
     training_profile: normalizeSettingsProfileChange(parsed?.changes?.training_profile),
     diet_profile: normalizeSettingsProfileChange(parsed?.changes?.diet_profile),
     agent_profile: normalizeSettingsProfileChange(parsed?.changes?.agent_profile),
+    checklist_categories: normalizeSettingsChecklistProposal(parsed?.changes?.checklist_categories),
   };
 
   const hasChanges = Boolean(
     changes.user_profile ||
       changes.training_profile ||
       changes.diet_profile ||
-      changes.agent_profile,
+      changes.agent_profile ||
+      (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length),
   );
 
   let assistantMessage = cleanRichText(parsed.assistant_message);
@@ -660,10 +676,272 @@ function normalizeSettingsAssistantOutput(parsed, { message = "" } = {}) {
     followupQuestion = "Would you like me to make any changes to these settings?";
   }
 
+  const inferred = applyChecklistInferenceFallback({
+    parsed: {
+      assistant_message: assistantMessage,
+      followup_question: followupQuestion,
+      changes,
+    },
+    message: rawMessage,
+    currentWeek,
+  });
+
+  const withTemplate = applyChecklistTemplateFallback({
+    parsed: inferred,
+    message: rawMessage,
+    currentWeek,
+  });
+
   return {
-    assistant_message: assistantMessage,
-    followup_question: followupQuestion,
-    changes,
+    assistant_message: withTemplate.assistant_message,
+    followup_question: withTemplate.followup_question,
+    changes: withTemplate.changes,
+  };
+}
+
+const SETTINGS_CHECKLIST_CATEGORY_KEYWORDS = {
+  cardio: ["run", "jog", "walk", "cardio", "cycle", "bike", "bicycle", "cycling", "spin", "treadmill", "sprint", "rowing", "rower"],
+  strength: ["squat", "squats", "lunge", "lunges", "deadlift", "deadlifts", "bridge", "glute", "hip", "hips", "strength", "leg press", "lower-body", "lower body", "resistance", "weight", "weights", "kettlebell"],
+  mobility: ["mobility", "stretch", "stretching", "yoga", "ankle", "hip opener", "hip-open", "foam", "mobility routine"],
+};
+
+function normalizeForLookup(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function splitWords(value) {
+  return normalizeForLookup(value).split(" ").filter(Boolean);
+}
+
+function inferChecklistCategoryFromText(text, currentWeek) {
+  const normalizedText = normalizeForLookup(text);
+  const tokens = splitWords(normalizedText);
+  const keys = getFitnessCategoryKeys(currentWeek ?? null);
+  if (!keys.length) return "cardio";
+
+  const lowerText = normalizedText;
+  const categoryAliases = new Map();
+  categoryAliases.set("cardio", "cardio");
+  categoryAliases.set("strength", "strength");
+  categoryAliases.set("mobility", "mobility");
+
+  for (const canonical of keys) {
+    const canonicalNormalized = normalizeForLookup(canonical);
+    categoryAliases.set(canonicalNormalized, canonical);
+    const label = normalizeForLookup(getFitnessCategoryLabel(currentWeek, canonical));
+    if (label) categoryAliases.set(label, canonical);
+  const fallback = canonical === "lowerbody" ? normalizeForLookup("strength") : null;
+  if (fallback) categoryAliases.set(fallback, canonical);
+  }
+
+  const explicitMatch = new RegExp(`\\b(cardio|strength|mobility)\\b`).exec(lowerText);
+  if (explicitMatch?.[1]) return explicitMatch[1];
+
+  for (const [keyword, canonical] of Object.entries(SETTINGS_CHECKLIST_CATEGORY_KEYWORDS)) {
+    for (const alias of [keyword, ...SETTINGS_CHECKLIST_CATEGORY_KEYWORDS[keyword]]) {
+      if (!alias) continue;
+      const normalizedAlias = normalizeForLookup(alias);
+      if (!normalizedAlias) continue;
+      if (tokens.includes(normalizedAlias) || new RegExp(`\\b${normalizedAlias}\\b`).test(lowerText)) {
+        const preferred = categoryAliases.get(normalizedAlias) ?? canonical;
+        if (preferred === canonical) return canonical;
+      }
+    }
+  }
+
+  if (Array.from(categoryAliases.keys()).includes("cardio") && keys.includes("cardio")) return "cardio";
+  return keys[0];
+}
+
+function stripLeadingArticle(value) {
+  return String(value || "")
+    .replace(/^(?:a|an|the)\s+/i, "")
+    .trim();
+}
+
+function extractChecklistItemFromMessage(message) {
+  const text = typeof message === "string" ? message.trim() : "";
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  const candidates = [
+    normalized.match(/(?:add|include|insert|append|add to)\s+(?:an?\s+)?(.*?)(?:\s+to\s+the\s+checklist.*)?$/i),
+    normalized.match(/(?:add|include|insert|append|add to)\s+(?:an?\s+)?([a-z0-9].*?)\s+(?:under|to)\s+[a-z]+/i),
+    normalized.match(/(?:add|include|insert|append|add to)\s+(?:an?\s+)?([a-z0-9].*)$/i),
+  ];
+
+  const matched = candidates.find((match) => match && match[1]);
+  if (!matched) return null;
+  const itemText = matched[1]
+    .replace(/^(a|an|the)\s+/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s*(under|to)\s+(the\s+)?(cardio|strength|mobility|checklist|workout\s*checklist|routine)\b.*$/i, "")
+    .replace(/[.!?]+$/u, "")
+    .trim();
+  return itemText ? stripLeadingArticle(itemText) : null;
+}
+
+function inferChecklistFromMessage({ message, currentWeek }) {
+  const lower = typeof message === "string" ? message.toLowerCase() : "";
+  if (!lower) return null;
+
+  const addPattern = /\b(add|include|insert|append)\b/;
+  if (!addPattern.test(lower)) return null;
+
+  const itemText = extractChecklistItemFromMessage(message);
+  if (!itemText) return null;
+  if (itemText.length < 3) return null;
+
+  const safeWeek = currentWeek && typeof currentWeek === "object" ? currentWeek : null;
+  const snapshot = buildChecklistTemplateSnapshot(safeWeek);
+  if (!snapshot.length) return null;
+
+  const categoryKey = inferChecklistCategoryFromText(itemText + " " + lower, safeWeek);
+  const targetCategory = snapshot.find((entry) => entry.key === categoryKey);
+  if (!targetCategory) return null;
+
+  const existing = new Set((targetCategory.items || []).map((value) => normalizeForLookup(value)));
+  const normalizedItem = itemText.replace(/\s+/g, " ").trim();
+  if (existing.has(normalizeForLookup(normalizedItem))) return null;
+
+  const inferred = snapshot.map((entry) =>
+    entry.key === targetCategory.key
+      ? { ...entry, items: [...(entry.items || []), normalizedItem] }
+      : entry,
+  );
+  return {
+    checklist_categories: inferred,
+    itemText: normalizedItem,
+    categoryLabel: targetCategory.label,
+  };
+}
+
+function normalizeChecklistTitle(value) {
+  return String(value || "")
+    .replace(/^\*+|\*+$/g, "")
+    .replace(/^\-+|\-+$/g, "")
+    .trim();
+}
+
+function resolveChecklistCategoryKeyFromHeading(heading, currentWeek) {
+  const keys = getFitnessCategoryKeys(currentWeek ?? null);
+  const lookup = normalizeForLookup(heading);
+  if (!lookup) return "checklist";
+
+  for (const key of keys) {
+    if (normalizeForLookup(key) === lookup) return key;
+    const label = normalizeForLookup(getFitnessCategoryLabel(currentWeek, key));
+    if (label === lookup) return key;
+    if (label && (lookup.includes(label) || label.includes(lookup))) return key;
+  }
+
+  return lookup.replace(/[^a-z0-9]+/g, "_") || "checklist";
+}
+
+function parseChecklistTemplateFromMessage({ message, currentWeek }) {
+  if (typeof message !== "string") return null;
+
+  const hasChecklistCue = /\b(checklist|workout plan|routine)\b/i.test(message);
+  if (!hasChecklistCue) return null;
+
+  const lines = message.replace(/\r\n/g, "\n").split("\n");
+  const categories = [];
+  const categoryByKey = new Map();
+  const itemSignaturesByKey = new Map();
+  let currentCategory = null;
+
+  const extractHeading = (rawLine) => {
+    const trimmed = rawLine.trim();
+    if (!trimmed) return null;
+    const cleaned = normalizeChecklistTitle(trimmed);
+    if (!cleaned || cleaned.length > 70) return null;
+    if (!/:\s*$/.test(cleaned)) return null;
+    return cleaned.replace(/:\s*$/u, "").trim();
+  };
+
+  const extractItem = (rawLine) => {
+    const raw = rawLine.trim();
+    if (!raw) return "";
+    const withoutPrefix = raw
+      .replace(/^\s*(?:[-*+•]\s*)?(?:\[[xX✓✔✅☐\u2610\s]\]\s*)?/u, "")
+      .replace(/^\s*[✅✔☑️☑✖️✗☒\u2610\u2611\u2612⬜]\s*/u, "")
+      .replace(/^\s*(?:\d+[.)]\s*)/u, "")
+      .trim();
+    return withoutPrefix.replace(/^\s*-\s*/u, "").trim();
+  };
+
+  for (const rawLine of lines) {
+    const heading = extractHeading(rawLine);
+    if (heading) {
+      const key = resolveChecklistCategoryKeyFromHeading(heading, currentWeek);
+      if (categoryByKey.has(key)) {
+        currentCategory = categoryByKey.get(key);
+      } else {
+        currentCategory = { key, label: heading, items: [] };
+        categoryByKey.set(key, currentCategory);
+        categories.push(currentCategory);
+      }
+      continue;
+    }
+
+    if (!currentCategory) continue;
+
+    const itemText = extractItem(rawLine);
+    if (!itemText) continue;
+    const signature = normalizeForLookup(itemText);
+    if (!signature) continue;
+    const seenForCategory = itemSignaturesByKey.get(currentCategory.key) || new Set();
+    if (seenForCategory.has(signature)) continue;
+    seenForCategory.add(signature);
+    itemSignaturesByKey.set(currentCategory.key, seenForCategory);
+    currentCategory.items.push(itemText);
+  }
+
+  const normalized = categories.filter((entry) => entry.items.length);
+  if (!normalized.length) return null;
+  return normalized;
+}
+
+function applyChecklistTemplateFallback({ parsed, message, currentWeek }) {
+  const existingChecklist = parsed.changes?.checklist_categories;
+  const hasChecklist = Array.isArray(existingChecklist) && existingChecklist.length;
+  if (hasChecklist) return parsed;
+
+  const template = parseChecklistTemplateFromMessage({ message, currentWeek });
+  if (!template?.length) return parsed;
+
+  return {
+    ...parsed,
+    assistant_message: "I replaced your current checklist with the template you provided.",
+    followup_question: null,
+    changes: {
+      ...parsed.changes,
+      checklist_categories: template,
+    },
+  };
+}
+
+function applyChecklistInferenceFallback({ parsed, message, currentWeek }) {
+  const existingChecklist = parsed.changes?.checklist_categories;
+  const hasChecklist = Array.isArray(existingChecklist) && existingChecklist.length;
+  if (hasChecklist) return parsed;
+
+  const inferred = inferChecklistFromMessage({ message, currentWeek });
+  if (!inferred?.checklist_categories?.length) return parsed;
+
+  const itemText = String(inferred.itemText || "").trim();
+  const categoryLabel = String(inferred.categoryLabel || "checklist").trim() || "checklist";
+  const inferredMessage = itemText
+    ? `I added "${itemText}" to your ${categoryLabel} checklist.`
+    : "I updated your checklist based on that request.";
+
+  return {
+    ...parsed,
+    assistant_message: inferredMessage,
+    followup_question: null,
+    changes: { ...parsed.changes, checklist_categories: inferred.checklist_categories },
   };
 }
 
@@ -673,6 +951,7 @@ function buildEmptySettingsChanges() {
     training_profile: null,
     diet_profile: null,
     agent_profile: null,
+    checklist_categories: null,
   };
 }
 
@@ -683,10 +962,11 @@ function coerceSettingsChanges(value) {
     training_profile: normalizeSettingsProfileChange(raw.training_profile),
     diet_profile: normalizeSettingsProfileChange(raw.diet_profile),
     agent_profile: normalizeSettingsProfileChange(raw.agent_profile),
+    checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
   };
 }
 
-function buildSettingsAssistantFallback(text) {
+function buildSettingsAssistantFallback(text, { message = "", currentWeek = null } = {}) {
   const rawText = typeof text === "string" ? text : "";
   const candidate = extractJsonCandidate(rawText);
   if (candidate) {
@@ -700,14 +980,20 @@ function buildSettingsAssistantFallback(text) {
           changes.user_profile ||
             changes.training_profile ||
             changes.diet_profile ||
-            changes.agent_profile,
+            changes.agent_profile ||
+            (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length),
         );
         if (assistantMessage || followupQuestion || hasChanges) {
-          return {
-            assistant_message: assistantMessage || "I prepared a settings response.",
-            followup_question: followupQuestion,
-            changes,
-          };
+          const inferred = applyChecklistInferenceFallback({
+            parsed: {
+              assistant_message: assistantMessage || "I prepared a settings response.",
+              followup_question: followupQuestion,
+              changes,
+            },
+            message,
+            currentWeek,
+          });
+          return inferred;
         }
       }
     } catch {
@@ -715,13 +1001,13 @@ function buildSettingsAssistantFallback(text) {
     }
   }
 
-  const message = cleanRichText(rawText);
+  const fallbackMessage = cleanRichText(rawText);
   const looksJson = typeof candidate === "string" && candidate.trim().startsWith("{");
   return {
     assistant_message:
       looksJson
         ? "I could not parse structured settings changes from the model response. Please try again."
-        : message || "I could not parse structured settings changes from the model response.",
+        : fallbackMessage || "I could not parse structured settings changes from the model response.",
     followup_question: null,
     changes: buildEmptySettingsChanges(),
   };
@@ -1210,6 +1496,7 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
+    current_week: tracking.current_week ?? null,
   };
 
   const system = buildSystemInstructions({
@@ -1237,11 +1524,15 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     });
   } catch {
     const response = await client.responses.create({ model, input });
-    parsed = buildSettingsAssistantFallback(response?.output_text ?? "");
+    parsed = buildSettingsAssistantFallback(response?.output_text ?? "", {
+      message,
+      currentWeek: tracking.current_week ?? null,
+    });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
+    currentWeek: tracking.current_week ?? null,
   });
 }
 
@@ -1255,6 +1546,7 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
+    current_week: tracking.current_week ?? null,
   };
 
   const system = buildSystemInstructions({
@@ -1285,10 +1577,14 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
       errorMessage: "OpenAI response did not include parsed settings output.",
     });
   } catch {
-    parsed = buildSettingsAssistantFallback(output);
+    parsed = buildSettingsAssistantFallback(output, {
+      message,
+      currentWeek: tracking.current_week ?? null,
+    });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
+    currentWeek: tracking.current_week ?? null,
   });
 }
