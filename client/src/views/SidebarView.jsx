@@ -1,7 +1,5 @@
 import React from "react";
 
-import { getFitnessCategories } from "../fitnessChecklist.js";
-
 export default function SidebarView({
   foodDate,
   suggestedDate,
@@ -16,7 +14,7 @@ export default function SidebarView({
   fitnessWeek,
   fmt,
 }) {
-  const fitnessCategories = getFitnessCategories(fitnessWeek);
+  const workouts = Array.isArray(fitnessWeek?.workouts) ? fitnessWeek.workouts : [];
 
   return (
     <aside id="app-sidebar-nav" className="sidebar">
@@ -59,35 +57,32 @@ export default function SidebarView({
           <p className="muted">Loading week…</p>
         ) : (
           <div className="sidebarChecklist">
-            {fitnessCategories.length ? (
-              fitnessCategories.map(({ key, label, items }) => (
-                <div key={key} className="sidebarChecklistGroup">
-                <h3 className="sidebarSectionLabel">{label}</h3>
-                  <div className="sidebarChecklistItems">
-                    {items.length ? (
-                      items.map((it, idx) => {
-                        const itemLabel = typeof it?.item === "string" ? it.item : "";
-                        const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
-                        return (
-                          <div key={idx} className={`sidebarChecklistItem ${it.checked ? "done" : "todo"}`}>
-                            <span className={`sidebarChecklistMark ${it.checked ? "checked" : "unchecked"}`} aria-hidden="true">
-                              {it.checked ? "✓" : ""}
-                            </span>
-                            <span className="sidebarChecklistText">
-                              <span>{itemLabel}</span>
-                              {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
-                            </span>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="sidebarChecklistItem muted">No items.</div>
-                    )}
-                  </div>
+            {workouts.length ? (
+              <div className="sidebarChecklistGroup">
+                <h3 className="sidebarSectionLabel">{fitnessWeek?.block_name || "Current block"}</h3>
+                <div className="sidebarChecklistItems">
+                  {workouts.map((workout, idx) => {
+                    const itemLabel = typeof workout?.name === "string" ? workout.name : "";
+                    const itemDescription = typeof workout?.description === "string" ? workout.description.trim() : "";
+                    const itemCategory = typeof workout?.category === "string" ? workout.category.trim() : "";
+                    const completed = workout?.completed === true;
+                    return (
+                      <div key={`${itemLabel || "workout"}_${idx}`} className={`sidebarChecklistItem ${completed ? "done" : "todo"}`}>
+                        <span className={`sidebarChecklistMark ${completed ? "checked" : "unchecked"}`} aria-hidden="true">
+                          {completed ? "✓" : ""}
+                        </span>
+                        <span className="sidebarChecklistText">
+                          <span>{itemLabel}</span>
+                          {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
+                          {itemCategory ? <span className="sidebarChecklistDescription">{itemCategory}</span> : null}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-              ))
+              </div>
             ) : (
-              <div className="sidebarChecklistItem muted">No checklist categories yet.</div>
+              <div className="sidebarChecklistItem muted">No workouts yet.</div>
             )}
           </div>
         )}

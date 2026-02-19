@@ -496,6 +496,67 @@ function canonicalWeekToLegacy(week, block) {
   };
 }
 
+function canonicalWeekToView(week, block) {
+  const safeWeek = normalizeWeek(week);
+  if (!safeWeek) return null;
+  const safeBlock = normalizeBlock(block);
+
+  const definitionByName = new Map(
+    asArray(safeBlock?.workouts)
+      .map((row) => {
+        const name = normalizeText(row?.name);
+        return name ? [name.toLowerCase(), row] : null;
+      })
+      .filter(Boolean),
+  );
+
+  const workouts = [];
+  const seen = new Set();
+  for (const workout of asArray(safeWeek.workouts)) {
+    const name = normalizeText(workout?.name);
+    if (!name) continue;
+    const token = name.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    const def = definitionByName.get(token);
+    workouts.push({
+      name,
+      description: normalizeOptionalText(def?.description),
+      category: normalizeOptionalText(def?.category) || "General",
+      optional: def?.optional === true,
+      details: normalizeOptionalText(workout?.details),
+      completed: workout?.completed === true,
+    });
+  }
+
+  for (const def of asArray(safeBlock?.workouts)) {
+    const name = normalizeText(def?.name);
+    if (!name) continue;
+    const token = name.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    workouts.push({
+      name,
+      description: normalizeOptionalText(def?.description),
+      category: normalizeOptionalText(def?.category) || "General",
+      optional: def?.optional === true,
+      details: "",
+      completed: false,
+    });
+  }
+
+  return {
+    week_start: safeWeek.week_start,
+    week_end: safeWeek.week_end,
+    week_label: weekLabelFromStart(safeWeek.week_start),
+    block_id: normalizeOptionalText(safeWeek.block_id),
+    block_name: normalizeOptionalText(safeBlock?.block_name),
+    block_details: normalizeOptionalText(safeBlock?.block_details),
+    workouts,
+    summary: normalizeOptionalText(safeWeek.summary),
+  };
+}
+
 function legacyTotalsFromDay(day) {
   const safe = normalizeDietDay(day);
   if (!safe) return {
@@ -718,6 +779,14 @@ export async function ensureCurrentWeek(now = new Date()) {
   if (ensured.changed) await writeCanonicalTrackingData(ensured.data);
   const block = ensured.data.activity.blocks.find((row) => row.block_id === ensured.currentWeek?.block_id) || null;
   return ensured.currentWeek ? canonicalWeekToLegacy(ensured.currentWeek, block) : null;
+}
+
+export async function getCurrentActivityWeek(now = new Date()) {
+  const canonical = await readCanonicalTrackingData();
+  const ensured = ensureCurrentWeekInCanonical(canonical, now);
+  if (ensured.changed) await writeCanonicalTrackingData(ensured.data);
+  const block = ensured.data.activity.blocks.find((row) => row.block_id === ensured.currentWeek?.block_id) || null;
+  return ensured.currentWeek ? canonicalWeekToView(ensured.currentWeek, block) : null;
 }
 
 export async function addFoodEvent({
@@ -1016,6 +1085,78 @@ export async function listFitnessWeeks({ limit = 12 } = {}) {
 
   const blockById = new Map(canonical.activity.blocks.map((block) => [block.block_id, block]));
   return picked.map((week) => canonicalWeekToLegacy(week, blockById.get(week.block_id))).filter(Boolean);
+}
+
+export async function listActivityWeeks({ limit = 12 } = {}) {
+  const canonical = await readCanonicalTrackingData();
+  const history = currentWeekHistory(canonical);
+  const safeLimit = Math.max(0, Number(limit) || 0);
+  const picked = safeLimit > 0 ? history.slice(-safeLimit) : history;
+
+  const blockById = new Map(canonical.activity.blocks.map((block) => [block.block_id, block]));
+  return picked.map((week) => canonicalWeekToView(week, blockById.get(week.block_id))).filter(Boolean);
+}
+
+export async function updateCurrentActivityWorkout({ index, completed, details }) {
+  if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid workout index: ${index}`);
+  if (typeof completed !== "boolean") throw new Error("Invalid completed value");
+  if (typeof details !== "string") throw new Error("Invalid details value");
+
+  const canonical = await readCanonicalTrackingData();
+  const ensured = ensureCurrentWeekInCanonical(canonical);
+  const current = ensured.currentWeek;
+  if (!current) throw new Error("Missing current week");
+
+  const workouts = asArray(current.workouts).map((row) => ({
+    name: normalizeText(row?.name),
+    details: normalizeOptionalText(row?.details),
+    completed: row?.completed === true,
+  }));
+  const target = workouts[index];
+  if (!target || !target.name) throw new Error("Workout not found");
+
+  workouts[index] = {
+    ...target,
+    details: normalizeOptionalText(details),
+    completed,
+  };
+
+  const next = normalizeWeek({
+    ...current,
+    workouts,
+  });
+  ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
+  ensured.data.rules.metadata = {
+    ...asObject(ensured.data.rules.metadata),
+    last_updated: formatSeattleIso(new Date()),
+  };
+  await writeCanonicalTrackingData(ensured.data);
+
+  const block = ensured.data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
+  return canonicalWeekToView(next, block);
+}
+
+export async function updateCurrentActivityWeekSummary(summary) {
+  if (typeof summary !== "string") throw new Error("Invalid summary");
+
+  const canonical = await readCanonicalTrackingData();
+  const ensured = ensureCurrentWeekInCanonical(canonical);
+  const current = ensured.currentWeek;
+  if (!current) throw new Error("Missing current week");
+
+  const next = normalizeWeek({
+    ...current,
+    summary,
+  });
+  ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
+  ensured.data.rules.metadata = {
+    ...asObject(ensured.data.rules.metadata),
+    last_updated: formatSeattleIso(new Date()),
+  };
+  await writeCanonicalTrackingData(ensured.data);
+
+  const block = ensured.data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
+  return canonicalWeekToView(next, block);
 }
 
 export function summarizeTrainingBlocks(data) {

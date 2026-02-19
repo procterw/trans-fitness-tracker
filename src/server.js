@@ -45,15 +45,16 @@ import { runWithTrackingUser } from "./trackingUser.js";
 import {
   clearFoodEntriesForDate,
   ensureCurrentWeek,
+  getCurrentActivityWeek,
   getSeattleDateString,
   getSuggestedLogDate,
-  listFitnessWeeks,
+  listActivityWeeks,
   listFoodDays,
   readTrackingData,
   summarizeTrainingBlocks,
+  updateCurrentActivityWeekSummary,
+  updateCurrentActivityWorkout,
   updateCurrentWeekItems,
-  updateCurrentWeekItem,
-  updateCurrentWeekSummary,
   formatSeattleIso,
   writeTrackingData,
 } from "./trackingData.js";
@@ -1507,6 +1508,7 @@ app.post("/api/settings/chat", async (req, res) => {
           requiresTimingChoice: false,
         };
     const assistantMessage = typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "";
+    const canonicalWeek = await getCurrentActivityWeek();
 
     const payload = {
       ok: true,
@@ -1519,6 +1521,7 @@ app.post("/api/settings/chat", async (req, res) => {
       updated: applied.updated,
       settings_version: applied.settingsVersion,
       effective_from: applied.effectiveFrom,
+      week: canonicalWeek,
       current_week: applied.current_week,
     };
     if (stream) {
@@ -1546,10 +1549,12 @@ app.post("/api/settings/confirm", async (req, res) => {
     if (applied.requiresTimingChoice) {
       return res.status(400).json({ ok: false, error: applied.followupQuestion || "Missing phase apply timing." });
     }
+    const canonicalWeek = await getCurrentActivityWeek();
     res.json({
       ok: true,
       changes_applied: applied.changesApplied,
       updated: applied.updated,
+      week: canonicalWeek,
       current_week: applied.current_week,
       settings_version: applied.settingsVersion,
       effective_from: applied.effectiveFrom,
@@ -1822,6 +1827,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
 
       const updatedWeek = await updateCurrentWeekItems(updates);
       const summarizedWeek = await refreshCurrentWeekSummaryForActivity(updatedWeek);
+      const canonicalWeek = await getCurrentActivityWeek();
 
       const responsePayload = {
         ok: true,
@@ -1831,6 +1837,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         followup_question: decision?.activity?.followup_question ?? null,
         food_result: null,
         activity_updates: resolved,
+        week: canonicalWeek,
         current_week: summarizedWeek,
         answer: null,
       };
@@ -2063,8 +2070,8 @@ app.post("/api/food/manual", async (req, res) => {
 
 app.get("/api/fitness/current", async (_req, res) => {
   try {
-    const current = await ensureCurrentWeek();
-    res.json({ ok: true, current_week: current });
+    const week = await getCurrentActivityWeek();
+    res.json({ ok: true, week });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -2072,28 +2079,34 @@ app.get("/api/fitness/current", async (_req, res) => {
 
 app.post("/api/fitness/current/item", async (req, res) => {
   try {
-    const category = typeof req.body?.category === "string" ? req.body.category : null;
-    const index = typeof req.body?.index === "number" ? req.body.index : Number(req.body?.index);
+    const index = typeof req.body?.workout_index === "number" ? req.body.workout_index : Number(req.body?.workout_index);
     const checked = typeof req.body?.checked === "boolean" ? req.body.checked : null;
     const details = typeof req.body?.details === "string" ? req.body.details : "";
 
-    if (!category) return res.status(400).json({ ok: false, error: "Missing field: category" });
-    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ ok: false, error: "Invalid field: index" });
+    if (!Number.isInteger(index) || index < 0) return res.status(400).json({ ok: false, error: "Invalid field: workout_index" });
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
-    const current = await updateCurrentWeekItem({ category, index, checked, details });
-    const summarized = await refreshCurrentWeekSummaryForActivity(current);
-    res.json({ ok: true, current_week: summarized });
+    await updateCurrentActivityWorkout({ index, completed: checked, details });
+    const legacyCurrent = await ensureCurrentWeek();
+    await refreshCurrentWeekSummaryForActivity(legacyCurrent);
+    const week = await getCurrentActivityWeek();
+    res.json({ ok: true, week });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    const isInputError =
+      message.startsWith("Invalid workout index:") ||
+      message.startsWith("Invalid completed value") ||
+      message.startsWith("Invalid details value") ||
+      message.startsWith("Workout not found");
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 
 app.post("/api/fitness/current/summary", async (req, res) => {
   try {
     const summary = typeof req.body?.summary === "string" ? req.body.summary : "";
-    const current = await updateCurrentWeekSummary(summary);
-    res.json({ ok: true, current_week: current });
+    const week = await updateCurrentActivityWeekSummary(summary);
+    res.json({ ok: true, week });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -2103,7 +2116,7 @@ app.get("/api/fitness/history", async (req, res) => {
   try {
     const limitRaw = typeof req.query?.limit === "string" ? req.query.limit : null;
     const limit = limitRaw ? Number(limitRaw) : 12;
-    const weeks = await listFitnessWeeks({ limit });
+    const weeks = await listActivityWeeks({ limit });
     res.json({ ok: true, weeks });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });

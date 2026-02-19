@@ -20,6 +20,8 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use canonical `general/fitness/diet/agent` only, removed rollup/sync client calls, `getFoodForDate` targets `/api/food/day`, food-day utilities no longer depend on server `events`, `App` + `DietView` are wired to explicit `day`/`day_totals`, and sidebar day summary no longer falls back to `food_log.notes`; remaining: finish broader simplified-contract cleanup outside the settings path, especially workouts and onboarding/import contexts).
 - [x] (2026-02-19 23:20Z) Added destructive reset command `npm run reset:simplified-dev-data` (`scripts/reset-simplified-dev-data.js`) for JSON + Postgres dev data, with `--dry-run`/`--skip-*` flags; validated via dry run and `node --check`.
 - [x] (2026-02-19 23:37Z) Rewrote import analysis/apply to canonical domains (`profile`, `food_days`, `activity_blocks`, `activity_weeks`, `rules`) and dropped legacy import-shape application; validated with module smoke test + `npm run build`.
+- [x] (2026-02-19 23:56Z) Migrated fitness UI/API flow to canonical week payloads (`week.workouts[]`), added canonical activity helpers in `trackingData.js`, switched fitness item updates to `workout_index`, and rewrote workouts/sidebar rendering away from checklist category keys; validated with `node --check` + `npm run build`.
+- [x] (2026-02-19 23:59Z) Added canonical `week` fields to settings chat/confirm and assistant-activity responses so the app can consume canonical week payloads across non-fitness routes while retaining temporary `current_week` fallback.
 - [x] (2026-02-19 22:11Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
 - [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, `readTrackingData()` smoke checks after server/client updates, and `PROJECT.md` updates to canonical day-centric contracts; remaining: manual app flow validation).
 - [x] (2026-02-19 22:22Z) Fixed diet runtime contract mismatch by removing stale event props from `App.jsx` and binding `DietView` to `dashPayload.day` + `dashPayload.day_totals`; verified with `npm run build`.
@@ -91,6 +93,12 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: Import apply logic was still writing legacy keys (`food_log`, `fitness_weeks`, `user_profile`) that no longer match canonical write paths.
   Evidence: `applyImportPlan()` mutated top-level legacy fields in `src/importData.js` before the 23:37Z rewrite.
 
+- Observation: Fitness UI and API were still coupled to legacy checklist category/index semantics even though canonical training data is workout-list based.
+  Evidence: `client/src/views/WorkoutsView.jsx` and `/api/fitness/current/item` depended on `category/index` and `current_week` before the 23:56Z canonical-week update.
+
+- Observation: Non-fitness routes (settings chat + assistant activity responses) still returned only `current_week`, forcing UI fallback even after canonical fitness endpoint migration.
+  Evidence: `server.js` settings and ingest payloads lacked canonical `week` fields until the 23:59Z response update.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -149,9 +157,17 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: Hard-reset scope prioritizes a simple single schema and avoids silently writing ignored legacy fields.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Move workouts UI/API to canonical `week.workouts[]` and use `workout_index` mutations.
+  Rationale: This matches the target data template directly and removes an unnecessary checklist-key abstraction from active user flows.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Add canonical `week` to settings/assistant responses immediately while temporarily keeping `current_week` compatibility fields.
+  Rationale: This reduces contract drift quickly without blocking remaining assistant/settings internals that still rely on legacy week paths.
+  Date/Author: 2026-02-19 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes and now enforces canonical-only normalization/input extraction. `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. Import analysis/apply now targets canonical domains directly, and legacy unified import payloads are treated as unsupported. A destructive reset command exists for local JSON + Postgres dev data. Remaining work is broader cleanup around onboarding/workout prompt contracts, `current_week` compatibility output, and Postgres rewrite.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, enforces canonical-only normalization/input extraction, and now exposes canonical activity-week helpers for current week/history/update operations. `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Fitness UI/API now consume canonical `week.workouts[]` payloads and `workout_index` updates instead of checklist-category keys. Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. Import analysis/apply targets canonical domains directly, and legacy unified import payloads are treated as unsupported. A destructive reset command exists for local JSON + Postgres dev data. Remaining work is broader cleanup around onboarding/workout prompt contracts, the remaining `current_week` compatibility outputs in assistant/settings responses, and Postgres rewrite.
 
 ## Context and Orientation
 
@@ -400,3 +416,5 @@ Plan change note (2026-02-19 22:47Z): Logged canonical accessor migration in `se
 Plan change note (2026-02-19 23:11Z): Logged `server.js` settings-path cleanup: removed direct `data.current_week` reads, added canonical `activity.blocks` sync from settings block updates, and seeded starter training block metadata+activity state when absent.
 Plan change note (2026-02-19 23:20Z): Logged new destructive reset command (`scripts/reset-simplified-dev-data.js`) and npm script wiring, including dry-run/skip flags and support for both legacy and simplified Postgres table names.
 Plan change note (2026-02-19 23:37Z): Logged canonical-only `trackingData.js` normalization/input extraction (legacy merge removal), plus canonical import rewrite in `importData.js` (`profile`/`food_days`/`activity_blocks`/`activity_weeks`/`rules`) and doc alignment updates.
+Plan change note (2026-02-19 23:56Z): Logged canonical workouts refactor across `trackingData.js`, `server.js`, and client workouts/sidebar/app flows: current/history fitness endpoints now serve canonical `week.workouts[]`, item updates use `workout_index`, and UI no longer depends on checklist category keys for workout rendering/editing.
+Plan change note (2026-02-19 23:59Z): Logged canonical `week` response additions in `server.js` settings chat/confirm and assistant activity payloads, enabling canonical week consumption beyond the dedicated fitness endpoints.

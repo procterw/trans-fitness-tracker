@@ -103,10 +103,12 @@ This repo includes a minimal local web app that supports:
 - `GET /api/food/day?date=YYYY-MM-DD` → day row + day totals for that date
 - `POST /api/food/day` → direct write/update of a day row (`date`, nutrients, `complete`, `details`)
 - `GET /api/food/log` → list of day rows (supports `limit`, `from`, `to`)
-- `GET /api/fitness/current` → current week checklist (rollover-aware)
-- `POST /api/fitness/current/item` → JSON body: `category` (any key present in the user’s current-week checklist), `index`, `checked`, `details`
-  - Recomputes `current_week.summary` after each activity change as a workout-only progress summary + rest-of-week plan (no diet guidance).
-- `POST /api/fitness/current/summary` → JSON body: `summary`
+- `GET /api/fitness/current` → rollover-aware canonical current week payload (`week`)
+  - `week` shape: `{ week_start, week_end, week_label, block_id, block_name, block_details, workouts[], summary }`
+  - `workouts[]` rows: `{ name, description, category, optional, details, completed }`
+- `POST /api/fitness/current/item` → JSON body: `workout_index`, `checked`, `details`
+  - Updates one workout row in the current week and refreshes weekly summary text.
+- `POST /api/fitness/current/summary` → JSON body: `summary` (manual summary override)
 - `POST /api/assistant/ask` → JSON body: `question` + optional `date` + optional `messages`
   - Answers questions using OpenAI, contextualized by the split tracking files (diet/fitness philosophy + recent logs)
 - `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
@@ -119,9 +121,7 @@ This repo includes a minimal local web app that supports:
   - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
   - Applies a previously proposed settings change for manual confirmation workflows
-- `GET /api/fitness/history?limit=N` → recent week snapshots
-  - each week includes phase snapshot fields:
-    - `training_block_id`, `training_block_name`, `training_block_description`
+- `GET /api/fitness/history?limit=N` → recent canonical week snapshots (`weeks[]`), each with block metadata and `workouts[]`
 
 ## Day logging format
 Photo + manual logs update one row in `tracking-food.json.days`:

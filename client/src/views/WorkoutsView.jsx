@@ -1,32 +1,54 @@
 import React from "react";
 
 import AutoGrowTextarea from "../components/AutoGrowTextarea.jsx";
-import { getFitnessCategories } from "../fitnessChecklist.js";
+
+function workoutKey(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase();
+}
+
+function collectWorkoutCatalog(weeks) {
+  const byKey = new Map();
+  for (const week of Array.isArray(weeks) ? weeks : []) {
+    const workouts = Array.isArray(week?.workouts) ? week.workouts : [];
+    for (const workout of workouts) {
+      const name = typeof workout?.name === "string" ? workout.name.trim() : "";
+      if (!name) continue;
+      const key = workoutKey(name);
+      if (byKey.has(key)) continue;
+      byKey.set(key, {
+        key,
+        name,
+        description: typeof workout?.description === "string" ? workout.description.trim() : "",
+        category: typeof workout?.category === "string" ? workout.category.trim() : "",
+      });
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+function findWorkoutInWeek(week, name) {
+  const target = workoutKey(name);
+  const workouts = Array.isArray(week?.workouts) ? week.workouts : [];
+  return workouts.find((workout) => workoutKey(workout?.name) === target) || null;
+}
 
 function renderFitnessHistoryTableForWeeks({ weeks }) {
   if (!Array.isArray(weeks) || !weeks.length) return <p className="muted">No past weeks yet.</p>;
 
-  const categoriesByKey = new Map();
-  const collectCategories = (week) => {
-    for (const category of getFitnessCategories(week)) {
-      if (!categoriesByKey.has(category.key)) categoriesByKey.set(category.key, category);
-      else if (!categoriesByKey.get(category.key).items.length && category.items.length) categoriesByKey.set(category.key, category);
-    }
-  };
-  for (const week of weeks) collectCategories(week);
-
-  const categories = Array.from(categoriesByKey.values());
-  if (!categories.length) return <p className="muted">No checklist categories in history yet.</p>;
+  const workoutCatalog = collectWorkoutCatalog(weeks);
+  if (!workoutCatalog.length) return <p className="muted">No workouts in history yet.</p>;
 
   return (
     <div className="tableScroll fitnessHistoryTableScroll" role="region" aria-label="Fitness history table">
       <table className="fitnessHistoryTable">
         <thead>
           <tr>
-            <th className="fitnessHistoryWeekCol">Activity</th>
+            <th className="fitnessHistoryWeekCol">Workout</th>
             {weeks.map((week, idx) => (
               <th key={week?.week_start ?? `week_${idx}`} className="fitnessHistoryWeekHeader">
-                <div className="fitnessHistoryWeekTitle">{week?.week_label ?? "—"}</div>
+                <div className="fitnessHistoryWeekTitle">{week?.week_label ?? week?.week_start ?? "—"}</div>
                 <div className="fitnessHistoryWeekMeta muted">
                   <code>{week?.week_start ?? "—"}</code>
                 </div>
@@ -35,46 +57,34 @@ function renderFitnessHistoryTableForWeeks({ weeks }) {
           </tr>
         </thead>
         <tbody>
-          {categories.map(({ key: catKey, label: catLabel, items }) => {
-            if (!items.length) return null;
-            return (
-              <React.Fragment key={catKey}>
-                <tr className="fitnessHistoryCategoryRow">
-                  <td className="fitnessHistoryCategoryCell" colSpan={weeks.length + 1}>
-                    {catLabel}
+          {workoutCatalog.map((workout) => (
+            <tr key={workout.key}>
+              <td className="fitnessHistoryActivityCell">
+                <div>{workout.name}</div>
+                {workout.description ? (
+                  <div className="fitnessHistoryActivityDescription">{workout.description}</div>
+                ) : null}
+                {workout.category ? <div className="fitnessHistoryActivityDescription muted">{workout.category}</div> : null}
+              </td>
+              {weeks.map((week, weekIdx) => {
+                const row = findWorkoutInWeek(week, workout.name);
+                const completed = row?.completed === true;
+                const details = typeof row?.details === "string" ? row.details.trim() : "";
+                return (
+                  <td
+                    key={`${week?.week_start ?? weekIdx}_${workout.key}`}
+                    className={`fitnessHistoryCell ${completed ? "checked" : "unchecked"}`}
+                    title={details || undefined}
+                  >
+                    <div className="fitnessHistoryCellInner">
+                      <span className={`fitnessHistoryMark ${completed ? "ok" : "error"}`}>{completed ? "✓" : "×"}</span>
+                      {details ? <div className="fitnessHistoryText">{details}</div> : null}
+                    </div>
                   </td>
-                </tr>
-                {items.map((item, itemIdx) => (
-                  <tr key={`${catKey}_${itemIdx}`}>
-                    <td className="fitnessHistoryActivityCell">
-                      <div>{item?.item ?? `${catLabel} ${itemIdx + 1}`}</div>
-                      {typeof item?.description === "string" && item.description.trim() ? (
-                        <div className="fitnessHistoryActivityDescription">{item.description.trim()}</div>
-                      ) : null}
-                    </td>
-                    {weeks.map((week, weekIdx) => {
-                      const list = Array.isArray(week?.[catKey]) ? week[catKey] : [];
-                      const it = list[itemIdx];
-                      const checked = Boolean(it?.checked);
-                      const details = checked ? (it?.details ?? "").trim() : "";
-                      return (
-                        <td
-                          key={`${week?.week_start ?? weekIdx}_${catKey}_${itemIdx}`}
-                          className={`fitnessHistoryCell ${checked ? "checked" : "unchecked"}`}
-                          title={details || undefined}
-                        >
-                          <div className="fitnessHistoryCellInner">
-                            <span className={`fitnessHistoryMark ${checked ? "ok" : "error"}`}>{checked ? "✓" : "×"}</span>
-                            {details ? <div className="fitnessHistoryText">{details}</div> : null}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </React.Fragment>
-            );
-          })}
+                );
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -88,12 +98,9 @@ function renderFitnessHistoryByPhase({ fitnessHistory }) {
   const groups = [];
   const byId = new Map();
   for (const week of weeks) {
-    const id = typeof week?.training_block_id === "string" && week.training_block_id.trim() ? week.training_block_id.trim() : "legacy";
-    const name = typeof week?.training_block_name === "string" && week.training_block_name.trim() ? week.training_block_name.trim() : "Legacy phase";
-    const description =
-      typeof week?.training_block_description === "string" && week.training_block_description.trim()
-        ? week.training_block_description.trim()
-        : "";
+    const id = typeof week?.block_id === "string" && week.block_id.trim() ? week.block_id.trim() : "unassigned";
+    const name = typeof week?.block_name === "string" && week.block_name.trim() ? week.block_name.trim() : "Unassigned block";
+    const description = typeof week?.block_details === "string" && week.block_details.trim() ? week.block_details.trim() : "";
     if (!byId.has(id)) {
       const group = { id, name, description, weeks: [] };
       byId.set(id, group);
@@ -120,54 +127,41 @@ function renderFitnessHistoryByPhase({ fitnessHistory }) {
   );
 }
 
-function FitnessCategory({ title, category, fitnessWeek, fitnessLoading, onToggleFitness, onEditFitnessDetails }) {
-  const list = Array.isArray(fitnessWeek?.[category]) ? fitnessWeek[category] : [];
-  const entries = list.map((it, idx) => ({ it, idx }));
+function WorkoutItemRow({ workout, index, fitnessLoading, onToggleFitness, onEditFitnessDetails }) {
+  const checkboxId = `fit_workout_${index}`;
+  const name = typeof workout?.name === "string" ? workout.name : `Workout ${index + 1}`;
+  const description = typeof workout?.description === "string" ? workout.description.trim() : "";
+  const category = typeof workout?.category === "string" ? workout.category.trim() : "";
+  const details = typeof workout?.details === "string" ? workout.details : "";
+  const completed = workout?.completed === true;
 
   return (
-    <section className="fitnessCategory">
-      <div className="fitnessCategoryHeader">
-        <h3 className="fitnessCategoryTitle">{title}</h3>
-      </div>
-      <div className="fitnessChecklist" aria-label={`${title} checklist`}>
-        {entries.length ? (
-          entries.map(({ it, idx }) => {
-            const checkboxId = `fit_${category}_${idx}`;
-            return (
-              <div key={idx} className={`fitnessChecklistItem ${it.checked ? "checked" : ""}`}>
-                <input
-                  id={checkboxId}
-                  className="fitnessChecklistCheckbox"
-                  type="checkbox"
-                  checked={Boolean(it.checked)}
-                  disabled={fitnessLoading}
-                  onChange={(e) => onToggleFitness(category, idx, e.target.checked)}
-                />
-                <label htmlFor={checkboxId} className="fitnessChecklistLabel">
-                  <span className="fitnessChecklistLabelText">{it.item}</span>
-                  {typeof it?.description === "string" && it.description.trim() ? (
-                    <span className="fitnessChecklistLabelDescription">{it.description.trim()}</span>
-                  ) : null}
-                </label>
-                {it.checked ? (
-                  <AutoGrowTextarea
-                    rows={1}
-                    className="fitnessChecklistDetails"
-                    value={it.details ?? ""}
-                    disabled={fitnessLoading}
-                    placeholder="Details…"
-                    onChange={(e) => onEditFitnessDetails(category, idx, e.target.value)}
-                    aria-label={`${it.item} details`}
-                  />
-                ) : null}
-              </div>
-            );
-          })
-        ) : (
-          <p className="muted">No items.</p>
-        )}
-      </div>
-    </section>
+    <div className={`fitnessChecklistItem ${completed ? "checked" : ""}`}>
+      <input
+        id={checkboxId}
+        className="fitnessChecklistCheckbox"
+        type="checkbox"
+        checked={completed}
+        disabled={fitnessLoading}
+        onChange={(e) => onToggleFitness(index, e.target.checked)}
+      />
+      <label htmlFor={checkboxId} className="fitnessChecklistLabel">
+        <span className="fitnessChecklistLabelText">{name}</span>
+        {description ? <span className="fitnessChecklistLabelDescription">{description}</span> : null}
+        {category ? <span className="fitnessChecklistLabelDescription">{category}</span> : null}
+      </label>
+      {completed ? (
+        <AutoGrowTextarea
+          rows={1}
+          className="fitnessChecklistDetails"
+          value={details}
+          disabled={fitnessLoading}
+          placeholder="Details…"
+          onChange={(e) => onEditFitnessDetails(index, e.target.value)}
+          aria-label={`${name} details`}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -180,7 +174,7 @@ export default function WorkoutsView({
   onToggleFitness,
   onEditFitnessDetails,
 }) {
-  const categories = getFitnessCategories(fitnessWeek);
+  const workouts = Array.isArray(fitnessWeek?.workouts) ? fitnessWeek.workouts : [];
 
   return (
     <div className="mainScroll workoutsView">
@@ -189,7 +183,7 @@ export default function WorkoutsView({
           Workouts this week
           {fitnessWeek ? (
             <span className="muted fitnessWeekLabel">
-              Sun <code>{fitnessWeek.week_label}</code>
+              {fitnessWeek.week_label ? <code>{fitnessWeek.week_label}</code> : null}
             </span>
           ) : null}
         </h2>
@@ -201,20 +195,26 @@ export default function WorkoutsView({
         {fitnessWeek ? (
           <>
             <section className="workoutsChecklistSection">
-              {categories.length ? (
-                categories.map((category) => (
-                  <FitnessCategory
-                    key={category.key}
-                    title={category.label}
-                    category={category.key}
-                    fitnessWeek={fitnessWeek}
-                    fitnessLoading={fitnessLoading}
-                    onToggleFitness={onToggleFitness}
-                    onEditFitnessDetails={onEditFitnessDetails}
-                  />
-                ))
+              {workouts.length ? (
+                <section className="fitnessCategory">
+                  <div className="fitnessCategoryHeader">
+                    <h3 className="fitnessCategoryTitle">Checklist</h3>
+                  </div>
+                  <div className="fitnessChecklist" aria-label="Workout checklist">
+                    {workouts.map((workout, index) => (
+                      <WorkoutItemRow
+                        key={workoutKey(workout?.name) || index}
+                        workout={workout}
+                        index={index}
+                        fitnessLoading={fitnessLoading}
+                        onToggleFitness={onToggleFitness}
+                        onEditFitnessDetails={onEditFitnessDetails}
+                      />
+                    ))}
+                  </div>
+                </section>
               ) : (
-                <p className="muted">No checklist categories yet.</p>
+                <p className="muted">No workouts yet.</p>
               )}
             </section>
 
@@ -223,7 +223,7 @@ export default function WorkoutsView({
               <div className="fitnessHistoryBody">
                 {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
                 {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
-                {!fitnessHistoryLoading ? renderFitnessHistoryByPhase({ fitnessHistory, fitnessWeek }) : null}
+                {!fitnessHistoryLoading ? renderFitnessHistoryByPhase({ fitnessHistory }) : null}
               </div>
             </section>
           </>

@@ -323,11 +323,11 @@ export async function getFitnessHistory({ limit = 12 } = {}) {
   return fetchJson(`/api/fitness/history${qs ? `?${qs}` : ""}`);
 }
 
-export async function updateFitnessItem({ category, index, checked, details }) {
+export async function updateFitnessItem({ workoutIndex, checked, details }) {
   return fetchJson("/api/fitness/current/item", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ category, index, checked, details }),
+    body: JSON.stringify({ workout_index: workoutIndex, checked, details }),
   });
 }
 
