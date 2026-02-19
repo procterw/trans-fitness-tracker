@@ -30,7 +30,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CATEGORY_KEY = "workouts";
 
 const DAY_NUMERIC_KEYS = ["calories", "fat_g", "carbs_g", "protein_g", "fiber_g"];
-const LEGACY_EXTRA_NUMERIC_KEYS = ["potassium_mg", "magnesium_mg", "omega3_mg", "calcium_mg", "iron_mg"];
 
 function seattleParts(date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -117,11 +116,6 @@ function weekLabelFromStart(weekStart) {
   const end = new Date(start.getTime() + 6 * DAY_MS);
   const fmt = (d) => `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
   return `${fmt(start)}-${fmt(end)}`;
-}
-
-function dayOfWeekFromDateString(dateStr) {
-  const d = parseIsoDateAsUtcNoon(dateStr);
-  return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(d);
 }
 
 function asObject(value) {
@@ -647,26 +641,6 @@ function canonicalWeekToLegacy(week, block) {
   };
 }
 
-function canonicalDayToLegacyRow(day) {
-  const safe = normalizeDietDay(day);
-  if (!safe) return null;
-  const row = {
-    date: safe.date,
-    day_of_week: dayOfWeekFromDateString(safe.date),
-    weight_lb: safe.weight_lb,
-    calories: safe.calories,
-    fat_g: safe.fat_g,
-    carbs_g: safe.carbs_g,
-    protein_g: safe.protein_g,
-    fiber_g: safe.fiber_g,
-    status: safe.complete ? "🟢" : "⚪",
-    healthy: safe.complete ? "🟢" : "⚪",
-    notes: normalizeOptionalText(safe.details),
-  };
-  for (const key of LEGACY_EXTRA_NUMERIC_KEYS) row[key] = null;
-  return row;
-}
-
 function legacyTotalsFromDay(day) {
   const safe = normalizeDietDay(day);
   if (!safe) return {
@@ -720,19 +694,14 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
     diet: data.profile.diet,
     agent: data.profile.agent,
     profile: data.profile,
+    rules,
+    activity: data.activity,
+    food: data.food,
     blocks: data.activity.blocks,
     weeks: data.activity.weeks,
     training: data.activity,
     days: data.food.days,
     diet_data: data.food,
-
-    // Temporary compatibility aliases for the existing server and assistant paths.
-    user_profile: data.profile.general,
-    training_profile: data.profile.fitness,
-    diet_profile: data.profile.diet,
-    agent_profile: data.profile.agent,
-    food_log: data.food.days.map(canonicalDayToLegacyRow).filter(Boolean),
-    food_events: [],
     current_week: currentWeek ? canonicalWeekToLegacy(currentWeek, blockById.get(currentWeek.block_id)) : null,
     fitness_weeks: historyWeeks
       .map((week) => canonicalWeekToLegacy(week, blockById.get(week.block_id)))
@@ -745,10 +714,10 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
 function extractCanonicalFromIncoming(data) {
   const safe = asObject(data);
   const profile = {
-    general: normalizeOptionalText(safe.general || safe?.profile?.general || safe.user_profile),
-    fitness: normalizeOptionalText(safe.fitness || safe?.profile?.fitness || safe.training_profile),
-    diet: normalizeOptionalText(safe.diet || safe?.profile?.diet || safe.diet_profile),
-    agent: normalizeOptionalText(safe.agent || safe?.profile?.agent || safe.agent_profile),
+    general: normalizeOptionalText(safe.general || safe?.profile?.general),
+    fitness: normalizeOptionalText(safe.fitness || safe?.profile?.fitness),
+    diet: normalizeOptionalText(safe.diet || safe?.profile?.diet),
+    agent: normalizeOptionalText(safe.agent || safe?.profile?.agent),
   };
 
   const blocks = canonicalizeBlocks(safe.blocks || safe?.training?.blocks || safe?.activity?.blocks);
@@ -757,18 +726,7 @@ function extractCanonicalFromIncoming(data) {
   const days = canonicalizeDays(
     safe.days ||
       safe?.diet_data?.days ||
-      safe?.food?.days ||
-      asArray(safe.food_log).map((row) => ({
-        date: row?.date,
-        weight_lb: row?.weight_lb,
-        calories: row?.calories,
-        fat_g: row?.fat_g,
-        carbs_g: row?.carbs_g,
-        protein_g: row?.protein_g,
-        fiber_g: row?.fiber_g,
-        complete: row?.complete === true,
-        details: row?.details ?? row?.notes ?? "",
-      })),
+      safe?.food?.days,
   );
 
   const derivedFromLegacy = mergeLegacyIntoCanonical({
@@ -995,7 +953,6 @@ export async function addFoodEvent({
     confidence: confidence ?? null,
     items: asArray(raw_items),
     idempotency_key: typeof idempotency_key === "string" && idempotency_key.trim() ? idempotency_key.trim() : null,
-    applied_to_food_log: true,
   };
 
   return {
@@ -1055,7 +1012,6 @@ export async function updateFoodEvent({
     confidence: confidence ?? null,
     items: asArray(raw_items),
     idempotency_key: typeof idempotency_key === "string" && idempotency_key.trim() ? idempotency_key.trim() : null,
-    applied_to_food_log: true,
   };
 
   return {
@@ -1065,30 +1021,11 @@ export async function updateFoodEvent({
   };
 }
 
-export async function syncFoodEventsToFoodLog({ date }) {
-  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
-  const canonical = await readCanonicalTrackingData();
-  const day = canonical.food.days.find((row) => row.date === date) || null;
-  return {
-    synced_count: 0,
-    day,
-  };
-}
-
 export async function getDailyTotalsForDate(date) {
   if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
   const canonical = await readCanonicalTrackingData();
   const day = canonical.food.days.find((row) => row.date === date) || null;
   return legacyTotalsFromDay(day);
-}
-
-export async function getDailyFoodEventTotals(date) {
-  return getDailyTotalsForDate(date);
-}
-
-export async function getFoodEventsForDate(date) {
-  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
-  return [];
 }
 
 export async function clearFoodEntriesForDate(date) {
@@ -1285,24 +1222,6 @@ export function summarizeTrainingBlocks(data) {
   };
 }
 
-export async function listFoodLog({ limit = 0, from = null, to = null } = {}) {
-  if (from !== null && !isIsoDateString(from)) throw new Error(`Invalid from date: ${from}`);
-  if (to !== null && !isIsoDateString(to)) throw new Error(`Invalid to date: ${to}`);
-
-  const canonical = await readCanonicalTrackingData();
-  let rows = canonical.food.days.map(canonicalDayToLegacyRow).filter(Boolean);
-
-  if (from) rows = rows.filter((row) => row.date >= from);
-  if (to) rows = rows.filter((row) => row.date <= to);
-
-  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-
-  const safeLimit = Math.max(0, Number(limit) || 0);
-  if (safeLimit > 0) rows = rows.slice(0, safeLimit);
-
-  return rows;
-}
-
 export async function listFoodDays({ limit = 0, from = null, to = null } = {}) {
   if (from !== null && !isIsoDateString(from)) throw new Error(`Invalid from date: ${from}`);
   if (to !== null && !isIsoDateString(to)) throw new Error(`Invalid to date: ${to}`);
@@ -1321,23 +1240,9 @@ export async function listFoodDays({ limit = 0, from = null, to = null } = {}) {
   return rows;
 }
 
-export async function getFoodLogForDate(date) {
-  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
-  const canonical = await readCanonicalTrackingData();
-  const day = canonical.food.days.find((row) => row.date === date) || null;
-  return day ? canonicalDayToLegacyRow(day) : null;
-}
-
 export async function getFoodDayForDate(date) {
   if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
   const canonical = await readCanonicalTrackingData();
   const day = canonical.food.days.find((row) => row.date === date) || null;
   return day ? normalizeDietDay(day) : null;
-}
-
-export async function rollupFoodLogFromEvents(date) {
-  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
-  const canonical = await readCanonicalTrackingData();
-  const day = canonical.food.days.find((row) => row.date === date) || null;
-  return day ? canonicalDayToLegacyRow(day) : null;
 }

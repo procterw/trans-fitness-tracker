@@ -260,7 +260,7 @@ export function looksLikeBulkFoodImportText(message) {
   const uniqueDates = extractIsoDates(message).length;
   const hasImportCue = /\b(import|upload|migrate|backfill|historical|history|json|csv|data file|data\.json)\b/.test(lower);
   const hasStructuredCue =
-    /"food_log"\s*:|^\s*[{[]/m.test(message) ||
+    /"days"\s*:|^\s*[{[]/m.test(message) ||
     /\b(calories|protein|carbs|fat)\b[\s:=-]*\d+/i.test(message);
 
   if (hasImportCue && (uniqueDates >= 2 || hasStructuredCue || message.length >= 600)) return true;

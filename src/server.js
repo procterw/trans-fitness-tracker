@@ -48,7 +48,7 @@ import {
   getSeattleDateString,
   getSuggestedLogDate,
   listFitnessWeeks,
-  listFoodLog,
+  listFoodDays,
   readTrackingData,
   summarizeTrainingBlocks,
   updateCurrentWeekItems,
@@ -1623,7 +1623,7 @@ function normalizeDietDayPatchInput(body) {
 
 async function buildFoodDayPayload(date) {
   const data = await readTrackingData();
-  const days = Array.isArray(data?.days) ? data.days : [];
+  const days = Array.isArray(data?.food?.days) ? data.food.days : [];
   const day = days.find((row) => row && row.date === date) ?? null;
   const toNumberOrNull = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
   const dayTotals = day
@@ -1663,13 +1663,16 @@ app.post("/api/food/day", async (req, res) => {
   try {
     const patch = normalizeDietDayPatchInput(req.body);
     const data = await readTrackingData();
-    const existing = Array.isArray(data?.days) ? data.days : [];
+    const existing = Array.isArray(data?.food?.days) ? data.food.days : [];
     const nextDays = [...existing.filter((row) => row && row.date !== patch.date), patch].sort((a, b) =>
       String(a.date).localeCompare(String(b.date)),
     );
 
-    data.days = nextDays;
-    if (isPlainObject(data.metadata)) {
+    if (!isPlainObject(data.food)) data.food = {};
+    data.food.days = nextDays;
+    if (isPlainObject(data.rules?.metadata)) {
+      data.rules.metadata.last_updated = formatSeattleIso(new Date());
+    } else if (isPlainObject(data.metadata)) {
       data.metadata.last_updated = formatSeattleIso(new Date());
     }
     await writeTrackingData(data);
@@ -1689,7 +1692,7 @@ app.get("/api/food/log", async (req, res) => {
     const from = typeof req.query?.from === "string" && req.query.from.trim() ? req.query.from.trim() : null;
     const to = typeof req.query?.to === "string" && req.query.to.trim() ? req.query.to.trim() : null;
     const limit = limitRaw ? Number(limitRaw) : 0;
-    const rows = await listFoodLog({ limit, from, to });
+    const rows = await listFoodDays({ limit, from, to });
     res.json({ ok: true, rows });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });

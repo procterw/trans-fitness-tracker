@@ -137,8 +137,7 @@ export default function DietView({
                     <th>Carbs</th>
                     <th>Protein</th>
                     <th>Fiber</th>
-                    <th>On track</th>
-                    <th>Healthy</th>
+                    <th>Complete</th>
                     <th>Notes</th>
                   </tr>
                 </thead>
@@ -151,10 +150,9 @@ export default function DietView({
                       <td>{fmt(row.carbs_g)}</td>
                       <td>{fmt(row.protein_g)}</td>
                       <td>{fmt(row.fiber_g)}</td>
-                      <td>{row.status ?? "—"}</td>
-                      <td>{row.healthy ?? "⚪"}</td>
-                      <td className="notesCell" title={row.notes ?? ""}>
-                        {row.notes ?? ""}
+                      <td>{row.complete === true ? "Yes" : "No"}</td>
+                      <td className="notesCell" title={row.details ?? ""}>
+                        {row.details ?? ""}
                       </td>
                     </tr>
                   ))}

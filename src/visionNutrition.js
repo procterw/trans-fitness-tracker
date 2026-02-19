@@ -128,7 +128,7 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-5.2";
   const tracking = await readTrackingData();
-  const foodDefs = tracking?.metadata?.food_definitions ?? {};
+  const foodDefs = tracking?.rules?.metadata?.food_definitions ?? tracking?.metadata?.food_definitions ?? {};
 
   const dataUrl = `data:${imageMimeType};base64,${imageBuffer.toString("base64")}`;
 
@@ -202,7 +202,7 @@ export async function estimateNutritionFromText({ mealText, userNotes }) {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-5.2";
   const tracking = await readTrackingData();
-  const foodDefs = tracking?.metadata?.food_definitions ?? {};
+  const foodDefs = tracking?.rules?.metadata?.food_definitions ?? tracking?.metadata?.food_definitions ?? {};
 
   const system = [
     "You estimate nutrition from a meal description.",

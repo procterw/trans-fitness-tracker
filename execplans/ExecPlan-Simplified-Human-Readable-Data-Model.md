@@ -26,6 +26,8 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [x] (2026-02-19 22:25Z) Removed unused event helper `client/src/utils/foodEvents.js` and renamed remaining sidebar internals from event wording to detail-line wording; revalidated with `npm run build`.
 - [x] (2026-02-19 22:31Z) Converted active meal-response context/payload naming to day-centric fields (`day`, `day_totals`, `day_for_date`, `recent_days`) across `trackingData.js`, `server/ingestHelpers.js`, `server.js`, `assistant.js`, `App.jsx`, and `EstimateResult.jsx`; verified with syntax checks and `npm run build`.
 - [x] (2026-02-19 22:32Z) Updated `PROJECT.md` to remove stale event/profile-key docs and align documented model/endpoints with canonical day-centric contracts.
+- [x] (2026-02-19 22:37Z) Switched `/api/food/log` to canonical day rows (`listFoodDays`), updated DietView history rendering to canonical fields (`details`, `complete`), removed dead legacy food exports from `trackingData.js`, and trimmed remaining event-era response flags/regex references; verified with syntax checks and `npm run build`.
+- [x] (2026-02-19 22:38Z) Added canonical nested payload objects (`rules`, `activity`, `food`) to `readTrackingData()` results and tightened `/api/food/day` server paths to read from `food.days` only; revalidated with syntax checks and `npm run build`.
 
 ## Surprises & Discoveries
 
@@ -68,6 +70,12 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: Product docs were significantly behind implementation and still described removed endpoints (`/api/food/events`, rollup/sync) and old profile keys.
   Evidence: `PROJECT.md` had numerous references to `food_events`, `food_log`, and `user_profile`-style keys until the 22:32Z update.
 
+- Observation: After assistant/ingest contract cleanup, several legacy food helper exports in `trackingData.js` were entirely unreferenced.
+  Evidence: project-wide search showed no call sites for `listFoodLog`, `getFoodLogForDate`, `getFoodEventsForDate`, `getDailyFoodEventTotals`, `rollupFoodLogFromEvents`, or `syncFoodEventsToFoodLog` before removal.
+
+- Observation: Canonical nested objects in `readTrackingData()` can be introduced without breaking existing top-level consumers, enabling incremental caller migration.
+  Evidence: Adding `rules/activity/food` to the payload and switching `/api/food/day` to `food.days` compiled and built cleanly.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -102,9 +110,17 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: The migration spans many files; keeping product docs current reduces future regressions and conflicting assumptions during implementation.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Use `/api/food/log` as a compatibility route name but serve canonical day rows from it now.
+  Rationale: Keeps current UI route wiring stable while eliminating legacy row shape semantics (`status`, `healthy`, `notes`) from payloads.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Keep top-level convenience fields during migration but start moving new server reads to nested canonical objects (`food.days` first).
+  Rationale: This reduces break risk while still making structural progress toward removing top-level legacy aliases entirely.
+  Date/Author: 2026-02-19 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are now canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts now consume day-centric fields directly (`day`, `day_totals`) with no event-prop dependency in `App`/`DietView` or assistant meal context payloads. Remaining work is broader legacy cleanup (import/onboarding/workout contracts) and Postgres rewrite.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). Remaining work is broader legacy cleanup (import/onboarding/workout contracts and `current_week` compatibility layer) plus Postgres rewrite.
 
 ## Context and Orientation
 
@@ -347,3 +363,5 @@ Plan change note (2026-02-19 22:24Z): Logged canonical-only settings cleanup aft
 Plan change note (2026-02-19 22:25Z): Logged frontend cleanup after deleting dead `foodEvents` helper and renaming sidebar day-summary internals to detail-line terminology.
 Plan change note (2026-02-19 22:31Z): Logged active meal/assistant contract rename from legacy event language to day-centric fields and corresponding server/client/assistant updates (including `EstimateResult`), validated by syntax checks and `npm run build`.
 Plan change note (2026-02-19 22:32Z): Logged `PROJECT.md` alignment updates so documented data model and endpoint contracts now match the day-centric implementation.
+Plan change note (2026-02-19 22:37Z): Logged canonical day-row history migration (`/api/food/log` + DietView), deletion of dead legacy food helper exports, and final event-era naming cleanup in active ingest helpers.
+Plan change note (2026-02-19 22:38Z): Logged read-payload canonical nesting additions (`rules/activity/food`) and `/api/food/day` migration to nested `food.days` reads.
