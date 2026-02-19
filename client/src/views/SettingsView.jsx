@@ -1,6 +1,7 @@
 import React from "react";
 
-import MarkdownContent from "../components/MarkdownContent.jsx";
+import MessageThread from "../components/MessageThread.jsx";
+import StatusMessage from "../components/StatusMessage.jsx";
 
 export default function SettingsView({
   settingsMessagesRef,
@@ -152,41 +153,20 @@ export default function SettingsView({
           </aside>
 
           <div className="settingsChatColumn">
-            <div ref={settingsMessagesRef} className="chatMessages settingsChatMessages" aria-label="Settings conversation">
-              {settingsMessages.length ? (
-                settingsMessages.map((m, idx) => (
-                  <div
-                    key={m.id ?? idx}
-                    className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
-                  >
-                    <div
-                      className={`chatContent ${
-                        m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
-                      }`}
-                    >
-                      {m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? (
-                        <MarkdownContent content={m.content} />
-                      ) : (
-                        m.content
-                      )}
-                    </div>
-                    
-                  </div>
-                ))
-              ) : (
+            <MessageThread
+              containerRef={settingsMessagesRef}
+              messages={settingsMessages}
+              loading={settingsLoading && !settingsError}
+              className="settingsChatMessages"
+              ariaLabel="Settings conversation"
+              emptyState={
                 <div className="muted">
                   Ask to update any profile field. Example: “Rewrite my training profile with a 12-week progression and injury constraints.”
                 </div>
-              )}
+              }
+            />
 
-              {settingsLoading && !settingsError ? (
-                <div className="chatMsg assistant thinking">
-                  <div className="chatContent plain">Thinking…</div>
-                </div>
-              ) : null}
-            </div>
-
-            <form ref={settingsFormRef} onSubmit={onSubmitSettings} className="foodComposerForm chatComposer">
+            <form ref={settingsFormRef} onSubmit={onSubmitSettings} className="composerForm foodComposerForm chatComposer">
               <div className="composerBar" aria-label="Settings input">
                 <textarea
                   ref={settingsInputRef}
@@ -226,11 +206,7 @@ export default function SettingsView({
                 </button>
               </div>
 
-              {settingsError ? (
-                <div className="status composerStatus">
-                  <span className="error">{settingsError}</span>
-                </div>
-              ) : null}
+              <StatusMessage error={settingsError} className="composerStatus" />
             </form>
           </div>
         </div>

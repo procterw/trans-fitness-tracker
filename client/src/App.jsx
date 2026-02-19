@@ -33,75 +33,13 @@ import SidebarView from "./views/SidebarView.jsx";
 import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
+import StatusMessage from "./components/StatusMessage.jsx";
+import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
+import useSerialQueue from "./hooks/useSerialQueue.js";
+import { addDaysIso, localDateString } from "./utils/date.js";
+import { fetchFlattenedFoodEventsByDate } from "./utils/foodEvents.js";
+import { normalizeProfileText, normalizeSettingsProfiles, settingsProfilesEqual } from "./utils/settingsProfiles.js";
 import SettingsView from "./views/SettingsView.jsx";
-
-function useDebouncedKeyedCallback(fn, ms) {
-  const fnRef = useRef(fn);
-  const timeoutMapRef = useRef(new Map());
-
-  useEffect(() => {
-    fnRef.current = fn;
-  }, [fn]);
-
-  useEffect(() => {
-    return () => {
-      for (const t of timeoutMapRef.current.values()) clearTimeout(t);
-      timeoutMapRef.current.clear();
-    };
-  }, []);
-
-  return useMemo(() => {
-    return (key, ...args) => {
-      const map = timeoutMapRef.current;
-      const prev = map.get(key);
-      if (prev) clearTimeout(prev);
-      map.set(
-        key,
-        setTimeout(() => {
-          map.delete(key);
-          fnRef.current(...args);
-        }, ms),
-      );
-    };
-  }, [ms]);
-}
-
-function useSerialQueue() {
-  const chainRef = useRef(Promise.resolve());
-  return useMemo(() => {
-    return (fn) => {
-      const next = chainRef.current.catch(() => {}).then(fn);
-      chainRef.current = next;
-      return next;
-    };
-  }, []);
-}
-
-function normalizeProfileText(value) {
-  if (typeof value !== "string") return "";
-  return value.replace(/\r\n/g, "\n");
-}
-
-function normalizeSettingsProfiles(value) {
-  const safe = value && typeof value === "object" ? value : {};
-  return {
-    user_profile: normalizeProfileText(safe.user_profile),
-    training_profile: normalizeProfileText(safe.training_profile),
-    diet_profile: normalizeProfileText(safe.diet_profile),
-    agent_profile: normalizeProfileText(safe.agent_profile),
-  };
-}
-
-function settingsProfilesEqual(a, b) {
-  const left = normalizeSettingsProfiles(a);
-  const right = normalizeSettingsProfiles(b);
-  return (
-    left.user_profile === right.user_profile &&
-    left.training_profile === right.training_profile &&
-    left.diet_profile === right.diet_profile &&
-    left.agent_profile === right.agent_profile
-  );
-}
 
 export default function App() {
   const [view, setView] = useState("chat");
@@ -189,6 +127,36 @@ export default function App() {
   const [importConfirmText, setImportConfirmText] = useState("");
   const [importResult, setImportResult] = useState(null);
   const signedOut = authEnabled && !authSession?.user;
+
+  useEffect(() => {
+    const setAppHeight = () => {
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--app-height", `${viewportHeight}px`);
+    };
+
+    setAppHeight();
+    const onViewportChange = () => requestAnimationFrame(setAppHeight);
+    const viewport = window.visualViewport;
+
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("orientationchange", onViewportChange);
+    window.addEventListener("focusin", onViewportChange);
+
+    if (viewport) {
+      viewport.addEventListener("resize", onViewportChange);
+      viewport.addEventListener("scroll", onViewportChange);
+    }
+
+    return () => {
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("orientationchange", onViewportChange);
+      window.removeEventListener("focusin", onViewportChange);
+      if (viewport) {
+        viewport.removeEventListener("resize", onViewportChange);
+        viewport.removeEventListener("scroll", onViewportChange);
+      }
+    };
+  }, []);
 
   const fmt = (n) => {
     if (n === null || n === undefined) return "—";
@@ -374,14 +342,6 @@ export default function App() {
     }
   };
 
-  const addDaysIso = (isoDate, deltaDays) => {
-    if (!isoDate) return "";
-    const d = new Date(`${isoDate}T12:00:00Z`);
-    if (Number.isNaN(d.getTime())) return "";
-    d.setUTCDate(d.getUTCDate() + deltaDays);
-    return d.toISOString().slice(0, 10);
-  };
-
   const loadRecentEvents = async (anchorDate) => {
     const anchor = typeof anchorDate === "string" && anchorDate ? anchorDate : null;
     if (!anchor) return;
@@ -390,24 +350,8 @@ export default function App() {
     setDashRecentEventsError("");
     try {
       const dates = [anchor];
-      const perDay = await Promise.all(
-        dates.map(async (date) => {
-          const json = await getFoodForDate(date);
-          const events = Array.isArray(json?.events) ? json.events : [];
-          return events.map((event, index) => ({
-            key: event?.id ?? `${date}_${index}`,
-            date,
-            description: event?.description ?? "(no description)",
-            nutrients: event?.nutrients ?? {},
-            logged_at: event?.logged_at ?? "",
-          }));
-        }),
-      );
+      const flattened = await fetchFlattenedFoodEventsByDate(dates, getFoodForDate);
       if (seq !== dashRecentEventsSeqRef.current) return;
-      const flattened = perDay.flat().sort((a, b) => {
-        if (a.date !== b.date) return String(b.date).localeCompare(String(a.date));
-        return String(b.logged_at).localeCompare(String(a.logged_at));
-      });
       setDashRecentEvents(flattened);
     } catch (e) {
       if (seq !== dashRecentEventsSeqRef.current) return;
@@ -425,24 +369,8 @@ export default function App() {
     setDashWeeklyEventsError("");
     try {
       const dates = Array.from({ length: 7 }, (_, idx) => addDaysIso(anchor, -idx)).filter(Boolean);
-      const perDay = await Promise.all(
-        dates.map(async (date) => {
-          const json = await getFoodForDate(date);
-          const events = Array.isArray(json?.events) ? json.events : [];
-          return events.map((event, index) => ({
-            key: event?.id ?? `${date}_${index}`,
-            date,
-            description: event?.description ?? "(no description)",
-            nutrients: event?.nutrients ?? {},
-            logged_at: event?.logged_at ?? "",
-          }));
-        }),
-      );
+      const flattened = await fetchFlattenedFoodEventsByDate(dates, getFoodForDate);
       if (seq !== dashWeeklyEventsSeqRef.current) return;
-      const flattened = perDay.flat().sort((a, b) => {
-        if (a.date !== b.date) return String(b.date).localeCompare(String(a.date));
-        return String(b.logged_at).localeCompare(String(a.logged_at));
-      });
       setDashWeeklyEvents(flattened);
     } catch (e) {
       if (seq !== dashWeeklyEventsSeqRef.current) return;
@@ -1255,14 +1183,6 @@ export default function App() {
     focusDashboardHeading();
   };
 
-  const localDateString = (date) => {
-    const d = date instanceof Date ? date : new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
-
   const dietWeeklySummary = useMemo(() => {
     const rows = Array.isArray(dashFoodLogRows) ? dashFoodLogRows : [];
     const events = Array.isArray(dashWeeklyEvents) ? dashWeeklyEvents : [];
@@ -1659,11 +1579,7 @@ export default function App() {
                 />
               </div>
 
-              {importError ? (
-                <div className="status composerStatus">
-                  <span className="error">{importError}</span>
-                </div>
-              ) : null}
+              <StatusMessage error={importError} className="composerStatus" />
 
               <div className="importModalActions">
                 <button

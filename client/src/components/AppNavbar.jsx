@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import TabButton from "./TabButton.jsx";
+import { APP_VIEWS } from "../constants/views.js";
 
 function getUserLabel(user) {
   if (!user) return "";
@@ -46,6 +47,7 @@ export default function AppNavbar({
   const userLabel = useMemo(() => getUserLabel(user), [user]);
   const userEmail = user?.email ? String(user.email) : "";
   const avatarText = useMemo(() => getAvatarText(userLabel), [userLabel]);
+  const handleViewChange = (nextView) => onChangeView?.(nextView);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -99,18 +101,15 @@ export default function AppNavbar({
         ) : null}
         <div className="appNavbarTitle">{title}</div>
         <div className="navbarTabs">
-          <TabButton active={activeView === "chat"} onClick={() => onChangeView?.("chat")}>
-            <span>Chat</span>
-          </TabButton>
-          <TabButton active={activeView === "workouts"} onClick={() => onChangeView?.("workouts")}>
-            <span>Workouts</span>
-          </TabButton>
-          <TabButton active={activeView === "diet"} onClick={() => onChangeView?.("diet")}>
-            <span>Food log</span>
-          </TabButton>
-          <TabButton active={activeView === "settings"} onClick={() => onChangeView?.("settings")}>
-            <span>Settings</span>
-          </TabButton>
+          {APP_VIEWS.map((viewDef) => (
+            <TabButton
+              key={`desktop_${viewDef.key}`}
+              active={activeView === viewDef.key}
+              onClick={() => handleViewChange(viewDef.key)}
+            >
+              <span>{viewDef.label}</span>
+            </TabButton>
+          ))}
         </div>
       </div>
 
@@ -211,18 +210,15 @@ export default function AppNavbar({
         aria-label="Navigation tabs"
         aria-hidden={!mobileNavOpen}
       >
-        <TabButton active={activeView === "chat"} onClick={() => onChangeView?.("chat")}>
-          <span>Chat</span>
-        </TabButton>
-        <TabButton active={activeView === "workouts"} onClick={() => onChangeView?.("workouts")}>
-          <span>Workouts</span>
-        </TabButton>
-        <TabButton active={activeView === "diet"} onClick={() => onChangeView?.("diet")}>
-          <span>Food log</span>
-        </TabButton>
-        <TabButton active={activeView === "settings"} onClick={() => onChangeView?.("settings")}>
-          <span>Settings</span>
-        </TabButton>
+        {APP_VIEWS.map((viewDef) => (
+          <TabButton
+            key={`mobile_${viewDef.key}`}
+            active={activeView === viewDef.key}
+            onClick={() => handleViewChange(viewDef.key)}
+          >
+            <span>{viewDef.label}</span>
+          </TabButton>
+        ))}
       </div>
     </header>
   );

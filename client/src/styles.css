@@ -2,6 +2,7 @@
 
 :root {
   color-scheme: light dark;
+  --app-height: 100vh;
   --bg: #ffffff;
   --card: #ffffff;
   --text: #1b1e27;
@@ -54,6 +55,12 @@ body {
   font-family: "Noto Sans", sans-serif;
   background: var(--bg);
   color: var(--text);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 button,
@@ -341,11 +348,11 @@ a {
 }
 
 .appShell {
-  min-height: 100vh;
-  min-height: 100dvh;
-  height: 100dvh;
+  min-height: var(--app-height);
+  height: var(--app-height);
   display: block;
   background: transparent;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .sidebar {
@@ -391,9 +398,8 @@ a {
 }
 
 .mainColumn {
-  min-height: 100vh;
-  min-height: 100dvh;
-  height: 100dvh;
+  min-height: var(--app-height);
+  height: var(--app-height);
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -723,7 +729,8 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.status {
+.status,
+.statusMessage {
   margin-top: 12px;
   color: var(--muted);
   min-height: 20px;
@@ -826,12 +833,13 @@ ul {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 
-.chatMessages {
+.chatMessages,
+.messageThread {
   flex: 1;
   min-height: 0;
   max-height: none;
   overflow: auto;
-  padding: 24px 24px 20px;
+  padding: 24px 24px calc(20px + env(safe-area-inset-bottom));
   background: var(--chat-bg);
   color: var(--chat-text);
   display: flex;
@@ -845,7 +853,8 @@ ul {
   width: 100%;
 }
 
-.chatBodySplit .chatMessages {
+.chatBodySplit .chatMessages,
+.chatBodySplit .messageThread {
   margin: 0;
   max-width: none;
 }
@@ -985,7 +994,8 @@ ul {
   margin-top: 12px;
 }
 
-.chatMsg {
+.chatMsg,
+.messageBubble {
   padding: 0;
   border: none;
   border-radius: 0;
@@ -993,11 +1003,13 @@ ul {
   width: 100%;
 }
 
-.chatMessages .chatMsg:last-of-type {
+.chatMessages .chatMsg:last-of-type,
+.messageThread .messageBubble:last-of-type {
   margin-bottom: 24px;
 }
 
-.chatMsg.user {
+.chatMsg.user,
+.messageBubble.user {
   align-self: flex-end;
   width: auto;
   max-width: min(68%, 580px);
@@ -1031,18 +1043,21 @@ ul {
   object-fit: cover;
 }
 
-.chatMsg.assistant {
+.chatMsg.assistant,
+.messageBubble.assistant {
   background: transparent;
   border: none;
   padding: 0;
 }
 
-.chatMsg.assistant.thinking {
+.chatMsg.assistant.thinking,
+.messageBubble.assistant.thinking {
   opacity: 0.7;
   font-style: italic;
 }
 
-.chatMsg.assistant.status {
+.chatMsg.assistant.status,
+.messageBubble.assistant.status {
   width: auto;
   max-width: min(72%, 620px);
   margin-left: 2px;
@@ -1053,7 +1068,9 @@ ul {
   opacity: 1;
 }
 
-.chatMsg.assistant.status .chatContent {
+.chatMsg.assistant.status .chatContent,
+.messageBubble.assistant.status .messageContent,
+.messageBubble.assistant.status .chatContent {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
@@ -1151,50 +1168,63 @@ ul {
   font-family: inherit;
 }
 
-.chatMsg.assistant .chatRole {
+.chatMsg.assistant .chatRole,
+.messageBubble.assistant .chatRole {
   display: none;
 }
 
-.chatMsg.assistant .chatContent {
+.chatMsg.assistant .chatContent,
+.messageBubble.assistant .messageContent,
+.messageBubble.assistant .chatContent {
   letter-spacing: 0.012em;
 }
 
-.chatContent {
+.chatContent,
+.messageContent {
   line-height: 28px;
 }
 
-.chatContent.plain {
+.chatContent.plain,
+.messageContent.plain {
   white-space: pre-wrap;
 }
 
-.chatContent.markdown {
+.chatContent.markdown,
+.messageContent.markdown {
   white-space: normal;
 }
 
-.chatContent.markdown p {
+.chatContent.markdown p,
+.messageContent.markdown p {
   margin: 0 0 10px;
 }
 
-.chatContent.markdown p:last-child {
+.chatContent.markdown p:last-child,
+.messageContent.markdown p:last-child {
   margin-bottom: 0;
 }
 
 .chatContent.markdown ul,
-.chatContent.markdown ol {
+.chatContent.markdown ol,
+.messageContent.markdown ul,
+.messageContent.markdown ol {
   margin: 0 0 10px;
 }
 
-.chatContent.markdown li {
+.chatContent.markdown li,
+.messageContent.markdown li {
   margin: 2px 0;
 }
 
-.chatContent.markdown a {
+.chatContent.markdown a,
+.messageContent.markdown a {
   color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.chatContent.markdown pre {
+.chatContent.markdown pre,
+.messageContent.markdown pre {
   margin: 8px 0 10px;
   padding: 10px 12px;
   border-radius: 0;
@@ -1203,12 +1233,14 @@ ul {
   background: color-mix(in srgb, var(--card) 70%, black 30%);
 }
 
-.chatContent.markdown pre code {
+.chatContent.markdown pre code,
+.messageContent.markdown pre code {
   white-space: pre;
   display: block;
 }
 
-.chatContent.markdown blockquote {
+.chatContent.markdown blockquote,
+.messageContent.markdown blockquote {
   margin: 8px 0 10px;
   padding: 6px 10px;
   border-left: 3px solid var(--border);
@@ -1247,7 +1279,8 @@ ul {
   background: var(--card);
 }
 
-.foodComposerForm {
+.foodComposerForm,
+.composerForm {
   margin-top: 0;
   padding: 0;
   border: none;
@@ -2001,8 +2034,8 @@ ul {
   }
 
   .appShell {
-    min-height: 100vh;
-    height: 100dvh;
+    min-height: var(--app-height);
+    height: var(--app-height);
     position: relative;
   }
 
@@ -2025,8 +2058,8 @@ ul {
 
   .mainColumn {
     padding: 0;
-    min-height: 100vh;
-    height: 100dvh;
+    min-height: var(--app-height);
+    height: var(--app-height);
     overflow: hidden;
   }
 
@@ -2071,7 +2104,7 @@ ul {
   }
 
   .chatMessages {
-    padding: 16px 14px 12px;
+    padding: 16px 14px calc(12px + env(safe-area-inset-bottom));
     gap: 14px;
     font-size: 13px;
     line-height: 1.35;
@@ -2178,22 +2211,26 @@ ul {
   }
 
   .fitnessHistoryTableScroll {
-    overflow-x: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .fitnessHistoryWeekCol,
   .fitnessHistoryActivityCell {
-    position: static;
-    min-width: 0;
+    position: sticky;
+    left: 0;
+    min-width: 180px;
     max-width: none;
   }
 
   .fitnessHistoryTable {
-    table-layout: fixed;
+    width: max-content;
+    min-width: 100%;
   }
 
   .fitnessHistoryCell {
-    min-width: 0;
+    min-width: 160px;
   }
 
   .fitnessHistoryTable th,

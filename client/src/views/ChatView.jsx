@@ -1,6 +1,7 @@
 import React from "react";
 
-import MarkdownContent from "../components/MarkdownContent.jsx";
+import MessageThread from "../components/MessageThread.jsx";
+import StatusMessage from "../components/StatusMessage.jsx";
 
 export default function ChatView({
   chatMessagesRef,
@@ -23,46 +24,15 @@ export default function ChatView({
   const isEmptyChat = composerMessages.length === 0 && !composerLoading;
 
   return (
-    <section className={`chatPanel ${isEmptyChat ? "chatPanelEmpty" : ""}`}>
+    <section className={`chatPanel conversationPanel ${isEmptyChat ? "chatPanelEmpty" : ""}`}>
       <div className="chatBox chatBoxFull">
-        <div
-          ref={chatMessagesRef}
-          className={`chatMessages ${isEmptyChat ? "chatMessagesEmpty" : ""}`}
-          aria-label="Conversation"
-        >
-          {composerMessages.length ? (
-            composerMessages.map((m, idx) => (
-              <div
-                key={m.id ?? idx}
-                className={`chatMsg ${m.role === "assistant" ? "assistant" : "user"} ${m.tone === "status" ? "status" : ""}`}
-              >
-                {Array.isArray(m.attachments) && m.attachments.length ? (
-                  <div className="chatAttachmentRow" aria-label="Attached photos">
-                    {m.attachments.map((attachment) => (
-                      <figure key={attachment.id ?? attachment.previewUrl ?? attachment.name} className="chatAttachmentCard">
-                        <img
-                          src={attachment.previewUrl}
-                          alt={attachment.name || "Attached photo"}
-                          className="chatAttachmentImage"
-                        />
-                      </figure>
-                    ))}
-                  </div>
-                ) : null}
-                <div
-                  className={`chatContent ${
-                    m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? "markdown" : "plain"
-                  }`}
-                >
-                  {m.role === "assistant" && m.format !== "plain" && m.tone !== "status" ? (
-                    <MarkdownContent content={m.content} />
-                  ) : (
-                    m.content
-                  )}
-                </div>
-              </div>
-            ))
-          ) : (
+        <MessageThread
+          containerRef={chatMessagesRef}
+          messages={composerMessages}
+          loading={composerLoading && !composerError}
+          className={isEmptyChat ? "chatMessagesEmpty" : ""}
+          ariaLabel="Conversation"
+          emptyState={
             <div className="chatEmptyState">
               <span className="chatEmptyEmojiWrap" aria-hidden="true">
                 <span className="chatEmptyEmoji" role="img" aria-label="Peach">
@@ -73,16 +43,10 @@ export default function ChatView({
                 </span>
               </span>
             </div>
-          )}
+          }
+        />
 
-          {composerLoading && !composerError ? (
-            <div className="chatMsg assistant thinking">
-              <div className="chatContent plain">Thinking…</div>
-            </div>
-          ) : null}
-        </div>
-
-        <form ref={foodFormRef} onSubmit={onSubmitFood} className="foodComposerForm chatComposer">
+        <form ref={foodFormRef} onSubmit={onSubmitFood} className="composerForm foodComposerForm chatComposer">
           <input
             ref={foodFileInputRef}
             type="file"
@@ -187,11 +151,7 @@ export default function ChatView({
             </div>
           </div>
 
-          {composerError ? (
-            <div className="status composerStatus">
-              <span className="error">{composerError}</span>
-            </div>
-          ) : null}
+          <StatusMessage error={composerError} className="composerStatus" />
         </form>
       </div>
     </section>
