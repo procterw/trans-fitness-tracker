@@ -3,9 +3,8 @@ import React from "react";
 import AutoGrowTextarea from "../components/AutoGrowTextarea.jsx";
 import { getFitnessCategories } from "../fitnessChecklist.js";
 
-function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
-  const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
-  if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
+function renderFitnessHistoryTableForWeeks({ weeks }) {
+  if (!Array.isArray(weeks) || !weeks.length) return <p className="muted">No past weeks yet.</p>;
 
   const categoriesByKey = new Map();
   const collectCategories = (week) => {
@@ -14,7 +13,6 @@ function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
       else if (!categoriesByKey.get(category.key).items.length && category.items.length) categoriesByKey.set(category.key, category);
     }
   };
-  collectCategories(fitnessWeek);
   for (const week of weeks) collectCategories(week);
 
   const categories = Array.from(categoriesByKey.values());
@@ -79,6 +77,45 @@ function renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function renderFitnessHistoryByPhase({ fitnessHistory }) {
+  const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
+  if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
+
+  const groups = [];
+  const byId = new Map();
+  for (const week of weeks) {
+    const id = typeof week?.training_block_id === "string" && week.training_block_id.trim() ? week.training_block_id.trim() : "legacy";
+    const name = typeof week?.training_block_name === "string" && week.training_block_name.trim() ? week.training_block_name.trim() : "Legacy phase";
+    const description =
+      typeof week?.training_block_description === "string" && week.training_block_description.trim()
+        ? week.training_block_description.trim()
+        : "";
+    if (!byId.has(id)) {
+      const group = { id, name, description, weeks: [] };
+      byId.set(id, group);
+      groups.push(group);
+    }
+    byId.get(id).weeks.push(week);
+  }
+
+  return (
+    <div className="fitnessHistoryPhaseGroups">
+      {groups.map((group, idx) => (
+        <details key={group.id} open={idx === 0} className="fitnessHistoryPhaseGroup">
+          <summary className="fitnessHistoryPhaseSummary">
+            <strong>{group.name}</strong>
+            <span className="muted">
+              {group.description ? ` ${group.description} • ` : " "}
+              {group.weeks.length} week{group.weeks.length === 1 ? "" : "s"}
+            </span>
+          </summary>
+          {renderFitnessHistoryTableForWeeks({ weeks: group.weeks })}
+        </details>
+      ))}
     </div>
   );
 }
@@ -186,7 +223,7 @@ export default function WorkoutsView({
               <div className="fitnessHistoryBody">
                 {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
                 {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
-                {!fitnessHistoryLoading ? renderFitnessHistoryTable({ fitnessHistory, fitnessWeek }) : null}
+                {!fitnessHistoryLoading ? renderFitnessHistoryByPhase({ fitnessHistory, fitnessWeek }) : null}
               </div>
             </section>
           </>

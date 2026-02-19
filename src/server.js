@@ -22,10 +22,12 @@ import { formatChecklistCategoriesMarkdown, normalizeChecklistCategories } from 
 import { getFitnessCategoryKeys, resolveFitnessCategoryKey, toFitnessCategoryLabel } from "./fitnessChecklist.js";
 import { generateWeeklyFitnessSummary } from "./fitnessSummary.js";
 import { deriveGoalsListsFromGoalsText, normalizeGoalsText, parseGoalsTextToList } from "./goalsText.js";
+import { analyzeImportPayload, applyImportPlan } from "./importData.js";
 import { runWithTrackingUser } from "./trackingUser.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "./visionNutrition.js";
 import {
   addFoodEvent,
+  clearFoodEntriesForDate,
   ensureCurrentWeek,
   getFoodEventsForDate,
   getFoodLogForDate,
@@ -36,6 +38,7 @@ import {
   listFoodLog,
   readTrackingData,
   rollupFoodLogFromEvents,
+  summarizeTrainingBlocks,
   syncFoodEventsToFoodLog,
   updateFoodEvent,
   updateCurrentWeekItems,
@@ -62,6 +65,13 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
+
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, fieldSize: 5 * 1024 * 1024 },
+});
+const IMPORT_SESSION_TTL_MS = 10 * 60 * 1000;
+const importSessions = new Map();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -278,6 +288,56 @@ function summarizeFoodResult(payload) {
   };
 }
 
+function isIsoDateString(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+}
+
+function shiftIsoDate(dateString, deltaDays) {
+  if (!isIsoDateString(dateString)) return dateString;
+  const [year, month, day] = dateString.split("-").map((part) => Number(part));
+  const d = new Date(Date.UTC(year, month - 1, day));
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function extractIsoDates(text) {
+  const matches = typeof text === "string" ? text.match(/\b\d{4}-\d{2}-\d{2}\b/g) : [];
+  return Array.from(new Set((matches ?? []).map((entry) => entry.trim())));
+}
+
+function resolveClearFoodDate({ message, selectedDate }) {
+  const baseDate = isIsoDateString(selectedDate) ? selectedDate.trim() : getSuggestedLogDate();
+  const isoDates = extractIsoDates(message);
+  if (isoDates.length === 1) return isoDates[0];
+
+  const lower = typeof message === "string" ? message.toLowerCase() : "";
+  if (/\byesterday\b/.test(lower)) return shiftIsoDate(baseDate, -1);
+  return baseDate;
+}
+
+function isClearFoodCommand(message) {
+  if (typeof message !== "string") return false;
+  const lower = message.toLowerCase();
+  const hasClearVerb = /\b(clear|delete|remove|erase|reset)\b/.test(lower);
+  if (!hasClearVerb) return false;
+  const hasFoodCue = /\b(food|meal|entries|intake|calories|macros|food log|day totals?)\b/.test(lower);
+  return hasFoodCue;
+}
+
+function looksLikeBulkFoodImportText(message) {
+  if (typeof message !== "string") return false;
+  const lower = message.toLowerCase();
+  const uniqueDates = extractIsoDates(message).length;
+  const hasImportCue = /\b(import|upload|migrate|backfill|historical|history|json|csv|data file|data\.json)\b/.test(lower);
+  const hasStructuredCue =
+    /"food_log"\s*:|^\s*[{[]/m.test(message) ||
+    /\b(calories|protein|carbs|fat)\b[\s:=-]*\d+/i.test(message);
+
+  if (hasImportCue && (uniqueDates >= 2 || hasStructuredCue || message.length >= 600)) return true;
+  if (uniqueDates >= 4 && /\b(calories|protein|carbs|fat)\b/i.test(message)) return true;
+  return false;
+}
+
 function summarizeActivityUpdates(updates) {
   if (!updates.length) return "Logged activity.";
   const parts = updates.map((u) => (u.details ? `${u.label} (${u.details})` : u.label));
@@ -357,6 +417,39 @@ function enableSseHeaders(res) {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
+}
+
+function cleanupImportSessions() {
+  const now = Date.now();
+  for (const [token, session] of importSessions.entries()) {
+    if (!session || session.expiresAt <= now) {
+      importSessions.delete(token);
+    }
+  }
+}
+
+function createImportSession({ plan, userId }) {
+  cleanupImportSessions();
+  const tokenId = crypto.randomUUID();
+  const payloadHash = crypto.createHash("sha256").update(JSON.stringify(plan)).digest("hex").slice(0, 12);
+  const token = `${tokenId}.${payloadHash}`;
+  importSessions.set(token, {
+    token,
+    userId: userId ?? null,
+    plan,
+    payloadHash,
+    expiresAt: Date.now() + IMPORT_SESSION_TTL_MS,
+  });
+  return token;
+}
+
+function consumeImportSession({ token, userId }) {
+  cleanupImportSessions();
+  const session = importSessions.get(token);
+  if (!session) return null;
+  if ((session.userId ?? null) !== (userId ?? null)) return null;
+  importSessions.delete(token);
+  return session;
 }
 
 function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
@@ -484,6 +577,7 @@ function applyChecklistCategories(currentWeek, categories) {
   const oldLabels = isPlainObject(safeWeek.category_labels) ? safeWeek.category_labels : {};
 
   const oldByCategoryAndItem = new Map();
+  const oldByAnyItem = new Map();
   for (const key of oldKeys) {
     const list = Array.isArray(safeWeek[key]) ? safeWeek[key] : [];
     const itemMap = new Map();
@@ -500,6 +594,7 @@ function applyChecklistCategories(currentWeek, categories) {
             ? item.description.trim()
             : parsed.description,
       });
+      if (!oldByAnyItem.has(token)) oldByAnyItem.set(token, itemMap.get(token));
     }
     oldByCategoryAndItem.set(key, itemMap);
   }
@@ -533,7 +628,7 @@ function applyChecklistCategories(currentWeek, categories) {
       const token = normalizeItemToken(parsed.item);
       if (!token || seenItems.has(token)) continue;
       seenItems.add(token);
-      const existing = oldItemMap.get(token);
+      const existing = oldItemMap.get(token) ?? oldByAnyItem.get(token);
       itemRows.push({
         item: parsed.item,
         description: parsed.description || (typeof existing?.description === "string" ? existing.description : ""),
@@ -586,15 +681,203 @@ function extractChecklistTemplate(week) {
   return template;
 }
 
+function templateToChecklistObject(template) {
+  const safeTemplate = isPlainObject(template) ? template : {};
+  const categoryOrder = Array.isArray(safeTemplate.category_order) ? safeTemplate.category_order : [];
+  const out = {};
+  for (const key of categoryOrder) {
+    const list = Array.isArray(safeTemplate[key]) ? safeTemplate[key] : [];
+    const items = list
+      .map((entry) => {
+        const parsed = splitChecklistItemAndDescription(entry?.item);
+        if (!parsed.item) return null;
+        return parsed.description ? { item: parsed.item, description: parsed.description } : { item: parsed.item };
+      })
+      .filter(Boolean);
+    if (items.length) out[key] = items;
+  }
+  return out;
+}
+
+function templateToChecklistCategories(template) {
+  const safeTemplate = isPlainObject(template) ? template : {};
+  const labels = isPlainObject(safeTemplate.category_labels) ? safeTemplate.category_labels : {};
+  const keys = Array.isArray(safeTemplate.category_order) ? safeTemplate.category_order : [];
+  return keys
+    .map((key) => {
+      const list = Array.isArray(safeTemplate[key]) ? safeTemplate[key] : [];
+      const items = list
+        .map((entry) => {
+          const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+          if (!item) return "";
+          const description = typeof entry?.description === "string" ? entry.description.trim() : "";
+          return description ? `${item} - ${description}` : item;
+        })
+        .filter(Boolean);
+      if (!items.length) return null;
+      return {
+        key,
+        label: typeof labels[key] === "string" && labels[key].trim() ? labels[key].trim() : null,
+        items,
+      };
+    })
+    .filter(Boolean);
+}
+
+function checklistCategoriesToTemplate(categories, currentWeek = {}) {
+  const remappedWeek = applyChecklistCategories(currentWeek, categories);
+  return extractChecklistTemplate(remappedWeek);
+}
+
+function normalizeTrainingBlockName(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function normalizeTrainingBlockDescription(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
+function normalizeTrainingBlockApplyTiming(value) {
+  if (value === "immediate" || value === "next_week") return value;
+  return null;
+}
+
+function buildSmartTrainingBlockName(blocks) {
+  const count = Array.isArray(blocks) ? blocks.length : 0;
+  return `Phase ${count + 1}`;
+}
+
+function buildSmartTrainingBlockDescription(template) {
+  const safeTemplate = isPlainObject(template) ? template : {};
+  const labels = isPlainObject(safeTemplate.category_labels) ? safeTemplate.category_labels : {};
+  const keys = Array.isArray(safeTemplate.category_order) ? safeTemplate.category_order : [];
+  const top = keys
+    .slice(0, 3)
+    .map((key) => {
+      const label = typeof labels[key] === "string" ? labels[key].trim() : "";
+      return label || toFitnessCategoryLabel(key);
+    })
+    .filter(Boolean);
+  return top.length ? `Focus: ${top.join(", ")}` : "Training block";
+}
+
+function hasCurrentWeekProgress(currentWeek) {
+  const safeWeek = isPlainObject(currentWeek) ? currentWeek : {};
+  const keys = getFitnessCategoryKeys(safeWeek);
+  for (const key of keys) {
+    const list = Array.isArray(safeWeek[key]) ? safeWeek[key] : [];
+    for (const item of list) {
+      if (item?.checked === true) return true;
+      if (typeof item?.details === "string" && item.details.trim()) return true;
+    }
+  }
+  return false;
+}
+
+function normalizeStoredTrainingBlocks(metadata) {
+  const safeMetadata = isPlainObject(metadata) ? metadata : {};
+  const raw = isPlainObject(safeMetadata.training_blocks) ? safeMetadata.training_blocks : {};
+  const rawBlocks = Array.isArray(raw.blocks) ? raw.blocks : [];
+  const blocks = rawBlocks
+    .map((block) => {
+      const id = typeof block?.id === "string" && block.id.trim() ? block.id.trim() : null;
+      const categoryOrder = Array.isArray(block?.category_order) ? block.category_order.filter((v) => typeof v === "string") : [];
+      const checklist = isPlainObject(block?.checklist) ? block.checklist : {};
+      if (!id || !categoryOrder.length) return null;
+      return {
+        id,
+        name: normalizeTrainingBlockName(block?.name),
+        description: normalizeTrainingBlockDescription(block?.description),
+        category_order: categoryOrder,
+        category_labels: isPlainObject(block?.category_labels) ? block.category_labels : {},
+        checklist,
+        created_at: typeof block?.created_at === "string" ? block.created_at : formatSeattleIso(new Date()),
+        updated_at: typeof block?.updated_at === "string" ? block.updated_at : formatSeattleIso(new Date()),
+      };
+    })
+    .filter(Boolean);
+  const activeBlockId = typeof raw.active_block_id === "string" ? raw.active_block_id : null;
+  return { active_block_id: activeBlockId, blocks };
+}
+
+function buildTrainingBlockFromTemplate({
+  template,
+  blockId = null,
+  name = "",
+  description = "",
+  existing = null,
+  blocks = [],
+}) {
+  const safeTemplate = isPlainObject(template) ? template : null;
+  if (!safeTemplate) return null;
+  const now = formatSeattleIso(new Date());
+  const id = typeof blockId === "string" && blockId.trim() ? blockId.trim() : crypto.randomUUID();
+  const createdAt = typeof existing?.created_at === "string" ? existing.created_at : now;
+  const resolvedName = normalizeTrainingBlockName(name) || normalizeTrainingBlockName(existing?.name) || buildSmartTrainingBlockName(blocks);
+  const resolvedDescription =
+    normalizeTrainingBlockDescription(description) ||
+    normalizeTrainingBlockDescription(existing?.description) ||
+    buildSmartTrainingBlockDescription(safeTemplate);
+  return {
+    id,
+    name: resolvedName,
+    description: resolvedDescription,
+    category_order: safeTemplate.category_order,
+    category_labels: isPlainObject(safeTemplate.category_labels) ? safeTemplate.category_labels : {},
+    checklist: templateToChecklistObject(safeTemplate),
+    created_at: createdAt,
+    updated_at: now,
+  };
+}
+
+function buildWeekFromTemplate(currentWeek, template) {
+  const categories = templateToChecklistCategories(template);
+  return applyChecklistCategories(currentWeek, categories);
+}
+
+function extractTemplateFromStoredBlock(block) {
+  const safeBlock = isPlainObject(block) ? block : {};
+  const categoryOrder = Array.isArray(safeBlock.category_order) ? safeBlock.category_order : [];
+  const checklist = isPlainObject(safeBlock.checklist) ? safeBlock.checklist : {};
+  if (!categoryOrder.length) return null;
+  const out = {
+    category_order: [],
+    category_labels: {},
+  };
+  for (const key of categoryOrder) {
+    const list = Array.isArray(checklist[key]) ? checklist[key] : [];
+    const items = list
+      .map((entry) => {
+        const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+        const description = typeof entry?.description === "string" ? entry.description.trim() : "";
+        if (!item) return null;
+        return description ? { item, description } : { item };
+      })
+      .filter(Boolean);
+    if (!items.length) continue;
+    out.category_order.push(key);
+    out[key] = items;
+    const label = typeof safeBlock?.category_labels?.[key] === "string" ? safeBlock.category_labels[key].trim() : "";
+    if (label) out.category_labels[key] = label;
+  }
+  if (!out.category_order.length) return null;
+  if (!Object.keys(out.category_labels).length) delete out.category_labels;
+  return out;
+}
+
 const SETTINGS_PROFILE_FIELDS = ["user_profile", "training_profile", "diet_profile", "agent_profile"];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
-const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_FIELDS, SETTINGS_CHECKLIST_FIELD];
+const SETTINGS_TRAINING_BLOCK_FIELD = "training_block";
+const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_FIELDS, SETTINGS_CHECKLIST_FIELD, SETTINGS_TRAINING_BLOCK_FIELD];
 const SETTINGS_PROFILE_LABELS = {
   user_profile: "user profile",
   training_profile: "training profile",
   diet_profile: "diet profile",
   agent_profile: "agent profile",
   [SETTINGS_CHECKLIST_FIELD]: "training checklist template",
+  [SETTINGS_TRAINING_BLOCK_FIELD]: "training block",
 };
 
 function normalizeProfileText(value) {
@@ -706,7 +989,8 @@ function hasPendingSettingsChanges(changes) {
   const hasProfileChange = SETTINGS_PROFILE_FIELDS.some((field) => typeof changes[field] === "string");
   const hasChecklistChange =
     Array.isArray(changes?.[SETTINGS_CHECKLIST_FIELD]) && changes[SETTINGS_CHECKLIST_FIELD].length > 0;
-  return hasProfileChange || hasChecklistChange;
+  const hasTrainingBlockChange = isPlainObject(changes?.[SETTINGS_TRAINING_BLOCK_FIELD]);
+  return hasProfileChange || hasChecklistChange || hasTrainingBlockChange;
 }
 
 function isValidSettingsProposal(value) {
@@ -719,8 +1003,31 @@ function isValidSettingsProposal(value) {
     if (fieldValue !== null && fieldValue !== undefined && typeof fieldValue !== "string") return false;
   }
   const checklistValue = value[SETTINGS_CHECKLIST_FIELD];
-  if (checklistValue === null || checklistValue === undefined) return true;
-  const normalizedChecklist = normalizeChecklistCategories(checklistValue);
+  if (!(checklistValue === null || checklistValue === undefined)) {
+    const normalizedChecklist = normalizeChecklistCategories(checklistValue);
+    if (!normalizedChecklist) return false;
+  }
+  const trainingBlockValue = value[SETTINGS_TRAINING_BLOCK_FIELD];
+  if (trainingBlockValue === null || trainingBlockValue === undefined) return true;
+  if (!isPlainObject(trainingBlockValue)) return false;
+  const idValue = trainingBlockValue.id;
+  if (idValue !== null && idValue !== undefined && typeof idValue !== "string") return false;
+  const nameValue = trainingBlockValue.name;
+  if (nameValue !== null && nameValue !== undefined && typeof nameValue !== "string") return false;
+  const descriptionValue = trainingBlockValue.description;
+  if (descriptionValue !== null && descriptionValue !== undefined && typeof descriptionValue !== "string") return false;
+  const applyTimingValue = trainingBlockValue.apply_timing;
+  if (
+    applyTimingValue !== null &&
+    applyTimingValue !== undefined &&
+    applyTimingValue !== "immediate" &&
+    applyTimingValue !== "next_week"
+  ) {
+    return false;
+  }
+  const checklistCategoriesValue = trainingBlockValue.checklist_categories;
+  if (checklistCategoriesValue === null || checklistCategoriesValue === undefined) return true;
+  const normalizedChecklist = normalizeChecklistCategories(checklistCategoriesValue);
   return !!normalizedChecklist;
 }
 
@@ -737,8 +1044,28 @@ function normalizeSettingsProposal(value) {
     training_profile: null,
     diet_profile: null,
     agent_profile: null,
+    training_block: null,
   };
   out[SETTINGS_CHECKLIST_FIELD] = normalizeChecklistProposal(raw[SETTINGS_CHECKLIST_FIELD]);
+  const rawTrainingBlock = isPlainObject(raw[SETTINGS_TRAINING_BLOCK_FIELD]) ? raw[SETTINGS_TRAINING_BLOCK_FIELD] : null;
+  if (rawTrainingBlock) {
+    const normalizedBlock = {
+      id: typeof rawTrainingBlock.id === "string" && rawTrainingBlock.id.trim() ? rawTrainingBlock.id.trim() : null,
+      name: typeof rawTrainingBlock.name === "string" ? normalizeTrainingBlockName(rawTrainingBlock.name) : null,
+      description:
+        typeof rawTrainingBlock.description === "string"
+          ? normalizeTrainingBlockDescription(rawTrainingBlock.description)
+          : null,
+      apply_timing: normalizeTrainingBlockApplyTiming(rawTrainingBlock.apply_timing),
+      checklist_categories: normalizeChecklistProposal(rawTrainingBlock.checklist_categories),
+    };
+    const hasBlockFields = Object.values(normalizedBlock).some((entry) => {
+      if (Array.isArray(entry)) return entry.length > 0;
+      if (typeof entry === "string") return entry.length > 0;
+      return entry !== null && entry !== undefined;
+    });
+    out.training_block = hasBlockFields ? normalizedBlock : null;
+  }
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const fieldValue = raw[field];
     if (fieldValue === null || fieldValue === undefined) {
@@ -774,7 +1101,7 @@ function appendSettingsHistoryEvent(data, { domains }) {
 async function applySettingsChanges({ proposal }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
   const normalized = normalizeSettingsProposal(proposal);
-  if (normalized[SETTINGS_CHECKLIST_FIELD]) {
+  if (normalized[SETTINGS_CHECKLIST_FIELD] || normalized?.training_block?.checklist_categories) {
     await ensureCurrentWeek();
   }
   const data = await readTrackingData();
@@ -791,23 +1118,139 @@ async function applySettingsChanges({ proposal }) {
     changesApplied.push(`Updated ${label}.`);
   }
 
+  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+  const trainingBlocksState = normalizeStoredTrainingBlocks(metadata);
+  const blocks = [...trainingBlocksState.blocks];
+  let activeBlockId = trainingBlocksState.active_block_id;
+  if (!activeBlockId && blocks.length) activeBlockId = blocks[blocks.length - 1].id;
+
+  const currentWeek = isPlainObject(data.current_week) ? data.current_week : {};
   const requestedTemplate = normalized[SETTINGS_CHECKLIST_FIELD];
-  if (Array.isArray(requestedTemplate) && requestedTemplate.length) {
-    const currentWeek = isPlainObject(data.current_week) ? data.current_week : {};
-    const existingTemplate = extractChecklistTemplate(currentWeek);
-    const nextWeek = applyChecklistCategories(currentWeek, requestedTemplate);
-    const nextTemplate = extractChecklistTemplate(nextWeek);
-    if (JSON.stringify(existingTemplate ?? null) !== JSON.stringify(nextTemplate ?? null)) {
-      data.current_week = nextWeek;
-      const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
-      if (nextTemplate) metadata.checklist_template = nextTemplate;
-      else delete metadata.checklist_template;
-      data.metadata = metadata;
-      domains.push(SETTINGS_CHECKLIST_FIELD);
-      const label = SETTINGS_PROFILE_LABELS[SETTINGS_CHECKLIST_FIELD] ?? SETTINGS_CHECKLIST_FIELD;
-      changesApplied.push(`Updated ${label}.`);
+  const requestedBlockPatch = isPlainObject(normalized.training_block) ? normalized.training_block : null;
+  const requestedBlockCategories = requestedBlockPatch?.checklist_categories ?? requestedTemplate ?? null;
+  const requestedBlockTemplate =
+    Array.isArray(requestedBlockCategories) && requestedBlockCategories.length
+      ? checklistCategoriesToTemplate(requestedBlockCategories, currentWeek)
+      : null;
+  const requestedTiming = normalizeTrainingBlockApplyTiming(requestedBlockPatch?.apply_timing);
+
+  let targetBlockId = activeBlockId;
+  let targetBlockTemplate = null;
+  let phaseShiftRequested = false;
+  let trainingBlockChanged = false;
+
+  if (requestedBlockPatch || requestedBlockTemplate) {
+    const requestedId = typeof requestedBlockPatch?.id === "string" && requestedBlockPatch.id.trim() ? requestedBlockPatch.id.trim() : null;
+    let selectedIndex = -1;
+    if (requestedId) {
+      selectedIndex = blocks.findIndex((block) => block.id === requestedId);
+      if (selectedIndex < 0) throw new Error(`Unknown training block id: ${requestedId}`);
+    } else if (
+      requestedBlockPatch &&
+      !requestedBlockTemplate &&
+      (normalizeTrainingBlockName(requestedBlockPatch.name) || normalizeTrainingBlockDescription(requestedBlockPatch.description))
+    ) {
+      selectedIndex = blocks.findIndex((block) => block.id === activeBlockId);
+    }
+
+    if (selectedIndex >= 0) {
+      const existing = blocks[selectedIndex];
+      const baseTemplate = extractTemplateFromStoredBlock(existing);
+      const finalTemplate = requestedBlockTemplate ?? baseTemplate;
+      const updatedBlock = buildTrainingBlockFromTemplate({
+        template: finalTemplate,
+        blockId: existing.id,
+        name: requestedBlockPatch?.name,
+        description: requestedBlockPatch?.description,
+        existing,
+        blocks,
+      });
+      if (!updatedBlock) throw new Error("Training block is missing checklist categories.");
+      const existingJson = JSON.stringify(existing);
+      const updatedJson = JSON.stringify(updatedBlock);
+      if (existingJson !== updatedJson) {
+        blocks[selectedIndex] = updatedBlock;
+        trainingBlockChanged = true;
+      }
+      targetBlockId = existing.id;
+      targetBlockTemplate = finalTemplate;
+      if (targetBlockId !== activeBlockId) phaseShiftRequested = true;
+    } else if (requestedBlockTemplate) {
+      const newBlock = buildTrainingBlockFromTemplate({
+        template: requestedBlockTemplate,
+        blockId: requestedBlockPatch?.id,
+        name: requestedBlockPatch?.name,
+        description: requestedBlockPatch?.description,
+        blocks,
+      });
+      if (!newBlock) throw new Error("Training block checklist is required.");
+      blocks.push(newBlock);
+      trainingBlockChanged = true;
+      targetBlockId = newBlock.id;
+      targetBlockTemplate = requestedBlockTemplate;
+      if (targetBlockId !== activeBlockId) phaseShiftRequested = true;
     }
   }
+
+  const activeBlock = blocks.find((block) => block.id === targetBlockId) ?? null;
+  const activeTemplate = targetBlockTemplate ?? extractTemplateFromStoredBlock(activeBlock);
+  const currentHasProgress = hasCurrentWeekProgress(currentWeek);
+
+  if (phaseShiftRequested && !requestedTiming && currentHasProgress) {
+    const followupQuestion =
+      "I can apply this phase switch now or start it next Monday. Do you want `immediate` or `next_week`?";
+    return {
+      changesApplied,
+      updated: null,
+      current_week: data.current_week ?? null,
+      settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+      effectiveFrom: null,
+      followupQuestion,
+      requiresTimingChoice: true,
+    };
+  }
+
+  if (trainingBlockChanged || phaseShiftRequested) {
+    activeBlockId = targetBlockId;
+    metadata.training_blocks = {
+      active_block_id: activeBlockId,
+      blocks,
+    };
+    if (activeTemplate) metadata.checklist_template = activeTemplate;
+    else delete metadata.checklist_template;
+    domains.push(SETTINGS_TRAINING_BLOCK_FIELD);
+    changesApplied.push(
+      phaseShiftRequested
+        ? requestedTiming === "next_week"
+          ? "Scheduled training block change for next week."
+          : "Switched training block."
+        : "Updated training block.",
+    );
+  }
+
+  const shouldApplyImmediateShift = phaseShiftRequested && requestedTiming !== "next_week";
+  const shouldApplyCurrentWeekTemplate = shouldApplyImmediateShift || (activeBlockId && !phaseShiftRequested && requestedBlockTemplate);
+  if (shouldApplyCurrentWeekTemplate && activeTemplate) {
+    const nextWeek = buildWeekFromTemplate(currentWeek, activeTemplate);
+    nextWeek.training_block_id = activeBlockId;
+    nextWeek.training_block_name = normalizeTrainingBlockName(activeBlock?.name);
+    nextWeek.training_block_description = normalizeTrainingBlockDescription(activeBlock?.description);
+    const existingTemplate = extractChecklistTemplate(currentWeek);
+    const nextTemplate = extractChecklistTemplate(nextWeek);
+    if (
+      JSON.stringify(existingTemplate ?? null) !== JSON.stringify(nextTemplate ?? null) ||
+      currentWeek.training_block_id !== nextWeek.training_block_id ||
+      currentWeek.training_block_name !== nextWeek.training_block_name ||
+      currentWeek.training_block_description !== nextWeek.training_block_description
+    ) {
+      data.current_week = nextWeek;
+      if (!domains.includes(SETTINGS_CHECKLIST_FIELD)) domains.push(SETTINGS_CHECKLIST_FIELD);
+      if (!changesApplied.includes("Updated training checklist template.")) {
+        changesApplied.push("Updated training checklist template.");
+      }
+    }
+  }
+  data.metadata = metadata;
 
   if (changesApplied.length) {
     const versionMeta = appendSettingsHistoryEvent(data, { domains });
@@ -820,6 +1263,8 @@ async function applySettingsChanges({ proposal }) {
       current_week: data.current_week ?? null,
       settingsVersion: versionMeta.settingsVersion,
       effectiveFrom: versionMeta.effectiveFrom,
+      followupQuestion: null,
+      requiresTimingChoice: false,
     };
   }
 
@@ -829,6 +1274,8 @@ async function applySettingsChanges({ proposal }) {
     current_week: data.current_week ?? null,
     settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
     effectiveFrom: null,
+    followupQuestion: null,
+    requiresTimingChoice: false,
   };
 }
 
@@ -872,6 +1319,7 @@ app.get("/api/settings/state", async (_req, res) => {
       ok: true,
       profiles: getSettingsProfiles(data),
       settings_version: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+      training_blocks: summarizeTrainingBlocks(data),
     });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
@@ -971,6 +1419,94 @@ app.get("/api/user/export", async (req, res) => {
   }
 });
 
+app.post("/api/user/import/analyze", importUpload.single("file"), async (req, res) => {
+  try {
+    const file = req.file ?? null;
+    const pastedText =
+      typeof req.body?.raw_text === "string" && req.body.raw_text.trim()
+        ? req.body.raw_text.trim()
+        : typeof req.body?.text === "string" && req.body.text.trim()
+          ? req.body.text.trim()
+          : "";
+    if (!file && !pastedText) {
+      return res.status(400).json({ ok: false, error: "Provide a file upload or pasted JSON text." });
+    }
+
+    const rawText = file ? file.buffer.toString("utf8") : pastedText;
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      return res.status(400).json({ ok: false, error: "Invalid JSON input." });
+    }
+
+    const analysis = analyzeImportPayload(parsed);
+    const importToken = analysis.has_importable_domain
+      ? createImportSession({
+          plan: analysis.plan,
+          userId: req.user?.id ?? null,
+        })
+      : null;
+
+    return res.json({
+      ok: true,
+      detected_shape: analysis.detected_shape,
+      summary: analysis.summary,
+      warnings: analysis.warnings,
+      normalized_preview: analysis.normalized_preview,
+      import_token: importToken,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/user/import/confirm", async (req, res) => {
+  try {
+    const importToken = typeof req.body?.import_token === "string" ? req.body.import_token.trim() : "";
+    const confirmText = typeof req.body?.confirm_text === "string" ? req.body.confirm_text.trim() : "";
+    if (!importToken) return res.status(400).json({ ok: false, error: "Missing field: import_token" });
+    if (confirmText !== "IMPORT") {
+      return res.status(400).json({ ok: false, error: "Type IMPORT to confirm data replacement." });
+    }
+
+    const session = consumeImportSession({
+      token: importToken,
+      userId: req.user?.id ?? null,
+    });
+    if (!session) {
+      return res.status(400).json({ ok: false, error: "Import session expired or invalid. Re-analyze the file." });
+    }
+
+    const currentData = await readTrackingData();
+    const applied = applyImportPlan({
+      existingData: currentData,
+      plan: session.plan,
+      nowIso: formatSeattleIso(new Date()),
+    });
+
+    if (!Array.isArray(applied.applied_domains) || !applied.applied_domains.length) {
+      return res.status(400).json({
+        ok: false,
+        error: "No importable domains were found to apply.",
+        skipped_domains: applied.skipped_domains ?? [],
+        warnings: applied.warnings ?? [],
+      });
+    }
+
+    await writeTrackingData(applied.data);
+    return res.json({
+      ok: true,
+      applied_domains: applied.applied_domains,
+      skipped_domains: applied.skipped_domains,
+      warnings: applied.warnings,
+      stats: applied.stats,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.post("/api/settings/chat", async (req, res) => {
   try {
     const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
@@ -998,16 +1534,18 @@ app.post("/api/settings/chat", async (req, res) => {
           current_week: null,
           settingsVersion: null,
           effectiveFrom: null,
+          followupQuestion: null,
+          requiresTimingChoice: false,
         };
     const assistantMessage = typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "";
 
     const payload = {
       ok: true,
       assistant_message: assistantMessage,
-      followup_question: result.followup_question ?? null,
+      followup_question: applied.followupQuestion ?? result.followup_question ?? null,
       requires_confirmation: false,
       proposal_id: null,
-      proposal: null,
+      proposal: applied.requiresTimingChoice ? changes : null,
       changes_applied: applied.changesApplied,
       updated: applied.updated,
       settings_version: applied.settingsVersion,
@@ -1036,6 +1574,9 @@ app.post("/api/settings/confirm", async (req, res) => {
       return res.status(400).json({ ok: false, error: "Missing or invalid proposal." });
     }
     const applied = await applySettingsChanges({ proposal });
+    if (applied.requiresTimingChoice) {
+      return res.status(400).json({ ok: false, error: applied.followupQuestion || "Missing phase apply timing." });
+    }
     res.json({
       ok: true,
       changes_applied: applied.changesApplied,
@@ -1057,6 +1598,16 @@ app.post("/api/assistant/ask", async (req, res) => {
     if (!question) return res.status(400).json({ ok: false, error: "Missing field: question" });
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    if (isClearFoodCommand(question)) {
+      const targetDate = resolveClearFoodDate({ message: question, selectedDate: date });
+      const cleared = await clearFoodEntriesForDate(targetDate);
+      const removed = Number(cleared?.removed_count) || 0;
+      const answer =
+        removed > 0
+          ? `Cleared ${removed} food ${removed === 1 ? "entry" : "entries"} for ${targetDate}.`
+          : `No food entries were found for ${targetDate}.`;
+      return res.json({ ok: true, answer });
+    }
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
     const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
 
@@ -1111,6 +1662,58 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       }
     }
     const stream = isStreamingRequest(req.body?.stream);
+
+    if (!file && isClearFoodCommand(message)) {
+      const targetDate = resolveClearFoodDate({ message, selectedDate: date });
+      const cleared = await clearFoodEntriesForDate(targetDate);
+      const removed = Number(cleared?.removed_count) || 0;
+      const assistantMessage =
+        removed > 0
+          ? `Cleared ${removed} food ${removed === 1 ? "entry" : "entries"} for ${targetDate}.`
+          : `No food entries were found for ${targetDate}.`;
+      const responsePayload = {
+        ok: true,
+        action: "food",
+        assistant_message: assistantMessage,
+        followup_question: null,
+        food_result: {
+          ok: true,
+          date: targetDate,
+          log_action: "cleared",
+          removed_count: removed,
+          food_log: cleared?.food_log ?? null,
+        },
+        activity_updates: null,
+        answer: null,
+        date: targetDate,
+        log_action: "cleared",
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responsePayload);
+        return res.end();
+      }
+      return res.json(responsePayload);
+    }
+
+    if (!file && looksLikeBulkFoodImportText(message)) {
+      const responsePayload = {
+        ok: true,
+        action: "clarify",
+        assistant_message:
+          "That looks like multi-day import data. I did not log it as today's meal. Use Account > Import data to upload or paste JSON, then confirm IMPORT.",
+        followup_question: null,
+        food_result: null,
+        activity_updates: null,
+        answer: null,
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responsePayload);
+        return res.end();
+      }
+      return res.json(responsePayload);
+    }
 
     const decision = await decideIngestAction({
       message,

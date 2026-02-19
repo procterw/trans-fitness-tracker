@@ -63,6 +63,8 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "If the image appears to show a meal or food, prefer intent=food.",
   "If the image appears to show workout tracking data (Strava/Garmin/Fitbit/Apple Workout screenshots, pace maps, splits, heart-rate charts), prefer intent=activity.",
   "If image-only input is unclear, return intent=clarify with a short question.",
+  "If the user asks to import/upload/migrate historical logs or pastes multi-day JSON/CSV data, do not classify as food logging; use intent=question or clarify.",
+  "Do not classify as a single food log when the message includes multiple distinct calendar dates.",
   "For activity intent, select one or more checklist items using the provided category + index.",
   "For activity intent, category must exactly match one of the checklist category keys in the context JSON.",
   "If multiple activities are mentioned, return multiple selections.",
@@ -77,6 +79,7 @@ const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a helpful assistant for a personal health & fitness tracker.",
   "Use user_profile, training_profile, and diet_profile as primary personalization context.",
   "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
+  "Do not claim system permission limitations (for example, saying you cannot write or delete).",
   "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
   "When referencing numbers, use the units as shown (kcal, g, mg).",
   "Be concise and supportive; prefer short actionable next steps.",
@@ -152,13 +155,17 @@ const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
 const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
   "The user can update four settings profile texts: user_profile, training_profile, diet_profile, and agent_profile.",
-  "The user can also update the current week's checklist template by returning checklist_categories.",
+  "The user can also manage training phases/blocks.",
+  "For phase changes, use changes.training_block with optional id, name, description, checklist_categories, and apply_timing (immediate or next_week).",
+  "Use checklist_categories at the top level only for backward compatibility; prefer changes.training_block.",
   "Always return JSON matching the schema.",
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
   "For profile updates, return full replacement text only for fields that should change.",
-  "When a checklist is requested, provide checklist_categories with full category and item details.",
+  "When a checklist is requested, provide checklist_categories with full category and item details under changes.training_block.",
   "For checklist edits that are clearly actionable (for example adding or removing a concrete workout session), infer the best category when it is obvious.",
   "Only ask a category clarification when the activity is ambiguous and could plausibly belong to multiple categories.",
+  "When the user specifies 'now' or 'this week', set apply_timing=immediate. When they specify next week or later, set apply_timing=next_week.",
+  "For a pure phase switch without edits, set changes.training_block.id to the target block id.",
   "Do not return diet_philosophy_patch or fitness_philosophy_patch.",
   "Use plain text for each profile field. Preserve meaningful formatting and line breaks.",
   "Never include markdown code fences in assistant_message.",
@@ -393,12 +400,21 @@ const SettingsChecklistCategorySchema = z.object({
   items: z.array(z.string().min(1)),
 });
 
+const SettingsTrainingBlockSchema = z.object({
+  id: z.string().nullable(),
+  name: z.string().nullable(),
+  description: z.string().nullable(),
+  apply_timing: z.enum(["immediate", "next_week"]).nullable(),
+  checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
+});
+
 const SettingsChangesSchema = z.object({
   user_profile: z.string().nullable(),
   training_profile: z.string().nullable(),
   diet_profile: z.string().nullable(),
   agent_profile: z.string().nullable(),
   checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
+  training_block: SettingsTrainingBlockSchema.nullable().optional(),
 });
 
 const SettingsAssistantResponseSchema = z.object({
@@ -457,6 +473,25 @@ function buildChecklistTemplateSnapshot(currentWeek) {
         .filter(Boolean),
     };
   });
+}
+
+function buildTrainingBlocksSnapshot(tracking) {
+  const trainingBlocks = tracking?.metadata?.training_blocks;
+  const blocks = Array.isArray(trainingBlocks?.blocks) ? trainingBlocks.blocks : [];
+  const activeId = typeof trainingBlocks?.active_block_id === "string" ? trainingBlocks.active_block_id : null;
+  return {
+    active_block_id: activeId,
+    blocks: blocks.map((block) => ({
+      id: typeof block?.id === "string" ? block.id : "",
+      name: typeof block?.name === "string" ? block.name : "",
+      description: typeof block?.description === "string" ? block.description : "",
+      checklist_categories: buildChecklistTemplateSnapshot({
+        category_order: Array.isArray(block?.category_order) ? block.category_order : [],
+        category_labels: block?.category_labels ?? {},
+        ...(block?.checklist && typeof block.checklist === "object" ? block.checklist : {}),
+      }),
+    })),
+  };
 }
 
 export async function decideIngestAction({
@@ -648,6 +683,24 @@ function normalizeSettingsChecklistProposal(value) {
   return raw ? raw : null;
 }
 
+function normalizeSettingsTrainingBlockChange(value) {
+  const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!raw) return null;
+  const out = {
+    id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : null,
+    name: typeof raw.name === "string" ? raw.name.trim() : null,
+    description: typeof raw.description === "string" ? raw.description.trim() : null,
+    apply_timing: raw.apply_timing === "immediate" || raw.apply_timing === "next_week" ? raw.apply_timing : null,
+    checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
+  };
+  const hasValue = Object.values(out).some((entry) => {
+    if (Array.isArray(entry)) return entry.length > 0;
+    if (typeof entry === "string") return entry.length > 0;
+    return entry !== null && entry !== undefined;
+  });
+  return hasValue ? out : null;
+}
+
 function normalizeSettingsAssistantOutput(
   parsed,
   { message = "", currentWeek = null } = {},
@@ -659,6 +712,7 @@ function normalizeSettingsAssistantOutput(
     diet_profile: normalizeSettingsProfileChange(parsed?.changes?.diet_profile),
     agent_profile: normalizeSettingsProfileChange(parsed?.changes?.agent_profile),
     checklist_categories: normalizeSettingsChecklistProposal(parsed?.changes?.checklist_categories),
+    training_block: normalizeSettingsTrainingBlockChange(parsed?.changes?.training_block),
   };
 
   const hasChanges = Boolean(
@@ -666,7 +720,8 @@ function normalizeSettingsAssistantOutput(
       changes.training_profile ||
       changes.diet_profile ||
       changes.agent_profile ||
-      (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length),
+      (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) ||
+      changes.training_block,
   );
 
   let assistantMessage = cleanRichText(parsed.assistant_message);
@@ -789,6 +844,9 @@ function inferChecklistFromMessage({ message, currentWeek }) {
 
   const addPattern = /\b(add|include|insert|append)\b/;
   if (!addPattern.test(lower)) return null;
+  const checklistCuePattern =
+    /\b(checklist|workout|training|cardio|strength|mobility|session|routine|phase|block)\b/;
+  if (!checklistCuePattern.test(lower)) return null;
 
   const itemText = extractChecklistItemFromMessage(message);
   if (!itemText) return null;
@@ -904,6 +962,18 @@ function parseChecklistTemplateFromMessage({ message, currentWeek }) {
   return normalized;
 }
 
+function messageLooksLikeProfileEdit(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return false;
+  return /\b(user profile|training profile|diet profile|agent profile|profile)\b/.test(text);
+}
+
+function messageLooksLikeChecklistEdit(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return false;
+  return /\b(checklist|workout|training block|phase|cardio|strength|mobility|session|routine)\b/.test(text);
+}
+
 function applyChecklistTemplateFallback({ parsed, message, currentWeek }) {
   const existingChecklist = parsed.changes?.checklist_categories;
   const hasChecklist = Array.isArray(existingChecklist) && existingChecklist.length;
@@ -927,6 +997,15 @@ function applyChecklistInferenceFallback({ parsed, message, currentWeek }) {
   const existingChecklist = parsed.changes?.checklist_categories;
   const hasChecklist = Array.isArray(existingChecklist) && existingChecklist.length;
   if (hasChecklist) return parsed;
+  const hasProfileEdits = Boolean(
+    parsed?.changes?.user_profile ||
+      parsed?.changes?.training_profile ||
+      parsed?.changes?.diet_profile ||
+      parsed?.changes?.agent_profile,
+  );
+  if (hasProfileEdits) return parsed;
+  if (parsed?.changes?.training_block) return parsed;
+  if (messageLooksLikeProfileEdit(message) && !messageLooksLikeChecklistEdit(message)) return parsed;
 
   const inferred = inferChecklistFromMessage({ message, currentWeek });
   if (!inferred?.checklist_categories?.length) return parsed;
@@ -952,6 +1031,7 @@ function buildEmptySettingsChanges() {
     diet_profile: null,
     agent_profile: null,
     checklist_categories: null,
+    training_block: null,
   };
 }
 
@@ -963,6 +1043,7 @@ function coerceSettingsChanges(value) {
     diet_profile: normalizeSettingsProfileChange(raw.diet_profile),
     agent_profile: normalizeSettingsProfileChange(raw.agent_profile),
     checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
+    training_block: normalizeSettingsTrainingBlockChange(raw.training_block),
   };
 }
 
@@ -981,7 +1062,8 @@ function buildSettingsAssistantFallback(text, { message = "", currentWeek = null
             changes.training_profile ||
             changes.diet_profile ||
             changes.agent_profile ||
-            (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length),
+            (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) ||
+            changes.training_block,
         );
         if (assistantMessage || followupQuestion || hasChanges) {
           const inferred = applyChecklistInferenceFallback({
@@ -1497,6 +1579,7 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
     current_week: tracking.current_week ?? null,
+    training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
   const system = buildSystemInstructions({
@@ -1547,6 +1630,7 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
     current_week: tracking.current_week ?? null,
+    training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
   const system = buildSystemInstructions({

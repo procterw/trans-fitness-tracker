@@ -82,6 +82,24 @@ export async function exportUserData() {
   return fetchJson("/api/user/export");
 }
 
+export async function analyzeUserImport({ file = null, rawText = "" } = {}) {
+  const fd = new FormData();
+  if (file) fd.append("file", file);
+  if (typeof rawText === "string" && rawText.trim()) fd.append("raw_text", rawText);
+  return fetchJson("/api/user/import/analyze", { method: "POST", body: fd });
+}
+
+export async function confirmUserImport({ importToken, confirmText }) {
+  return fetchJson("/api/user/import/confirm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      import_token: importToken,
+      confirm_text: confirmText,
+    }),
+  });
+}
+
 export async function logFoodPhoto({
   file,
   date,

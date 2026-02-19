@@ -8,6 +8,7 @@ const PAGE_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
 
 let cachedClient = null;
+let cachedTrainingBlockColumns = null;
 
 function getSupabaseAdminClient() {
   if (cachedClient) return cachedClient;
@@ -45,6 +46,36 @@ function resolveTrackingUserId() {
 function assertNoError(label, error) {
   if (!error) return;
   throw new Error(`Supabase ${label} failed: ${error.message}`);
+}
+
+async function hasTrainingBlockColumns(client) {
+  if (typeof cachedTrainingBlockColumns === "boolean") return cachedTrainingBlockColumns;
+  const { data, error } = await client
+    .from("information_schema.columns")
+    .select("table_name,column_name")
+    .eq("table_schema", "public")
+    .in("table_name", ["fitness_current", "fitness_weeks"])
+    .in("column_name", ["training_block_id", "training_block_name", "training_block_description"]);
+
+  if (error) {
+    cachedTrainingBlockColumns = false;
+    return cachedTrainingBlockColumns;
+  }
+
+  const rows = Array.isArray(data) ? data : [];
+  const required = new Set([
+    "fitness_current:training_block_id",
+    "fitness_current:training_block_name",
+    "fitness_current:training_block_description",
+    "fitness_weeks:training_block_id",
+    "fitness_weeks:training_block_name",
+    "fitness_weeks:training_block_description",
+  ]);
+  for (const row of rows) {
+    required.delete(`${row.table_name}:${row.column_name}`);
+  }
+  cachedTrainingBlockColumns = required.size === 0;
+  return cachedTrainingBlockColumns;
 }
 
 function toDateString(value) {
@@ -147,6 +178,9 @@ function mapCurrentWeekFromRow(row) {
     week_start: toDateString(row.week_start),
     week_label: row.week_label ?? "",
     summary: row.summary ?? "",
+    training_block_id: row.training_block_id ?? "",
+    training_block_name: row.training_block_name ?? "",
+    training_block_description: row.training_block_description ?? "",
     ...checklist,
   };
 }
@@ -161,6 +195,9 @@ function mapFitnessWeekFromRow(row) {
     week_start: toDateString(row.week_start),
     week_label: row.week_label ?? "",
     summary: row.summary ?? "",
+    training_block_id: row.training_block_id ?? "",
+    training_block_name: row.training_block_name ?? "",
+    training_block_description: row.training_block_description ?? "",
     ...checklist,
   };
 }
@@ -212,6 +249,7 @@ async function replaceRowsForUser({ client, table, userId, rows }) {
 export async function readTrackingDataPostgres() {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
+  const includeTrainingBlockColumns = await hasTrainingBlockColumns(client);
 
   const [foodEventsRows, foodLogRows, fitnessWeeksRows] = await Promise.all([
     fetchAllRowsForUser({
@@ -235,7 +273,9 @@ export async function readTrackingDataPostgres() {
     fetchAllRowsForUser({
       client,
       table: "fitness_weeks",
-      columns: "id,user_id,week_start,week_label,summary,checklist,category_order,created_at",
+      columns: includeTrainingBlockColumns
+        ? "id,user_id,week_start,week_label,summary,training_block_id,training_block_name,training_block_description,checklist,category_order,created_at"
+        : "id,user_id,week_start,week_label,summary,checklist,category_order,created_at",
       userId,
       orderBy: "week_start",
       ascending: true,
@@ -245,7 +285,11 @@ export async function readTrackingDataPostgres() {
   const [fitnessCurrentResult, profileResult, rulesResult] = await Promise.all([
     client
       .from("fitness_current")
-      .select("user_id,week_start,week_label,summary,checklist,category_order,updated_at")
+      .select(
+        includeTrainingBlockColumns
+          ? "user_id,week_start,week_label,summary,training_block_id,training_block_name,training_block_description,checklist,category_order,updated_at"
+          : "user_id,week_start,week_label,summary,checklist,category_order,updated_at",
+      )
       .eq("user_id", userId)
       .maybeSingle(),
     fetchUserProfileRow({ client, userId }),
@@ -272,6 +316,7 @@ export async function readTrackingDataPostgres() {
 export async function writeTrackingDataPostgres(data) {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
+  const includeTrainingBlockColumns = await hasTrainingBlockColumns(client);
   const safeData = asObject(data);
 
   const foodEvents = asArray(safeData.food_events)
@@ -319,7 +364,7 @@ export async function writeTrackingDataPostgres(data) {
     .filter((row) => row && typeof row === "object" && row.week_start)
     .map((row) => {
       const { checklist, categoryOrder } = toFitnessChecklistStorage(row);
-      return {
+      const payload = {
         user_id: userId,
         week_start: toDateString(row.week_start),
         week_label: row.week_label ?? "",
@@ -327,6 +372,12 @@ export async function writeTrackingDataPostgres(data) {
         checklist,
         category_order: categoryOrder,
       };
+      if (includeTrainingBlockColumns) {
+        payload.training_block_id = row.training_block_id ?? null;
+        payload.training_block_name = row.training_block_name ?? null;
+        payload.training_block_description = row.training_block_description ?? null;
+      }
+      return payload;
     });
 
   const currentWeek = safeData.current_week && typeof safeData.current_week === "object" ? safeData.current_week : null;
@@ -360,18 +411,21 @@ export async function writeTrackingDataPostgres(data) {
 
   if (currentWeek && currentWeek.week_start) {
     const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);
-    const { error } = await client.from("fitness_current").upsert(
-      {
-        user_id: userId,
-        week_start: toDateString(currentWeek.week_start),
-        week_label: currentWeek.week_label ?? "",
-        summary: currentWeek.summary ?? "",
-        checklist,
-        category_order: categoryOrder,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
+    const payload = {
+      user_id: userId,
+      week_start: toDateString(currentWeek.week_start),
+      week_label: currentWeek.week_label ?? "",
+      summary: currentWeek.summary ?? "",
+      checklist,
+      category_order: categoryOrder,
+      updated_at: new Date().toISOString(),
+    };
+    if (includeTrainingBlockColumns) {
+      payload.training_block_id = currentWeek.training_block_id ?? null;
+      payload.training_block_name = currentWeek.training_block_name ?? null;
+      payload.training_block_description = currentWeek.training_block_description ?? null;
+    }
+    const { error } = await client.from("fitness_current").upsert(payload, { onConflict: "user_id" });
     assertNoError("upsert fitness_current", error);
   } else {
     const { error } = await client.from("fitness_current").delete().eq("user_id", userId);

@@ -4,6 +4,8 @@ import "./styles.css";
 import {
   getContext,
   exportUserData,
+  analyzeUserImport,
+  confirmUserImport,
   getFitnessCurrent,
   getFitnessHistory,
   getFoodForDate,
@@ -114,6 +116,7 @@ export default function App() {
   const chatMessagesRef = useRef(null);
   const composerAttachmentIdRef = useRef(0);
   const previewUrlsRef = useRef(new Set());
+  const importFileInputRef = useRef(null);
   const settingsFormRef = useRef(null);
   const settingsInputRef = useRef(null);
   const settingsMessagesRef = useRef(null);
@@ -177,6 +180,14 @@ export default function App() {
   const [authActionLoading, setAuthActionLoading] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
   const [exportActionLoading, setExportActionLoading] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
+  const [importActionLoading, setImportActionLoading] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importAnalysis, setImportAnalysis] = useState(null);
+  const [importPasteText, setImportPasteText] = useState("");
+  const [importConfirmText, setImportConfirmText] = useState("");
+  const [importResult, setImportResult] = useState(null);
   const signedOut = authEnabled && !authSession?.user;
 
   const fmt = (n) => {
@@ -534,6 +545,13 @@ export default function App() {
   useEffect(() => {
     if (view !== "settings") return;
     if (settingsLoading || settingsProfilesSaving) return;
+    const activeEl = document.activeElement;
+    if (
+      activeEl instanceof HTMLElement &&
+      (activeEl.classList.contains("settingsProfileTextarea") || activeEl.closest(".settingsProfilesPanel"))
+    ) {
+      return;
+    }
     settingsInputRef.current?.focus();
   }, [settingsLoading, settingsProfilesSaving, view]);
 
@@ -627,6 +645,114 @@ export default function App() {
       setExportStatus(err instanceof Error ? err.message : "Could not export data.");
     } finally {
       setExportActionLoading(false);
+    }
+  };
+
+  const resetImportState = () => {
+    setImportError("");
+    setImportAnalysis(null);
+    setImportPasteText("");
+    setImportConfirmText("");
+    setImportResult(null);
+    const input = importFileInputRef.current;
+    if (input) input.value = "";
+  };
+
+  const onOpenImportModal = async () => {
+    setImportStatus("");
+    resetImportState();
+    setImportModalOpen(true);
+  };
+
+  const onCloseImportModal = () => {
+    if (importActionLoading) return;
+    setImportModalOpen(false);
+    resetImportState();
+  };
+
+  const onSelectImportFile = async (file) => {
+    if (!file) return;
+    setImportActionLoading(true);
+    setImportError("");
+    setImportResult(null);
+    setImportAnalysis(null);
+    setImportConfirmText("");
+    try {
+      const json = await analyzeUserImport({ file });
+      setImportAnalysis(json);
+      if (!json?.import_token) {
+        setImportError("No importable domains were found in this file.");
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImportActionLoading(false);
+    }
+  };
+
+  const onAnalyzeImportText = async () => {
+    const rawText = typeof importPasteText === "string" ? importPasteText.trim() : "";
+    if (!rawText) {
+      setImportError("Paste JSON text first.");
+      return;
+    }
+    setImportActionLoading(true);
+    setImportError("");
+    setImportResult(null);
+    setImportAnalysis(null);
+    setImportConfirmText("");
+    try {
+      const json = await analyzeUserImport({ rawText });
+      setImportAnalysis(json);
+      if (!json?.import_token) {
+        setImportError("No importable domains were found in this pasted data.");
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImportActionLoading(false);
+    }
+  };
+
+  const onConfirmImport = async () => {
+    if (importActionLoading) return;
+    const token = typeof importAnalysis?.import_token === "string" ? importAnalysis.import_token : "";
+    if (!token) {
+      setImportError("Analyze a file or pasted JSON first.");
+      return;
+    }
+    if (importConfirmText.trim() !== "IMPORT") {
+      setImportError("Type IMPORT to confirm.");
+      return;
+    }
+
+    setImportActionLoading(true);
+    setImportError("");
+    try {
+      const json = await confirmUserImport({
+        importToken: token,
+        confirmText: importConfirmText.trim(),
+      });
+      setImportResult(json);
+      const applied = Array.isArray(json?.applied_domains) ? json.applied_domains : [];
+      setImportStatus(applied.length ? `Import complete: ${applied.join(", ")}` : "Import complete.");
+
+      await refreshAppContext();
+      await loadSettingsProfilesState();
+      await loadFitness();
+      await loadFitnessHistory();
+      await loadDashboardFoodLog();
+      const selectedDashDate = dashDate || suggestedDate || foodDate;
+      if (selectedDashDate) {
+        await loadDashboard(selectedDashDate);
+        await loadRecentEvents(selectedDashDate);
+        await loadWeeklyEvents(selectedDashDate);
+        await loadSidebarDaySummary(selectedDashDate);
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImportActionLoading(false);
     }
   };
 
@@ -1309,11 +1435,14 @@ export default function App() {
           authSession={authSession}
           authStatus={authStatus}
           exportStatus={exportStatus}
+          importStatus={importStatus}
           authActionLoading={authActionLoading}
           exportActionLoading={exportActionLoading}
+          importActionLoading={importActionLoading}
           onSignIn={onSignIn}
           onSignOut={onSignOut}
           onExportData={onExportData}
+          onImportData={onOpenImportModal}
           mobileNavOpen={mobileNavOpen}
           onToggleMobileNav={() => setMobileNavOpen((open) => !open)}
           onChangeView={(nextView) => {
@@ -1340,6 +1469,8 @@ export default function App() {
             onSettingsProfileChange={onSettingsProfileChange}
             checklistCategories={getFitnessCategories(fitnessWeek)}
             checklistWeekLabel={fitnessWeek?.week_label || ""}
+            checklistPhaseName={fitnessWeek?.training_block_name || ""}
+            checklistPhaseDescription={fitnessWeek?.training_block_description || ""}
           />
         ) : (
           <div className="mainContentRow">
@@ -1404,6 +1535,149 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {importModalOpen ? (
+          <div className="importModalOverlay" role="dialog" aria-modal="true" aria-label="Import tracking data">
+            <div className="importModalCard">
+              <div className="importModalHeader">
+                <h2>Import data</h2>
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={onCloseImportModal}
+                  disabled={importActionLoading}
+                >
+                  Close
+                </button>
+              </div>
+
+              <p className="muted">
+                Upload a JSON export/legacy file or paste JSON text. Import replaces matching domains in your current data.
+              </p>
+
+              <div className="importModalRow">
+                <label htmlFor="import_file_input">
+                  <strong>Upload file</strong>
+                </label>
+                <input
+                  id="import_file_input"
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".json,application/json,text/json"
+                  disabled={importActionLoading}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    if (!file) return;
+                    onSelectImportFile(file);
+                  }}
+                />
+              </div>
+
+              <div className="importModalRow">
+                <label htmlFor="import_paste_text">
+                  <strong>Paste JSON</strong>
+                </label>
+                <textarea
+                  id="import_paste_text"
+                  value={importPasteText}
+                  disabled={importActionLoading}
+                  onChange={(e) => setImportPasteText(e.target.value)}
+                  placeholder='Paste export JSON or legacy payload (for example: {"export":{"data":...}})'
+                  rows={8}
+                />
+                <div className="importModalInlineActions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={onAnalyzeImportText}
+                    disabled={importActionLoading || !importPasteText.trim()}
+                  >
+                    Analyze pasted JSON
+                  </button>
+                </div>
+              </div>
+
+              {importAnalysis ? (
+                <div className="importSummary">
+                  <p>
+                    <strong>Detected shape:</strong> <code>{importAnalysis.detected_shape || "unknown"}</code>
+                  </p>
+                  <p>
+                    <strong>Domains:</strong>
+                  </p>
+                  <ul>
+                    {Object.entries(importAnalysis.summary || {}).map(([key, entry]) => (
+                      <li key={key}>
+                        <code>{key}</code>: {entry?.importable ? "importable" : "skipped"}{" "}
+                        {typeof entry?.count === "number" ? `(${entry.count})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {Array.isArray(importAnalysis?.warnings) && importAnalysis.warnings.length ? (
+                <div className="importWarnings">
+                  <p>
+                    <strong>Warnings:</strong>
+                  </p>
+                  <ul>
+                    {importAnalysis.warnings.map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {importResult ? (
+                <div className="importSummary">
+                  <p>
+                    <strong>Applied:</strong> {(importResult.applied_domains || []).join(", ") || "(none)"}
+                  </p>
+                  {Array.isArray(importResult.skipped_domains) && importResult.skipped_domains.length ? (
+                    <p>
+                      <strong>Skipped:</strong>{" "}
+                      {importResult.skipped_domains
+                        .map((entry) => `${entry.domain}${entry.reason ? ` (${entry.reason})` : ""}`)
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="importConfirmRow">
+                <label htmlFor="import_confirm_text">
+                  Type <code>IMPORT</code> to confirm:
+                </label>
+                <input
+                  id="import_confirm_text"
+                  type="text"
+                  value={importConfirmText}
+                  disabled={importActionLoading}
+                  onChange={(e) => setImportConfirmText(e.target.value)}
+                  placeholder="IMPORT"
+                />
+              </div>
+
+              {importError ? (
+                <div className="status composerStatus">
+                  <span className="error">{importError}</span>
+                </div>
+              ) : null}
+
+              <div className="importModalActions">
+                <button
+                  type="button"
+                  className="sendButton"
+                  onClick={onConfirmImport}
+                  disabled={importActionLoading || !importAnalysis?.import_token || importConfirmText.trim() !== "IMPORT"}
+                >
+                  {importActionLoading ? "Importing…" : "Confirm import"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </main>
     </div>
   );

@@ -19,6 +19,8 @@ export default function SettingsView({
   onSettingsProfileChange,
   checklistCategories = [],
   checklistWeekLabel = "",
+  checklistPhaseName = "",
+  checklistPhaseDescription = "",
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
 
@@ -94,6 +96,12 @@ export default function SettingsView({
               <h2 className="sidebarHeading">Current checklist</h2>
               {checklistWeekLabel ? <span className="sidebarDate">{checklistWeekLabel}</span> : null}
             </div>
+            {checklistPhaseName ? (
+              <div className="muted" style={{ marginBottom: 8 }}>
+                <strong>{checklistPhaseName}</strong>
+                {checklistPhaseDescription ? ` — ${checklistPhaseDescription}` : ""}
+              </div>
+            ) : null}
 
             <div className="settingsChecklistBody">
               {Array.isArray(checklistCategories) && checklistCategories.length ? (

@@ -243,6 +243,103 @@ a {
   justify-self: flex-start;
 }
 
+.importModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, #000 46%, transparent);
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.importModalCard {
+  width: min(700px, calc(100vw - 24px));
+  max-height: min(86vh, 860px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.importModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.importModalHeader h2 {
+  margin: 0;
+}
+
+.importModalRow input[type="file"] {
+  width: 100%;
+}
+
+.importModalRow {
+  display: grid;
+  gap: 6px;
+}
+
+.importModalRow textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+.importModalInlineActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.importSummary,
+.importWarnings {
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--sidebar) 75%, transparent);
+  padding: 10px;
+}
+
+.importSummary p,
+.importWarnings p {
+  margin: 0 0 6px;
+}
+
+.importSummary ul,
+.importWarnings ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.importConfirmRow {
+  display: grid;
+  gap: 6px;
+}
+
+.importConfirmRow input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.importModalActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .appShell {
   min-height: 100vh;
   min-height: 100dvh;

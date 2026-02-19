@@ -83,12 +83,18 @@ This repo includes a minimal local web app that supports:
   - Idempotently seeds starter profile/checklist defaults for first-time users
   - Returns `seeded_now`, `already_seeded`, `default_open_view`, starter summary, and optional updated profiles
 - `GET /api/settings/state` → returns current profile text blobs + `settings_version`
+  - also returns `training_blocks` summary (`active_block_id`, block list)
 - `POST /api/settings/profiles` → JSON body with any of:
   - `user_profile`, `training_profile`, `diet_profile`, `agent_profile` (all text)
   - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `GET /api/user/export` → returns all user tracking data for export/download
   - includes `exported_at`, authenticated `user_id`, and full tracking payload (`data`)
+- `POST /api/user/import/analyze` → multipart form with `file` and/or pasted JSON text field (`raw_text`)
+  - Parses legacy/current JSON payloads and returns shape detection, per-domain importability summary, warnings, preview metadata, and an `import_token`
+- `POST /api/user/import/confirm` → JSON body: `import_token`, `confirm_text`
+  - Requires typed confirmation (`IMPORT`) and applies a domain-scoped direct replace for validated domains
+  - Returns `applied_domains`, `skipped_domains`, `warnings`, and import `stats`
 - `POST /api/food/log` → multipart form:
   - optional `image` (if present, uses vision)
   - optional `description` (if no image, required; if image is present, used as additional context)
@@ -117,10 +123,13 @@ This repo includes a minimal local web app that supports:
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
   - GPT‑5.2 settings assistant that can answer settings questions and propose updates to:
     - `user_profile`, `training_profile`, `diet_profile`, `agent_profile`
+    - `training_block` (`id`, `name`, `description`, `apply_timing`, `checklist_categories`)
   - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
   - Applies a previously proposed settings change for manual confirmation workflows
 - `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
+  - each week includes phase snapshot fields:
+    - `training_block_id`, `training_block_name`, `training_block_description`
 
 ## Food event logging format
 Photo + manual logs append to `tracking-food.json.food_events` with:

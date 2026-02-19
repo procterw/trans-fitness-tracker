@@ -37,6 +37,7 @@ const TIME_ZONE = "America/Los_Angeles";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTO_FOOD_LOG_NOTE_PREFIX = "Daily summary:";
 const LEGACY_AUTO_FOOD_LOG_NOTES = new Set(["Auto-updated from food_events.", "Auto-generated from food_events."]);
+const LEGACY_BLOCK_ID = "legacy-phase";
 const FoodDayFlagsSchema = z.object({
   status: z.enum(["🟢", "🟡", "❌", "⚪"]),
   healthy: z.enum(["🟢", "🟡", "❌", "⚪"]),
@@ -165,6 +166,9 @@ function normalizeFitnessWeekShape(value, { requireWeekStart = true } = {}) {
     ...(weekStart ? { week_start: weekStart } : {}),
     week_label: weekLabelRaw || (weekStart ? weekLabelFromStart(weekStart) : ""),
     summary: typeof week.summary === "string" ? week.summary : "",
+    training_block_id: normalizeTrainingBlockId(week.training_block_id) ?? "",
+    training_block_name: normalizeTrainingBlockName(week.training_block_name),
+    training_block_description: normalizeTrainingBlockDescription(week.training_block_description),
   };
 
   const categoryOrder = getFitnessCategoryKeys(week);
@@ -177,6 +181,10 @@ function normalizeFitnessWeekShape(value, { requireWeekStart = true } = {}) {
   }
   if (categoryOrder.length) normalized.category_order = categoryOrder;
   if (Object.keys(categoryLabels).length) normalized.category_labels = categoryLabels;
+
+  if (!normalized.training_block_id) delete normalized.training_block_id;
+  if (!normalized.training_block_name) delete normalized.training_block_name;
+  if (!normalized.training_block_description) delete normalized.training_block_description;
 
   return normalized;
 }
@@ -222,20 +230,239 @@ function normalizeChecklistTemplate(value) {
   return out;
 }
 
+function normalizeTrainingBlockName(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || "";
+}
+
+function normalizeTrainingBlockDescription(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || "";
+}
+
+function normalizeTrainingBlockId(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return text || null;
+}
+
+function checklistTemplateFingerprint(template) {
+  const normalized = normalizeChecklistTemplate(template);
+  if (!normalized) return "";
+  const keys = Array.isArray(normalized.category_order) ? normalized.category_order : [];
+  const labels = asObject(normalized.category_labels);
+  const parts = [];
+  for (const key of keys) {
+    const label = typeof labels[key] === "string" ? labels[key].trim() : "";
+    const list = Array.isArray(normalized[key]) ? normalized[key] : [];
+    const itemTokens = list
+      .map((item) => {
+        const name = typeof item?.item === "string" ? item.item.trim().toLowerCase() : "";
+        const description = typeof item?.description === "string" ? item.description.trim().toLowerCase() : "";
+        if (!name) return "";
+        return description ? `${name}::${description}` : name;
+      })
+      .filter(Boolean);
+    if (!itemTokens.length) continue;
+    parts.push(`${key}:${label}:${itemTokens.join("|")}`);
+  }
+  return parts.join("||");
+}
+
+function phaseDescriptionFromTemplate(template) {
+  const normalized = normalizeChecklistTemplate(template);
+  if (!normalized) return "Training block";
+  const keys = Array.isArray(normalized.category_order) ? normalized.category_order : [];
+  const labels = asObject(normalized.category_labels);
+  const top = keys
+    .slice(0, 3)
+    .map((key) => {
+      const explicit = typeof labels[key] === "string" ? labels[key].trim() : "";
+      return explicit || getFitnessCategoryLabel({ category_labels: labels, [key]: [] }, key);
+    })
+    .filter(Boolean);
+  return top.length ? `Focus: ${top.join(", ")}` : "Training block";
+}
+
+function buildTrainingBlockFromTemplate(template, { id, name, description, timestamp = null } = {}) {
+  const normalizedTemplate = normalizeChecklistTemplate(template);
+  if (!normalizedTemplate) return null;
+  const now = timestamp || formatSeattleIso(new Date());
+  const blockId = normalizeTrainingBlockId(id) || crypto.randomUUID();
+  const blockName = normalizeTrainingBlockName(name) || "Phase 1";
+  const blockDescription = normalizeTrainingBlockDescription(description) || phaseDescriptionFromTemplate(normalizedTemplate);
+  const out = {
+    id: blockId,
+    name: blockName,
+    description: blockDescription,
+    category_order: normalizedTemplate.category_order,
+    checklist: {},
+    created_at: now,
+    updated_at: now,
+  };
+  if (normalizedTemplate.category_labels && Object.keys(normalizedTemplate.category_labels).length) {
+    out.category_labels = normalizedTemplate.category_labels;
+  }
+  for (const key of normalizedTemplate.category_order) {
+    out.checklist[key] = Array.isArray(normalizedTemplate[key]) ? normalizedTemplate[key] : [];
+  }
+  return out;
+}
+
+function trainingBlockToChecklistTemplate(block) {
+  const safe = asObject(block);
+  const checklist = asObject(safe.checklist);
+  const categoryOrder = Array.isArray(safe.category_order)
+    ? safe.category_order.filter((key) => typeof key === "string" && key.trim() && Array.isArray(checklist[key]))
+    : [];
+  if (!categoryOrder.length) return null;
+  const labels = asObject(safe.category_labels);
+  const out = {
+    category_order: [],
+    category_labels: {},
+  };
+  for (const key of categoryOrder) {
+    const list = Array.isArray(checklist[key]) ? checklist[key] : [];
+    const items = list
+      .map((entry) => {
+        const item = typeof entry?.item === "string" ? entry.item.trim() : "";
+        const description = typeof entry?.description === "string" ? entry.description.trim() : "";
+        if (!item) return null;
+        return description ? { item, description } : { item };
+      })
+      .filter(Boolean);
+    if (!items.length) continue;
+    out.category_order.push(key);
+    out[key] = items;
+    const label = typeof labels[key] === "string" ? labels[key].trim() : "";
+    if (label) out.category_labels[key] = label;
+  }
+  if (!out.category_order.length) return null;
+  if (!Object.keys(out.category_labels).length) delete out.category_labels;
+  return out;
+}
+
+function normalizeTrainingBlocksMetadata(metadata, { currentWeek = null, fitnessWeeks = [] } = {}) {
+  const safeMetadata = asObject(metadata);
+  const raw = asObject(safeMetadata.training_blocks);
+  const rawBlocks = Array.isArray(raw.blocks) ? raw.blocks : [];
+  const now = formatSeattleIso(new Date());
+  const normalizedBlocks = [];
+  const seen = new Set();
+  for (const block of rawBlocks) {
+    const template = trainingBlockToChecklistTemplate(block);
+    if (!template) continue;
+    const blockId = normalizeTrainingBlockId(block?.id);
+    if (!blockId || seen.has(blockId)) continue;
+    seen.add(blockId);
+    const built = buildTrainingBlockFromTemplate(template, {
+      id: blockId,
+      name: block?.name,
+      description: block?.description,
+      timestamp: typeof block?.created_at === "string" ? block.created_at : now,
+    });
+    if (!built) continue;
+    built.updated_at = typeof block?.updated_at === "string" ? block.updated_at : now;
+    normalizedBlocks.push(built);
+  }
+
+  let activeBlockId = normalizeTrainingBlockId(raw.active_block_id);
+  let blocks = normalizedBlocks;
+  if (!blocks.length) {
+    const template =
+      normalizeChecklistTemplate(asObject(safeMetadata.checklist_template)) ||
+      normalizeChecklistTemplate(currentWeek) ||
+      normalizeChecklistTemplate(fitnessWeeks[fitnessWeeks.length - 1]);
+    if (template) {
+      const fallback = buildTrainingBlockFromTemplate(template, {
+        name: "Phase 1",
+        description: phaseDescriptionFromTemplate(template),
+      });
+      if (fallback) {
+        blocks = [fallback];
+        activeBlockId = fallback.id;
+      }
+    }
+  }
+
+  if (blocks.length && !blocks.some((block) => block.id === activeBlockId)) {
+    activeBlockId = blocks[blocks.length - 1].id;
+  }
+
+  const out = {
+    ...safeMetadata,
+    training_blocks: {
+      active_block_id: activeBlockId ?? null,
+      blocks,
+    },
+  };
+  const active = blocks.find((block) => block.id === out.training_blocks.active_block_id) ?? blocks[blocks.length - 1] ?? null;
+  const activeTemplate = trainingBlockToChecklistTemplate(active);
+  if (activeTemplate) out.checklist_template = activeTemplate;
+  else delete out.checklist_template;
+  return out;
+}
+
+function findBlockByWeekSnapshot(trainingBlocks, week) {
+  const safeWeek = asObject(week);
+  const blocks = Array.isArray(trainingBlocks?.blocks) ? trainingBlocks.blocks : [];
+  const explicitId = normalizeTrainingBlockId(safeWeek.training_block_id);
+  if (explicitId) {
+    const byId = blocks.find((block) => block.id === explicitId);
+    if (byId) return byId;
+  }
+  const weekTemplate = normalizeChecklistTemplate(safeWeek);
+  const target = checklistTemplateFingerprint(weekTemplate);
+  if (!target) return null;
+  for (const block of blocks) {
+    const fingerprint = checklistTemplateFingerprint(trainingBlockToChecklistTemplate(block));
+    if (fingerprint && fingerprint === target) return block;
+  }
+  return null;
+}
+
+function withWeekTrainingBlockSnapshot(week, block) {
+  const safeWeek = asObject(week);
+  const safeBlock = asObject(block);
+  const blockId = normalizeTrainingBlockId(safeBlock.id) || LEGACY_BLOCK_ID;
+  const blockName = normalizeTrainingBlockName(safeBlock.name) || "Legacy phase";
+  const blockDescription = normalizeTrainingBlockDescription(safeBlock.description) || "Imported from existing checklist data.";
+  return {
+    ...safeWeek,
+    training_block_id: blockId,
+    training_block_name: blockName,
+    training_block_description: blockDescription,
+  };
+}
+
 function sanitizeActivityDataPayload(data) {
   if (!data || typeof data !== "object") return data;
 
-  data.current_week = normalizeFitnessWeekShape(data.current_week, { requireWeekStart: false });
-
-  const fitnessWeeks = Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [];
-  data.fitness_weeks = fitnessWeeks
+  const currentWeek = normalizeFitnessWeekShape(data.current_week, { requireWeekStart: false });
+  const fitnessWeeks = (Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [])
     .map((week) => normalizeFitnessWeekShape(week, { requireWeekStart: true }))
     .filter(Boolean);
 
-  const metadata = asObject(data.metadata);
-  const template = normalizeChecklistTemplate(metadata.checklist_template);
-  if (template) metadata.checklist_template = template;
-  else delete metadata.checklist_template;
+  const metadata = normalizeTrainingBlocksMetadata(asObject(data.metadata), {
+    currentWeek,
+    fitnessWeeks,
+  });
+  const trainingBlocks = asObject(metadata.training_blocks);
+  const activeBlockId = normalizeTrainingBlockId(trainingBlocks.active_block_id);
+  const blocks = Array.isArray(trainingBlocks.blocks) ? trainingBlocks.blocks : [];
+  const activeBlock = blocks.find((block) => block.id === activeBlockId) ?? blocks[blocks.length - 1] ?? null;
+  const legacyBlock = {
+    id: LEGACY_BLOCK_ID,
+    name: "Legacy phase",
+    description: "Imported from existing checklist data.",
+  };
+
+  data.current_week = currentWeek
+    ? withWeekTrainingBlockSnapshot(currentWeek, findBlockByWeekSnapshot(trainingBlocks, currentWeek) ?? activeBlock ?? legacyBlock)
+    : null;
+
+  data.fitness_weeks = fitnessWeeks.map((week) =>
+    withWeekTrainingBlockSnapshot(week, findBlockByWeekSnapshot(trainingBlocks, week) ?? legacyBlock),
+  );
   data.metadata = metadata;
 
   return data;
@@ -460,9 +687,22 @@ export async function writeTrackingData(data) {
 function ensureCurrentWeekInData(data, now = new Date()) {
   const seattleDate = getSeattleDateString(now);
   const weekStart = getWeekStartMonday(seattleDate);
+  const metadata = normalizeTrainingBlocksMetadata(asObject(data.metadata), {
+    currentWeek: data.current_week,
+    fitnessWeeks: Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [],
+  });
+  data.metadata = metadata;
+  const trainingBlocks = asObject(metadata.training_blocks);
+  const blocks = Array.isArray(trainingBlocks.blocks) ? trainingBlocks.blocks : [];
+  const activeBlockId = normalizeTrainingBlockId(trainingBlocks.active_block_id);
+  const activeBlock = blocks.find((block) => block.id === activeBlockId) ?? blocks[blocks.length - 1] ?? null;
 
   const hasCurrent = data.current_week && typeof data.current_week === "object";
   if (hasCurrent && data.current_week.week_start === weekStart) {
+    if (!data.current_week.training_block_id && activeBlock) {
+      data.current_week = withWeekTrainingBlockSnapshot(data.current_week, activeBlock);
+      return { current_week: data.current_week, changed: true };
+    }
     return { current_week: data.current_week, changed: false };
   }
 
@@ -473,9 +713,8 @@ function ensureCurrentWeekInData(data, now = new Date()) {
     data.fitness_weeks.push(prevCurrent);
   }
 
-  const metadata = asObject(data.metadata);
-  const persistedTemplate = normalizeChecklistTemplate(metadata.checklist_template);
-  const template = asObject(persistedTemplate ?? prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {});
+  const activeTemplate = trainingBlockToChecklistTemplate(activeBlock);
+  const template = asObject(activeTemplate ?? prevCurrent ?? data.fitness_weeks[data.fitness_weeks.length - 1] ?? {});
   const categoryOrder = getFitnessCategoryKeys(template);
   const templateLabels = asObject(template.category_labels);
   const resetCategory = (key) => {
@@ -500,6 +739,15 @@ function ensureCurrentWeekInData(data, now = new Date()) {
   }
   if (categoryOrder.length) nextWeek.category_order = categoryOrder;
   if (Object.keys(templateLabels).length) nextWeek.category_labels = templateLabels;
+  if (activeBlock) {
+    nextWeek.training_block_id = activeBlock.id;
+    nextWeek.training_block_name = normalizeTrainingBlockName(activeBlock.name);
+    nextWeek.training_block_description = normalizeTrainingBlockDescription(activeBlock.description);
+  } else if (prevCurrent?.training_block_id) {
+    nextWeek.training_block_id = prevCurrent.training_block_id;
+    nextWeek.training_block_name = prevCurrent.training_block_name ?? "";
+    nextWeek.training_block_description = prevCurrent.training_block_description ?? "";
+  }
 
   data.current_week = nextWeek;
 
@@ -1131,6 +1379,36 @@ export async function getFoodEventsForDate(date) {
   return events.filter((e) => e && e.date === date);
 }
 
+export async function clearFoodEntriesForDate(date) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+
+  const data = await readTrackingData();
+  if (!Array.isArray(data.food_events)) data.food_events = [];
+  if (!Array.isArray(data.food_log)) data.food_log = [];
+
+  const beforeCount = data.food_events.length;
+  data.food_events = data.food_events.filter((event) => !(event && event.date === date));
+  const removed_count = beforeCount - data.food_events.length;
+
+  const hadFoodLogRow = data.food_log.some((row) => row && row.date === date);
+  let food_log = data.food_log.find((row) => row && row.date === date) ?? null;
+
+  if (hadFoodLogRow) {
+    rebuildFoodLogRowFromEventsInData(data, date, { defaultNotes: "Auto-updated from food_events." });
+    const context = buildFoodContext(data);
+    food_log = (await finalizeFoodLogForDateInData(data, date, context)) ?? food_log;
+  }
+
+  if (removed_count > 0 || hadFoodLogRow) {
+    if (data.metadata && typeof data.metadata === "object") {
+      data.metadata.last_updated = formatSeattleIso(new Date());
+    }
+    await writeTrackingData(data);
+  }
+
+  return { date, removed_count, food_log };
+}
+
 export async function updateCurrentWeekItem({ category, index, checked, details }) {
   if (typeof category !== "string" || !category.trim()) throw new Error(`Invalid category: ${category}`);
   if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid index: ${index}`);
@@ -1219,6 +1497,25 @@ export async function listFitnessWeeks({ limit = 12 } = {}) {
   const weeks = Array.isArray(data.fitness_weeks) ? data.fitness_weeks : [];
   const safeLimit = Math.max(0, Number(limit) || 0);
   return weeks.slice(-safeLimit);
+}
+
+export function summarizeTrainingBlocks(data) {
+  const metadata = normalizeTrainingBlocksMetadata(asObject(data?.metadata), {
+    currentWeek: data?.current_week ?? null,
+    fitnessWeeks: Array.isArray(data?.fitness_weeks) ? data.fitness_weeks : [],
+  });
+  const trainingBlocks = asObject(metadata.training_blocks);
+  const blocks = Array.isArray(trainingBlocks.blocks) ? trainingBlocks.blocks : [];
+  return {
+    active_block_id: normalizeTrainingBlockId(trainingBlocks.active_block_id),
+    blocks: blocks.map((block) => ({
+      id: block.id,
+      name: normalizeTrainingBlockName(block.name),
+      description: normalizeTrainingBlockDescription(block.description),
+      category_order: Array.isArray(block.category_order) ? block.category_order : [],
+      updated_at: typeof block.updated_at === "string" ? block.updated_at : "",
+    })),
+  };
 }
 
 export async function listFoodLog({ limit = 0, from = null, to = null } = {}) {

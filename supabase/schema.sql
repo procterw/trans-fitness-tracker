@@ -126,6 +126,9 @@ create table if not exists public.fitness_current (
   week_start date not null,
   week_label text not null,
   summary text,
+  training_block_id text,
+  training_block_name text,
+  training_block_description text,
   checklist jsonb not null default '{}'::jsonb,
   category_order jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now()
@@ -137,6 +140,9 @@ create table if not exists public.fitness_weeks (
   week_start date not null,
   week_label text not null,
   summary text,
+  training_block_id text,
+  training_block_name text,
+  training_block_description text,
   checklist jsonb not null default '{}'::jsonb,
   category_order jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
@@ -147,8 +153,14 @@ create index if not exists fitness_weeks_user_start on public.fitness_weeks(user
 -- Add flexible checklist columns for existing installs and backfill from legacy fixed columns when present.
 alter table public.fitness_current add column if not exists checklist jsonb not null default '{}'::jsonb;
 alter table public.fitness_current add column if not exists category_order jsonb not null default '[]'::jsonb;
+alter table public.fitness_current add column if not exists training_block_id text;
+alter table public.fitness_current add column if not exists training_block_name text;
+alter table public.fitness_current add column if not exists training_block_description text;
 alter table public.fitness_weeks add column if not exists checklist jsonb not null default '{}'::jsonb;
 alter table public.fitness_weeks add column if not exists category_order jsonb not null default '[]'::jsonb;
+alter table public.fitness_weeks add column if not exists training_block_id text;
+alter table public.fitness_weeks add column if not exists training_block_name text;
+alter table public.fitness_weeks add column if not exists training_block_description text;
 
 do $$
 begin
