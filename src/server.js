@@ -580,6 +580,41 @@ function normalizeProfileText(value) {
   return value.replace(/\r\n/g, "\n");
 }
 
+function getTrackingProfile(data) {
+  const safe = isPlainObject(data) ? data : {};
+  return isPlainObject(safe.profile) ? safe.profile : safe;
+}
+
+function ensureTrackingProfile(data) {
+  if (!isPlainObject(data.profile)) data.profile = {};
+  return data.profile;
+}
+
+function getTrackingRules(data) {
+  const safe = isPlainObject(data) ? data : {};
+  return isPlainObject(safe.rules) ? safe.rules : safe;
+}
+
+function ensureTrackingRules(data) {
+  if (!isPlainObject(data.rules)) data.rules = {};
+  return data.rules;
+}
+
+function getTrackingMetadata(data) {
+  const rules = getTrackingRules(data);
+  if (isPlainObject(rules.metadata)) return rules.metadata;
+  return asObject(data?.metadata);
+}
+
+function setTrackingMetadata(data, metadata) {
+  const safeMetadata = isPlainObject(metadata) ? metadata : {};
+  const rules = ensureTrackingRules(data);
+  rules.metadata = safeMetadata;
+  data.rules = rules;
+  // Keep temporary top-level alias while older paths still reference it.
+  data.metadata = safeMetadata;
+}
+
 function buildStarterChecklistCategories() {
   return normalizeChecklistCategories([
     {
@@ -614,11 +649,11 @@ function buildStarterUserProfileText() {
 }
 
 function getSettingsProfiles(data) {
-  const safe = isPlainObject(data) ? data : {};
-  const general = normalizeProfileText(safe.general);
-  const fitness = normalizeProfileText(safe.fitness);
-  const diet = normalizeProfileText(safe.diet);
-  const agent = normalizeProfileText(safe.agent);
+  const profile = getTrackingProfile(data);
+  const general = normalizeProfileText(profile.general);
+  const fitness = normalizeProfileText(profile.fitness);
+  const diet = normalizeProfileText(profile.diet);
+  const agent = normalizeProfileText(profile.agent);
   return {
     general,
     fitness,
@@ -634,7 +669,7 @@ function readSettingsProfileInput(payload, canonicalField) {
 }
 
 function hasSeedMarker(data) {
-  const metadata = asObject(data?.metadata);
+  const metadata = asObject(getTrackingMetadata(data));
   return hasNonEmptyString(metadata.settings_seeded_at);
 }
 
@@ -644,18 +679,19 @@ function applyStarterSeed(data, { now = new Date() } = {}) {
   let checklistSeeded = false;
   const timestamp = formatSeattleIso(now);
   const profiles = getSettingsProfiles(data);
-  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+  const metadata = { ...getTrackingMetadata(data) };
+  const profile = ensureTrackingProfile(data);
 
   if (!hasNonEmptyString(profiles.general)) {
-    data.general = buildStarterUserProfileText();
+    profile.general = buildStarterUserProfileText();
     profileSeeded = true;
     changed = true;
   }
-  if (!hasNonEmptyString(profiles.fitness)) data.fitness = "";
-  if (!hasNonEmptyString(profiles.diet)) data.diet = "";
-  if (!hasNonEmptyString(profiles.agent)) data.agent = "";
+  if (!hasNonEmptyString(profiles.fitness)) profile.fitness = "";
+  if (!hasNonEmptyString(profiles.diet)) profile.diet = "";
+  if (!hasNonEmptyString(profiles.agent)) profile.agent = "";
 
-  const existingTemplate = extractChecklistTemplate(asObject(asObject(data.metadata).checklist_template));
+  const existingTemplate = extractChecklistTemplate(asObject(getTrackingMetadata(data).checklist_template));
   if (!existingTemplate) {
     const categories = buildStarterChecklistCategories();
     const remappedWeek = applyChecklistCategories(data.current_week ?? {}, categories);
@@ -681,7 +717,7 @@ function applyStarterSeed(data, { now = new Date() } = {}) {
     changed = true;
   }
   metadata.updated_at = timestamp;
-  data.metadata = metadata;
+  setTrackingMetadata(data, metadata);
 
   return {
     changed,
@@ -778,7 +814,7 @@ function normalizeSettingsProposal(value) {
 }
 
 function appendSettingsHistoryEvent(data, { domains }) {
-  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+  const metadata = { ...getTrackingMetadata(data) };
   const appliedAt = formatSeattleIso(new Date());
   const effectiveFrom = getSeattleDateString(new Date());
   const currentVersion = Number.isInteger(metadata.settings_version) ? metadata.settings_version : 0;
@@ -793,7 +829,7 @@ function appendSettingsHistoryEvent(data, { domains }) {
   metadata.settings_version = nextVersion;
   metadata.settings_history = [...previous.slice(-19), event];
   metadata.last_updated = appliedAt;
-  data.metadata = metadata;
+  setTrackingMetadata(data, metadata);
   return { settingsVersion: nextVersion, effectiveFrom };
 }
 
@@ -806,18 +842,20 @@ async function applySettingsChanges({ proposal }) {
   const data = await readTrackingData();
   const changesApplied = [];
   const domains = [];
+  const profile = ensureTrackingProfile(data);
+  const currentProfiles = getSettingsProfiles(data);
 
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const nextValue = normalized[field];
     if (typeof nextValue !== "string") continue;
-    if (normalizeProfileText(data[field]) === nextValue) continue;
-    data[field] = nextValue;
+    if (normalizeProfileText(currentProfiles[field]) === nextValue) continue;
+    profile[field] = nextValue;
     domains.push(field);
     const label = SETTINGS_PROFILE_LABELS[field] ?? field;
     changesApplied.push(`Updated ${label}.`);
   }
 
-  const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
+  const metadata = { ...getTrackingMetadata(data) };
   const trainingBlocksState = normalizeStoredTrainingBlocks(metadata);
   const blocks = [...trainingBlocksState.blocks];
   let activeBlockId = trainingBlocksState.active_block_id;
@@ -902,7 +940,9 @@ async function applySettingsChanges({ proposal }) {
       changesApplied,
       updated: null,
       current_week: data.current_week ?? null,
-      settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+      settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
+        ? getTrackingMetadata(data).settings_version
+        : null,
       effectiveFrom: null,
       followupQuestion,
       requiresTimingChoice: true,
@@ -949,7 +989,7 @@ async function applySettingsChanges({ proposal }) {
       }
     }
   }
-  data.metadata = metadata;
+  setTrackingMetadata(data, metadata);
 
   if (changesApplied.length) {
     const versionMeta = appendSettingsHistoryEvent(data, { domains });
@@ -971,7 +1011,9 @@ async function applySettingsChanges({ proposal }) {
     changesApplied,
     updated: null,
     current_week: data.current_week ?? null,
-    settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+    settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
+      ? getTrackingMetadata(data).settings_version
+      : null,
     effectiveFrom: null,
     followupQuestion: null,
     requiresTimingChoice: false,
@@ -983,13 +1025,15 @@ async function saveSettingsProfilesDirect(changes) {
   const data = await readTrackingData();
   const changesApplied = [];
   const domains = [];
+  const profile = ensureTrackingProfile(data);
+  const currentProfiles = getSettingsProfiles(data);
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const hasField = field in changes;
     if (!hasField) continue;
     const nextValue = readSettingsProfileInput(changes, field);
     if (typeof nextValue !== "string") throw new Error(`Invalid field: ${field}`);
-    if (normalizeProfileText(data[field]) === nextValue) continue;
-    data[field] = nextValue;
+    if (normalizeProfileText(currentProfiles[field]) === nextValue) continue;
+    profile[field] = nextValue;
     domains.push(field);
     const label = SETTINGS_PROFILE_LABELS[field] ?? field;
     changesApplied.push(`Updated ${label}.`);
@@ -1007,7 +1051,9 @@ async function saveSettingsProfilesDirect(changes) {
   return {
     changesApplied,
     updated: getSettingsProfiles(data),
-    settingsVersion: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+    settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
+      ? getTrackingMetadata(data).settings_version
+      : null,
     effectiveFrom: null,
   };
 }
@@ -1018,7 +1064,9 @@ app.get("/api/settings/state", async (_req, res) => {
     res.json({
       ok: true,
       profiles: getSettingsProfiles(data),
-      settings_version: Number.isInteger(data?.metadata?.settings_version) ? data.metadata.settings_version : null,
+      settings_version: Number.isInteger(getTrackingMetadata(data)?.settings_version)
+        ? getTrackingMetadata(data).settings_version
+        : null,
       training_blocks: summarizeTrainingBlocks(data),
     });
   } catch (err) {
@@ -1086,11 +1134,12 @@ app.get("/api/context", async (_req, res) => {
   try {
     await ensureCurrentWeek();
     const data = await readTrackingData();
+    const rules = getTrackingRules(data);
     res.json({
       ok: true,
       suggested_date: getSuggestedLogDate(),
-      diet_philosophy: data.diet_philosophy ?? null,
-      fitness_philosophy: data.fitness_philosophy ?? null,
+      diet_philosophy: rules.diet_philosophy ?? null,
+      fitness_philosophy: rules.fitness_philosophy ?? null,
       user_profile_goals: {
         diet_goals: [],
         fitness_goals: [],
@@ -1670,11 +1719,8 @@ app.post("/api/food/day", async (req, res) => {
 
     if (!isPlainObject(data.food)) data.food = {};
     data.food.days = nextDays;
-    if (isPlainObject(data.rules?.metadata)) {
-      data.rules.metadata.last_updated = formatSeattleIso(new Date());
-    } else if (isPlainObject(data.metadata)) {
-      data.metadata.last_updated = formatSeattleIso(new Date());
-    }
+    const metadata = { ...getTrackingMetadata(data), last_updated: formatSeattleIso(new Date()) };
+    setTrackingMetadata(data, metadata);
     await writeTrackingData(data);
 
     const payload = await buildFoodDayPayload(patch.date);

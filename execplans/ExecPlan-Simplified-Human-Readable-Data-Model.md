@@ -14,7 +14,7 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 
 - [x] (2026-02-19 22:03Z) Confirmed scope is destructive cutover with no migration/backward compatibility.
 - [x] (2026-02-19 22:03Z) Rewrote ExecPlan to remove migration and compatibility workstreams.
-- [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`; remaining: remove temporary compatibility aliases still exposed to `server.js` and `assistant.js`).
+- [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`, removal of dead legacy food helper exports, and canonical nested payload objects `rules/activity/food`; remaining: remove `current_week`/`fitness_weeks` compatibility and legacy ingestion merge paths).
 - [ ] Replace Postgres schema and storage code with new schema only.
 - [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys (completed: canonical `GET/POST /api/food/day`, canonical settings profile fields in `server.js`, removed `/api/food/events` alias, removed `/api/food/rollup` + `/api/food/sync`, updated `assistant.js` settings-change schema/parsing to canonical profile keys, and renamed active food logging payload fields from `food_log`/`day_totals_from_events` to `day`/`day_totals`; remaining: remove remaining legacy settings/profile prompt references and old compatibility payload names in onboarding/import/workout paths).
 - [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use canonical `general/fitness/diet/agent` only, removed rollup/sync client calls, `getFoodForDate` targets `/api/food/day`, food-day utilities no longer depend on server `events`, `App` + `DietView` are wired to explicit `day`/`day_totals`, and sidebar day summary no longer falls back to `food_log.notes`; remaining: finish broader simplified-contract cleanup outside the settings path, especially workouts and onboarding/import contexts).
@@ -28,6 +28,7 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [x] (2026-02-19 22:32Z) Updated `PROJECT.md` to remove stale event/profile-key docs and align documented model/endpoints with canonical day-centric contracts.
 - [x] (2026-02-19 22:37Z) Switched `/api/food/log` to canonical day rows (`listFoodDays`), updated DietView history rendering to canonical fields (`details`, `complete`), removed dead legacy food exports from `trackingData.js`, and trimmed remaining event-era response flags/regex references; verified with syntax checks and `npm run build`.
 - [x] (2026-02-19 22:38Z) Added canonical nested payload objects (`rules`, `activity`, `food`) to `readTrackingData()` results and tightened `/api/food/day` server paths to read from `food.days` only; revalidated with syntax checks and `npm run build`.
+- [x] (2026-02-19 22:47Z) Migrated server/assistant settings+context reads to canonical nested accessors (`profile`, `rules`, `rules.metadata`) with compatibility fallbacks, centralized assistant `current_week` access through helper, and removed top-level read payload aliases (`general/fitness/diet/agent`, `blocks/weeks/training/days/diet_data`, `fitness_weeks`); validated with syntax checks and `npm run build`.
 
 ## Surprises & Discoveries
 
@@ -76,6 +77,12 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: Canonical nested objects in `readTrackingData()` can be introduced without breaking existing top-level consumers, enabling incremental caller migration.
   Evidence: Adding `rules/activity/food` to the payload and switching `/api/food/day` to `food.days` compiled and built cleanly.
 
+- Observation: Server/assistant can be moved to canonical nested reads without changing runtime behavior by introducing thin accessors and retaining temporary top-level fallbacks.
+  Evidence: `src/server.js` and `src/assistant.js` now read profile/rules/metadata via helpers and still pass all syntax/build checks.
+
+- Observation: Most top-level read payload aliases were already unused once server/assistant switched to canonical nested helpers.
+  Evidence: Removing top-level aliases from `buildReadPayloadFromCanonical()` did not change build or syntax outcomes.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -116,6 +123,14 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 
 - Decision: Keep top-level convenience fields during migration but start moving new server reads to nested canonical objects (`food.days` first).
   Rationale: This reduces break risk while still making structural progress toward removing top-level legacy aliases entirely.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Defer full `current_week` removal to a dedicated pass after canonical accessor migration.
+  Rationale: `current_week` is deeply coupled to checklist-template logic in settings flows; isolating it reduces regression risk during ongoing contract cleanup.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Remove unused top-level read payload aliases now while retaining only `current_week` as temporary compatibility output.
+  Rationale: This reduces surface area immediately and leaves one explicit compatibility seam to remove in the next focused milestone.
   Date/Author: 2026-02-19 / Codex
 
 ## Outcomes & Retrospective
@@ -365,3 +380,4 @@ Plan change note (2026-02-19 22:31Z): Logged active meal/assistant contract rena
 Plan change note (2026-02-19 22:32Z): Logged `PROJECT.md` alignment updates so documented data model and endpoint contracts now match the day-centric implementation.
 Plan change note (2026-02-19 22:37Z): Logged canonical day-row history migration (`/api/food/log` + DietView), deletion of dead legacy food helper exports, and final event-era naming cleanup in active ingest helpers.
 Plan change note (2026-02-19 22:38Z): Logged read-payload canonical nesting additions (`rules/activity/food`) and `/api/food/day` migration to nested `food.days` reads.
+Plan change note (2026-02-19 22:47Z): Logged canonical accessor migration in `server.js` and `assistant.js` (`profile`/`rules`/`rules.metadata`), removal of unused top-level read payload aliases in `trackingData.js`, and deliberate deferral of full `current_week` contract removal to a dedicated next pass.

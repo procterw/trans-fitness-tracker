@@ -677,7 +677,6 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
 
   const currentWeekStart = getWeekStartMonday(getSeattleDateString(now));
   const currentWeek = data.activity.weeks.find((week) => week.week_start === currentWeekStart) || null;
-  const historyWeeks = data.activity.weeks.filter((week) => week.week_start !== currentWeekStart);
 
   const blockById = new Map(data.activity.blocks.map((block) => [block.block_id, block]));
 
@@ -688,24 +687,11 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
   };
 
   const payload = {
-    ...rules,
-    general: data.profile.general,
-    fitness: data.profile.fitness,
-    diet: data.profile.diet,
-    agent: data.profile.agent,
     profile: data.profile,
     rules,
     activity: data.activity,
     food: data.food,
-    blocks: data.activity.blocks,
-    weeks: data.activity.weeks,
-    training: data.activity,
-    days: data.food.days,
-    diet_data: data.food,
     current_week: currentWeek ? canonicalWeekToLegacy(currentWeek, blockById.get(currentWeek.block_id)) : null,
-    fitness_weeks: historyWeeks
-      .map((week) => canonicalWeekToLegacy(week, blockById.get(week.block_id)))
-      .filter(Boolean),
   };
 
   return { payload, canonical: data, changed: ensured.changed };
