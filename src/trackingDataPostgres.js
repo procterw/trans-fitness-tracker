@@ -1,14 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-import crypto from "node:crypto";
 
-import { fromFitnessChecklistStorage, toFitnessChecklistStorage } from "./fitnessChecklist.js";
 import { getCurrentTrackingUserId } from "./trackingUser.js";
 
-const PAGE_SIZE = 1000;
-const INSERT_CHUNK_SIZE = 500;
-
 let cachedClient = null;
-let cachedTrainingBlockColumns = null;
 
 function getSupabaseAdminClient() {
   if (cachedClient) return cachedClient;
@@ -48,49 +42,12 @@ function assertNoError(label, error) {
   throw new Error(`Supabase ${label} failed: ${error.message}`);
 }
 
-async function hasTrainingBlockColumns(client) {
-  if (typeof cachedTrainingBlockColumns === "boolean") return cachedTrainingBlockColumns;
-  const { data, error } = await client
-    .from("information_schema.columns")
-    .select("table_name,column_name")
-    .eq("table_schema", "public")
-    .in("table_name", ["fitness_current", "fitness_weeks"])
-    .in("column_name", ["training_block_id", "training_block_name", "training_block_description"]);
-
-  if (error) {
-    cachedTrainingBlockColumns = false;
-    return cachedTrainingBlockColumns;
-  }
-
-  const rows = Array.isArray(data) ? data : [];
-  const required = new Set([
-    "fitness_current:training_block_id",
-    "fitness_current:training_block_name",
-    "fitness_current:training_block_description",
-    "fitness_weeks:training_block_id",
-    "fitness_weeks:training_block_name",
-    "fitness_weeks:training_block_description",
-  ]);
-  for (const row of rows) {
-    required.delete(`${row.table_name}:${row.column_name}`);
-  }
-  cachedTrainingBlockColumns = required.size === 0;
-  return cachedTrainingBlockColumns;
-}
-
-function toDateString(value) {
-  if (!value) return null;
-  if (typeof value === "string") return value.slice(0, 10);
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
-}
-
-function asObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function normalizeProfileText(value) {
@@ -98,13 +55,31 @@ function normalizeProfileText(value) {
   return value.replace(/\r\n/g, "\n");
 }
 
-function normalizeProfileBlobs(value) {
-  const safe = asObject(value);
+function normalizeProfile(profile) {
+  const safe = asObject(profile);
   return {
-    user_profile: normalizeProfileText(safe.user_profile),
-    training_profile: normalizeProfileText(safe.training_profile),
-    diet_profile: normalizeProfileText(safe.diet_profile),
-    agent_profile: normalizeProfileText(safe.agent_profile),
+    general: normalizeProfileText(safe.general),
+    fitness: normalizeProfileText(safe.fitness),
+    diet: normalizeProfileText(safe.diet),
+    agent: normalizeProfileText(safe.agent),
+  };
+}
+
+function normalizeCanonicalPayload(data) {
+  const safe = asObject(data);
+  const activity = asObject(safe.activity);
+  const food = asObject(safe.food);
+
+  return {
+    profile: normalizeProfile(asObject(safe.profile)),
+    activity: {
+      blocks: asArray(activity.blocks),
+      weeks: asArray(activity.weeks),
+    },
+    food: {
+      days: asArray(food.days),
+    },
+    rules: asObject(safe.rules),
   };
 }
 
@@ -124,315 +99,50 @@ async function fetchUserRulesRow({ client, userId }) {
     .maybeSingle();
 }
 
-function toNumberOrNull(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function mapFoodEventFromRow(row) {
-  return {
-    id: row.id,
-    date: toDateString(row.date),
-    logged_at: row.logged_at,
-    rollover_applied: Boolean(row.rollover_applied),
-    source: row.source,
-    description: row.description,
-    input_text: row.input_text,
-    notes: row.notes,
-    nutrients: row.nutrients ?? {},
-    model: row.model,
-    confidence: row.confidence,
-    items: asArray(row.items),
-    applied_to_food_log: Boolean(row.applied_to_food_log),
-  };
-}
-
-function mapFoodLogFromRow(row) {
-  return {
-    date: toDateString(row.date),
-    day_of_week: row.day_of_week ?? null,
-    weight_lb: toNumberOrNull(row.weight_lb),
-    calories: toNumberOrNull(row.calories),
-    fat_g: toNumberOrNull(row.fat_g),
-    carbs_g: toNumberOrNull(row.carbs_g),
-    protein_g: toNumberOrNull(row.protein_g),
-    fiber_g: toNumberOrNull(row.fiber_g),
-    potassium_mg: toNumberOrNull(row.potassium_mg),
-    magnesium_mg: toNumberOrNull(row.magnesium_mg),
-    omega3_mg: toNumberOrNull(row.omega3_mg),
-    calcium_mg: toNumberOrNull(row.calcium_mg),
-    iron_mg: toNumberOrNull(row.iron_mg),
-    status: row.status ?? null,
-    notes: row.notes ?? null,
-    healthy: row.healthy ?? null,
-  };
-}
-
-function mapCurrentWeekFromRow(row) {
-  if (!row) return null;
-  const checklist = fromFitnessChecklistStorage({
-    checklist: asObject(row.checklist),
-    categoryOrder: asArray(row.category_order),
-  });
-
-  return {
-    week_start: toDateString(row.week_start),
-    week_label: row.week_label ?? "",
-    summary: row.summary ?? "",
-    training_block_id: row.training_block_id ?? "",
-    training_block_name: row.training_block_name ?? "",
-    training_block_description: row.training_block_description ?? "",
-    ...checklist,
-  };
-}
-
-function mapFitnessWeekFromRow(row) {
-  const checklist = fromFitnessChecklistStorage({
-    checklist: asObject(row.checklist),
-    categoryOrder: asArray(row.category_order),
-  });
-
-  return {
-    week_start: toDateString(row.week_start),
-    week_label: row.week_label ?? "",
-    summary: row.summary ?? "",
-    training_block_id: row.training_block_id ?? "",
-    training_block_name: row.training_block_name ?? "",
-    training_block_description: row.training_block_description ?? "",
-    ...checklist,
-  };
-}
-
-async function fetchAllRowsForUser({ client, table, columns, userId, orderBy, ascending = true }) {
-  const rows = [];
-  let offset = 0;
-
-  while (true) {
-    let query = client
-      .from(table)
-      .select(columns)
-      .eq("user_id", userId)
-      .range(offset, offset + PAGE_SIZE - 1);
-
-    if (orderBy) query = query.order(orderBy, { ascending });
-
-    const { data, error } = await query;
-    assertNoError(`select from ${table}`, error);
-
-    const batch = Array.isArray(data) ? data : [];
-    rows.push(...batch);
-
-    if (batch.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  return rows;
-}
-
-function chunkArray(items, size = INSERT_CHUNK_SIZE) {
-  if (!Array.isArray(items) || !items.length) return [];
-  const chunks = [];
-  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
-  return chunks;
-}
-
-async function replaceRowsForUser({ client, table, userId, rows }) {
-  const { error: deleteError } = await client.from(table).delete().eq("user_id", userId);
-  assertNoError(`delete from ${table}`, deleteError);
-
-  const chunks = chunkArray(rows);
-  for (const chunk of chunks) {
-    const { error: insertError } = await client.from(table).insert(chunk);
-    assertNoError(`insert into ${table}`, insertError);
-  }
-}
-
 export async function readTrackingDataPostgres() {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
-  const includeTrainingBlockColumns = await hasTrainingBlockColumns(client);
 
-  const [foodEventsRows, foodLogRows, fitnessWeeksRows] = await Promise.all([
-    fetchAllRowsForUser({
-      client,
-      table: "food_events",
-      columns:
-        "id,user_id,date,logged_at,rollover_applied,source,description,input_text,notes,nutrients,items,model,confidence,applied_to_food_log,created_at",
-      userId,
-      orderBy: "logged_at",
-      ascending: true,
-    }),
-    fetchAllRowsForUser({
-      client,
-      table: "food_log",
-      columns:
-        "user_id,date,day_of_week,weight_lb,calories,fat_g,carbs_g,protein_g,fiber_g,potassium_mg,magnesium_mg,omega3_mg,calcium_mg,iron_mg,status,notes,healthy,updated_at",
-      userId,
-      orderBy: "date",
-      ascending: true,
-    }),
-    fetchAllRowsForUser({
-      client,
-      table: "fitness_weeks",
-      columns: includeTrainingBlockColumns
-        ? "id,user_id,week_start,week_label,summary,training_block_id,training_block_name,training_block_description,checklist,category_order,created_at"
-        : "id,user_id,week_start,week_label,summary,checklist,category_order,created_at",
-      userId,
-      orderBy: "week_start",
-      ascending: true,
-    }),
-  ]);
-
-  const [fitnessCurrentResult, profileResult, rulesResult] = await Promise.all([
-    client
-      .from("fitness_current")
-      .select(
-        includeTrainingBlockColumns
-          ? "user_id,week_start,week_label,summary,training_block_id,training_block_name,training_block_description,checklist,category_order,updated_at"
-          : "user_id,week_start,week_label,summary,checklist,category_order,updated_at",
-      )
-      .eq("user_id", userId)
-      .maybeSingle(),
+  const [profileResult, rulesResult] = await Promise.all([
     fetchUserProfileRow({ client, userId }),
     fetchUserRulesRow({ client, userId }),
   ]);
 
-  assertNoError("select from fitness_current", fitnessCurrentResult.error);
   assertNoError("select from user_profiles", profileResult.error);
   assertNoError("select from user_rules", rulesResult.error);
-  const profileBlobs = normalizeProfileBlobs(profileResult.data?.user_profile);
+
+  const rulesData = asObject(rulesResult.data?.rules_data);
+  const profileFromRules = asObject(rulesData.profile);
+  const profileSource = Object.keys(profileFromRules).length ? profileFromRules : asObject(profileResult.data?.user_profile);
 
   return {
-    ...(rulesResult.data?.rules_data && typeof rulesResult.data.rules_data === "object"
-      ? rulesResult.data.rules_data
-      : {}),
-    food_log: foodLogRows.map(mapFoodLogFromRow),
-    food_events: foodEventsRows.map(mapFoodEventFromRow),
-    current_week: mapCurrentWeekFromRow(fitnessCurrentResult.data),
-    fitness_weeks: fitnessWeeksRows.map(mapFitnessWeekFromRow),
-    ...profileBlobs,
+    ...rulesData,
+    profile: normalizeProfile(profileSource),
+    activity: asObject(rulesData.activity),
+    food: asObject(rulesData.food),
+    rules: asObject(rulesData.rules),
   };
 }
 
 export async function writeTrackingDataPostgres(data) {
   const client = getSupabaseAdminClient();
   const userId = resolveTrackingUserId();
-  const includeTrainingBlockColumns = await hasTrainingBlockColumns(client);
-  const safeData = asObject(data);
+  const canonical = normalizeCanonicalPayload(data);
 
-  const foodEvents = asArray(safeData.food_events)
-    .filter((row) => row && typeof row === "object" && row.date)
-    .map((row) => ({
-      id: typeof row.id === "string" && row.id ? row.id : crypto.randomUUID(),
-      user_id: userId,
-      date: toDateString(row.date),
-      logged_at: row.logged_at ?? new Date().toISOString(),
-      rollover_applied: Boolean(row.rollover_applied),
-      source: row.source ?? "manual",
-      description: row.description ?? null,
-      input_text: row.input_text ?? null,
-      notes: row.notes ?? null,
-      nutrients: row.nutrients ?? null,
-      items: asArray(row.items),
-      model: row.model ?? null,
-      confidence: row.confidence ?? null,
-      applied_to_food_log: row.applied_to_food_log === true,
-    }));
-
-  const foodLog = asArray(safeData.food_log)
-    .filter((row) => row && typeof row === "object" && row.date)
-    .map((row) => ({
-      user_id: userId,
-      date: toDateString(row.date),
-      day_of_week: row.day_of_week ?? null,
-      weight_lb: toNumberOrNull(row.weight_lb),
-      calories: toNumberOrNull(row.calories),
-      fat_g: toNumberOrNull(row.fat_g),
-      carbs_g: toNumberOrNull(row.carbs_g),
-      protein_g: toNumberOrNull(row.protein_g),
-      fiber_g: toNumberOrNull(row.fiber_g),
-      potassium_mg: toNumberOrNull(row.potassium_mg),
-      magnesium_mg: toNumberOrNull(row.magnesium_mg),
-      omega3_mg: toNumberOrNull(row.omega3_mg),
-      calcium_mg: toNumberOrNull(row.calcium_mg),
-      iron_mg: toNumberOrNull(row.iron_mg),
-      status: row.status ?? null,
-      notes: row.notes ?? null,
-      healthy: row.healthy ?? null,
-    }));
-
-  const fitnessWeeks = asArray(safeData.fitness_weeks)
-    .filter((row) => row && typeof row === "object" && row.week_start)
-    .map((row) => {
-      const { checklist, categoryOrder } = toFitnessChecklistStorage(row);
-      const payload = {
-        user_id: userId,
-        week_start: toDateString(row.week_start),
-        week_label: row.week_label ?? "",
-        summary: row.summary ?? "",
-        checklist,
-        category_order: categoryOrder,
-      };
-      if (includeTrainingBlockColumns) {
-        payload.training_block_id = row.training_block_id ?? null;
-        payload.training_block_name = row.training_block_name ?? null;
-        payload.training_block_description = row.training_block_description ?? null;
-      }
-      return payload;
-    });
-
-  const currentWeek = safeData.current_week && typeof safeData.current_week === "object" ? safeData.current_week : null;
-  const profileBlobs = normalizeProfileBlobs(safeData);
-  const {
-    food_log: _foodLogOmitted,
-    food_events: _foodEventsOmitted,
-    current_week: _currentWeekOmitted,
-    fitness_weeks: _fitnessWeeksOmitted,
-    user_profile: _userProfileOmitted,
-    training_profile: _trainingProfileOmitted,
-    diet_profile: _dietProfileOmitted,
-    agent_profile: _agentProfileOmitted,
-    ...rulesData
-  } = safeData;
   const profilePayload = {
     user_id: userId,
-    user_profile: profileBlobs,
+    user_profile: canonical.profile,
     updated_at: new Date().toISOString(),
   };
   const rulesPayload = {
     user_id: userId,
-    rules_data: asObject(rulesData),
+    rules_data: canonical,
     updated_at: new Date().toISOString(),
   };
 
   const profileResult = await client.from("user_profiles").upsert(profilePayload, { onConflict: "user_id" });
   assertNoError("upsert user_profiles", profileResult.error);
+
   const rulesResult = await client.from("user_rules").upsert(rulesPayload, { onConflict: "user_id" });
   assertNoError("upsert user_rules", rulesResult.error);
-
-  if (currentWeek && currentWeek.week_start) {
-    const { checklist, categoryOrder } = toFitnessChecklistStorage(currentWeek);
-    const payload = {
-      user_id: userId,
-      week_start: toDateString(currentWeek.week_start),
-      week_label: currentWeek.week_label ?? "",
-      summary: currentWeek.summary ?? "",
-      checklist,
-      category_order: categoryOrder,
-      updated_at: new Date().toISOString(),
-    };
-    if (includeTrainingBlockColumns) {
-      payload.training_block_id = currentWeek.training_block_id ?? null;
-      payload.training_block_name = currentWeek.training_block_name ?? null;
-      payload.training_block_description = currentWeek.training_block_description ?? null;
-    }
-    const { error } = await client.from("fitness_current").upsert(payload, { onConflict: "user_id" });
-    assertNoError("upsert fitness_current", error);
-  } else {
-    const { error } = await client.from("fitness_current").delete().eq("user_id", userId);
-    assertNoError("delete from fitness_current", error);
-  }
-
-  await replaceRowsForUser({ client, table: "food_events", userId, rows: foodEvents });
-  await replaceRowsForUser({ client, table: "food_log", userId, rows: foodLog });
-  await replaceRowsForUser({ client, table: "fitness_weeks", userId, rows: fitnessWeeks });
 }

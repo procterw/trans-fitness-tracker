@@ -61,7 +61,6 @@ function detectShape(raw) {
     safe.food_log ||
     safe.food_events ||
     safe.fitness_weeks ||
-    safe.current_week ||
     safe.user_profile ||
     safe.training_profile ||
     safe.diet_profile ||
