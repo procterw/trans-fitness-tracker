@@ -1,27 +1,14 @@
 {
   "metadata": {
-    "training_blocks": {
-      "active_block_id": null,
-      "blocks": []
-    },
-    "last_updated": "2026-02-19T12:26:13-08:00",
+    "last_updated": "2026-02-19T14:06:38-08:00",
     "data_files": {
       "food": "tracking-food.json",
       "activity": "tracking-activity.json",
       "profile": "tracking-profile.json",
       "rules": "tracking-rules.json"
     },
-    "settings_version": 1,
-    "settings_history": [
-      {
-        "version": 1,
-        "applied_at": "2026-02-19T12:26:13-08:00",
-        "effective_from": "2026-02-19",
-        "domains": [
-          "user_profile"
-        ]
-      }
-    ]
+    "settings_version": 0,
+    "settings_history": []
   },
   "diet_philosophy": {},
   "fitness_philosophy": {},

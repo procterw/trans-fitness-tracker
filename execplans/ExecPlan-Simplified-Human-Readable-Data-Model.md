@@ -1,0 +1,292 @@
+# Hard Reset to Simplified Human-Readable Data Model (No Migration)
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This plan follows `/Users/williamleahy/Documents/New project/PLANS.md` and must be maintained in accordance with it.
+
+## Purpose / Big Picture
+
+After this change, the app uses one simple data format aligned with `/Users/williamleahy/Documents/New project/dataStructureTemplate.js`, and all legacy storage/contracts are removed. The project is not in production, so this plan intentionally performs a destructive reset: existing user data is deleted, no migration logic is built, and no backward-compatibility adapters are retained.
+
+The user-visible result is a cleaner system that is easy to read and edit by hand: profile text blobs (`general`, `fitness`, `diet`, `agent`), training blocks plus week snapshots, and one diet day row per date with summary details text.
+
+## Progress
+
+- [x] (2026-02-19 22:03Z) Confirmed scope is destructive cutover with no migration/backward compatibility.
+- [x] (2026-02-19 22:03Z) Rewrote ExecPlan to remove migration and compatibility workstreams.
+- [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`; remaining: remove temporary compatibility aliases still exposed to `server.js` and `assistant.js`).
+- [ ] Replace Postgres schema and storage code with new schema only.
+- [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys.
+- [ ] Rewrite UI data usage to consume only simplified contracts.
+- [ ] Add one command/script to reset local JSON and Postgres dev data.
+- [x] (2026-02-19 22:06Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
+- [ ] Validate end-to-end behavior and update docs (completed: `npm run build`, syntax checks, and `readTrackingData()` smoke check; remaining: manual app flow validation).
+
+## Surprises & Discoveries
+
+- Observation: The current codebase strongly assumes event-first diet tracking and then derives daily rows.
+  Evidence: `/Users/williamleahy/Documents/New project/src/trackingData.js:1186` through `/Users/williamleahy/Documents/New project/src/trackingData.js:1360`.
+
+- Observation: Training currently uses dynamic category checklists (`cardio`, `strength`, etc.) instead of explicit `workouts[]` records.
+  Evidence: `/Users/williamleahy/Documents/New project/src/trackingData.js:159`.
+
+- Observation: Current import/export and settings endpoints include legacy and transitional handling that becomes unnecessary in a hard reset.
+  Evidence: `/Users/williamleahy/Documents/New project/src/importData.js` and `/Users/williamleahy/Documents/New project/src/server.js` settings/import sections.
+
+- Observation: Replacing `trackingData.js` first is mechanically safe because current consumers compile as long as exported function names remain unchanged.
+  Evidence: `node --check src/server.js`, `node --check src/assistant.js`, and `npm run build` all pass after the storage rewrite.
+
+## Decision Log
+
+- Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
+  Rationale: User explicitly approved data loss and requested simpler architecture over compatibility.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Remove `food_events` entirely from data model, APIs, and UI.
+  Rationale: Daily `details` text is accepted as sufficient narrative record; event granularity is unnecessary complexity.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Prefer direct schema rewrite over adapter layering.
+  Rationale: Non-production context makes a big-bang change lower cost and easier to reason about.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Keep a temporary compatibility boundary in `src/trackingData.js` while `src/server.js` and `src/assistant.js` are still on old keys.
+  Rationale: This allows immediate canonical storage changes without breaking the app during staged implementation in the same branch.
+  Date/Author: 2026-02-19 / Codex
+
+## Outcomes & Retrospective
+
+Implementation has started with canonical storage changes. `src/trackingData.js` now persists simplified split-file shapes and local JSON files were reset to the new format. The remaining work is to remove temporary compatibility aliases by rewriting server, assistant, Postgres schema/storage, and UI contracts.
+
+## Context and Orientation
+
+Current storage is now split across:
+
+- `/Users/williamleahy/Documents/New project/tracking-food.json` (`days`)
+- `/Users/williamleahy/Documents/New project/tracking-activity.json` (`blocks`, `weeks`)
+- `/Users/williamleahy/Documents/New project/tracking-profile.json` (`general`, `fitness`, `diet`, `agent`)
+- `/Users/williamleahy/Documents/New project/tracking-rules.json` (metadata and rules)
+
+Current backend storage orchestration:
+
+- `/Users/williamleahy/Documents/New project/src/trackingData.js` (JSON mode and normalization)
+- `/Users/williamleahy/Documents/New project/src/trackingDataPostgres.js` (Postgres mode)
+- `/Users/williamleahy/Documents/New project/supabase/schema.sql` (database schema)
+- `/Users/williamleahy/Documents/New project/src/server.js` (HTTP contracts)
+
+Current UI orchestration:
+
+- `/Users/williamleahy/Documents/New project/client/src/App.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/api.js`
+- `/Users/williamleahy/Documents/New project/client/src/views/DietView.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/views/WorkoutsView.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/views/SettingsView.jsx`
+
+## Target Data Model
+
+Canonical simplified model:
+
+- `profile`:
+  - `general: string`
+  - `fitness: string`
+  - `diet: string`
+  - `agent: string`
+
+- `training`:
+  - `blocks: Array<{ block_id, block_start, block_name, block_details, workouts[] }>`
+  - `weeks: Array<{ week_start, week_end, block_id, workouts[], summary }>`
+  - `workouts[]` in blocks: `{ name, description, category, optional }`
+  - `workouts[]` in weeks: `{ name, details, completed }`
+
+- `diet`:
+  - `days: Array<{ date, weight_lb, calories, fat_g, carbs_g, protein_g, fiber_g, complete, details }>`
+
+Persistent metadata remains separate in rules/config storage:
+
+- settings version/history,
+- onboarding metadata,
+- last updated timestamps,
+- auth ownership (`user_id` in Postgres).
+
+## Plan of Work
+
+### Milestone 1: Replace core storage contracts (no adapters)
+
+Rewrite `/Users/williamleahy/Documents/New project/src/trackingData.js` to read/write only the new schema. Remove all normalization paths for legacy keys (`user_profile`, `training_profile`, `food_log`, `food_events`, `current_week`, `fitness_weeks`) and expose only simplified structures internally and externally.
+
+File shape after reset:
+
+- `/Users/williamleahy/Documents/New project/tracking-profile.json` stores `general/fitness/diet/agent`.
+- `/Users/williamleahy/Documents/New project/tracking-activity.json` stores `blocks/weeks`.
+- `/Users/williamleahy/Documents/New project/tracking-food.json` stores `days`.
+- `/Users/williamleahy/Documents/New project/tracking-rules.json` stores metadata/rules only.
+
+Acceptance:
+
+- `readTrackingData()` and `writeTrackingData()` operate without legacy fields or conversions.
+
+### Milestone 2: Rewrite Postgres schema and storage code
+
+Replace `/Users/williamleahy/Documents/New project/supabase/schema.sql` with simplified tables only:
+
+- `diet_days` (daily diet rows),
+- `training_blocks`,
+- `training_weeks`,
+- `user_profiles` with `general/fitness/diet/agent` payload,
+- existing rules/metadata table.
+
+Remove `food_events`, `food_log`, `fitness_current`, and legacy checklist-shape dependence. Update `/Users/williamleahy/Documents/New project/src/trackingDataPostgres.js` to match exactly.
+
+Acceptance:
+
+- Postgres backend round-trips simplified objects only.
+
+### Milestone 3: Rewrite backend API contracts to simplified model
+
+In `/Users/williamleahy/Documents/New project/src/server.js`:
+
+- Keep only day-centric food operations (`/api/food/log`, `/api/food/day`, `/api/food/list` as needed).
+- Remove event-centric endpoints (`/api/food/events`, `/api/food/sync`, `/api/food/rollup`) and any event-oriented response payload fields.
+- Rewrite settings endpoints to accept/return `general/fitness/diet/agent`.
+- Rewrite fitness endpoints to accept/return `blocks/weeks` workout-list shape.
+- Remove compatibility logic from import flow; optionally remove import feature entirely, or allow import of new shape only.
+
+Acceptance:
+
+- No API route references legacy schema keys.
+
+### Milestone 4: Rewrite UI to simplified contracts
+
+Update UI modules to consume only simplified responses:
+
+- `/Users/williamleahy/Documents/New project/client/src/api.js`
+- `/Users/williamleahy/Documents/New project/client/src/App.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/views/DietView.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/views/WorkoutsView.jsx`
+- `/Users/williamleahy/Documents/New project/client/src/views/SettingsView.jsx`
+
+UI behaviors:
+
+- Diet screen shows one row per day with editable `details`, nutrients, and `complete`.
+- Workouts screen shows block definitions and week completion status by workout name.
+- Settings screen labels and saves profile blobs as `general/fitness/diet/agent`.
+
+Acceptance:
+
+- Core flows work without hidden conversion layers.
+
+### Milestone 5: Destructive reset command and documentation
+
+Add a reset script (for example `/Users/williamleahy/Documents/New project/scripts/reset-simplified-dev-data.js`) that:
+
+- truncates/recreates JSON files in simplified shape,
+- truncates relevant Postgres tables and seeds empty simplified records,
+- prints clear confirmation that prior user data was deleted.
+
+Update:
+
+- `/Users/williamleahy/Documents/New project/PROJECT.md`
+- `/Users/williamleahy/Documents/New project/README.md`
+
+Acceptance:
+
+- Running reset script always returns the app to a clean, simplified baseline.
+
+## Concrete Steps
+
+Run all commands from `/Users/williamleahy/Documents/New project`.
+
+1. Create working branch.
+
+    git checkout -b codex/simplified-hard-reset
+
+2. Rewrite storage core and Postgres schema/code.
+
+    npm run build
+    node --check src/trackingData.js
+    node --check src/trackingDataPostgres.js
+    node --check src/server.js
+
+3. Implement UI contract updates and remove dead event-based UI paths.
+
+    npm run build
+
+4. Run destructive reset script and verify clean baseline.
+
+    node scripts/reset-simplified-dev-data.js
+
+5. Run app and validate interactive flows.
+
+    npm run dev
+
+Manual flow checks:
+
+- Log a text meal and confirm one `diet.days` row updates.
+- Log `samples/avocado-toast.png` and confirm day nutrients + `details` update.
+- Edit profile blobs and verify keys are `general/fitness/diet/agent`.
+- Mark workout completion in current week and verify week summary text updates.
+
+## Validation and Acceptance
+
+Required pass conditions:
+
+- Build succeeds: `npm run build`.
+- Server has no syntax errors: `node --check src/server.js`.
+- JSON and Postgres backends both persist and return only simplified structures.
+- No runtime references to `food_events`, `food_log`, `current_week`, or `fitness_weeks`.
+- UI successfully completes the four core flows: food log (text), food log (image), profile editing, workout completion.
+
+Behavioral acceptance example:
+
+1. Start app with clean reset data.
+2. Submit “I ate avocado toast and coffee for breakfast.”
+3. Open diet view for the same date.
+4. Observe exactly one day record with updated macros/fiber and readable details text.
+5. Confirm there is no event-list interface and no event-sync endpoint usage in network calls.
+
+## Idempotence and Recovery
+
+This plan is intentionally destructive and does not preserve old data.
+
+Idempotence expectation:
+
+- Reset script is safe to run repeatedly and always converges to the same empty baseline.
+
+Recovery:
+
+- There is no migration-based rollback path in this plan.
+- If rollback is needed, recover by reverting git changes and reloading data from any external backup the developer made manually before starting.
+
+## Artifacts and Notes
+
+Capture these artifacts during implementation:
+
+- Before/after schema snippets for `tracking-food.json`, `tracking-activity.json`, `tracking-profile.json`.
+- Terminal output from reset script showing deletions and re-seeding.
+- Example API responses for simplified:
+  - food log response,
+  - settings state response,
+  - workouts current state response.
+
+## Interfaces and Dependencies
+
+At completion, the following interfaces must exist and be stable:
+
+- `src/trackingData.js`:
+  - `readTrackingData()` returns simplified model only.
+  - `writeTrackingData()` accepts simplified model only.
+
+- `src/trackingDataPostgres.js`:
+  - read/write functions map 1:1 to simplified tables and fields.
+
+- `src/server.js`:
+  - food APIs are day-centric only.
+  - settings APIs use `general/fitness/diet/agent`.
+  - fitness APIs use `blocks/weeks` workout-list shape.
+
+- `client/src/api.js`:
+  - no event-specific methods.
+  - request/response types aligned with simplified backend.
+
+Plan change note (2026-02-19 22:03Z): Rewrote this plan from phased migration to hard reset after explicit user instruction that production compatibility and data preservation are unnecessary.
+Plan change note (2026-02-19 22:06Z): Recorded initial implementation progress after replacing `src/trackingData.js` with a simplified canonical split-file model and resetting local tracking JSON files to the new schema; documented temporary compatibility aliases that remain to be removed.

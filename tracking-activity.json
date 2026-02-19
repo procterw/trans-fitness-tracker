@@ -1,11 +1,4 @@
 {
-  "current_week": {
-    "week_start": "2026-02-16",
-    "week_label": "2/16-2/22",
-    "summary": "",
-    "training_block_id": "legacy-phase",
-    "training_block_name": "Legacy phase",
-    "training_block_description": "Imported from existing checklist data."
-  },
-  "fitness_weeks": []
+  "blocks": [],
+  "weeks": []
 }
