@@ -12,112 +12,66 @@ function classifyFoodText(rawText) {
   };
 }
 
-function buildTodayNarrative({ recentEvents, dayTotals }) {
-  if (!recentEvents.length) {
+function buildTodayNarrative({ day, totals }) {
+  const hasAnyTotal =
+    typeof totals?.calories === "number" ||
+    typeof totals?.fat_g === "number" ||
+    typeof totals?.carbs_g === "number" ||
+    typeof totals?.protein_g === "number" ||
+    typeof totals?.fiber_g === "number";
+
+  if (!day && !hasAnyTotal) {
     return "Quiet start so far. No meals logged yet today. A steady next step is one balanced meal with carbs, fats, and fiber-forward foods.";
   }
 
-  let produceCount = 0;
-  let carbCount = 0;
-  let proteinCount = 0;
-  let fatCount = 0;
-  let treatCount = 0;
-  let fastFoodCount = 0;
+  const detailsText = typeof day?.details === "string" ? day.details : "";
+  const info = classifyFoodText(detailsText);
+  const tags = [];
+  if (info.produce) tags.push("produce/fiber-forward foods");
+  if (info.carbForward) tags.push("carb staples");
+  if (info.proteinForward) tags.push("protein-forward choices");
+  if (info.fatForward) tags.push("fat-forward foods");
+  if (info.treatHeavy) tags.push("some sweets");
+  if (info.fastFoodLike) tags.push("some higher-processed items");
 
-  for (const event of recentEvents) {
-    const info = classifyFoodText(event?.description);
-    if (info.produce) produceCount += 1;
-    if (info.carbForward) carbCount += 1;
-    if (info.proteinForward) proteinCount += 1;
-    if (info.fatForward) fatCount += 1;
-    if (info.treatHeavy) treatCount += 1;
-    if (info.fastFoodLike) fastFoodCount += 1;
+  const mixSentence = tags.length
+    ? `From notes, today includes ${tags.slice(0, 4).join(", ")}${tags.length > 4 ? ", and more" : ""}.`
+    : detailsText.trim()
+      ? "Notes are present; food-type mix is still somewhat general."
+      : "No detailed food notes yet.";
+
+  const proteinTotal = typeof totals?.protein_g === "number" ? totals.protein_g : null;
+  let proteinNote = "Protein is not logged yet.";
+  if (proteinTotal !== null) {
+    if (proteinTotal >= 110) proteinNote = "Protein looks high for feminization-focused targets.";
+    else if (proteinTotal >= 80) proteinNote = "Protein is moderate-high; consider lighter protein later.";
+    else if (proteinTotal >= 40) proteinNote = "Protein looks moderate and generally aligned.";
+    else proteinNote = "Protein is still light, which can be fine with steady energy intake.";
   }
 
-  const mixParts = [];
-  if (produceCount) mixParts.push("produce/fiber-forward foods");
-  if (carbCount) mixParts.push("carb staples");
-  if (proteinCount) mixParts.push("protein-forward meals");
-  if (fatCount) mixParts.push("fat-forward foods");
-  if (treatCount) mixParts.push("some sweets");
-  if (fastFoodCount) mixParts.push("some higher-processed items");
+  const calorieTotal = typeof totals?.calories === "number" ? totals.calories : null;
+  const energyNote = calorieTotal === null ? "Calories are not logged yet." : `Energy so far is about ${Math.round(calorieTotal)} kcal.`;
 
-  const mixSentence = mixParts.length
-    ? `Today includes ${mixParts.slice(0, 4).join(", ")}${mixParts.length > 4 ? ", and more" : ""}.`
-    : "Today looks mixed, with meal details still fairly general.";
-
-  const proteinTotal = dayTotals.protein_g;
-  let proteinNote = "Protein looks moderate and generally aligned with your stated goals.";
-  if (dayTotals.counts.protein_g > 0) {
-    if (proteinTotal >= 110) proteinNote = "Protein looks high for your feminization-focused targets.";
-    else if (proteinTotal >= 80) proteinNote = "Protein is moderate-high, so keep later meals less protein-heavy.";
-    else if (proteinTotal < 35) proteinNote = "Protein is still light, which is generally fine if energy intake stays steady.";
-  }
-
-  let qualityNote = "Overall quality looks balanced so far.";
-  if (!produceCount && (treatCount || fastFoodCount)) {
-    qualityNote = "Quality is a bit snack/processed-leaning so far.";
-  } else if (!produceCount) {
-    qualityNote = "Quality is okay so far, but fiber-forward foods are still missing.";
-  } else if (produceCount >= 2 && !fastFoodCount) {
-    qualityNote = "Quality looks solid and whole-food leaning so far.";
-  }
-
-  const suggestions = [];
-  if (!produceCount) suggestions.push("add a vegetable or fruit-forward side");
-  if (!fatCount) suggestions.push("include an energy-dense fat source (avocado, nuts, olive oil)");
-  if (proteinTotal >= 80) suggestions.push("favor carbs + fats later instead of another protein-heavy meal");
-  if (treatCount >= 2 || fastFoodCount >= 2) suggestions.push("balance with a simpler whole-food meal later");
-  if (!suggestions.length) suggestions.push("keep the same pattern with one steady, satisfying meal later");
-
-  const progressSentence = `Progress is steady: you have ${recentEvents.length} logged ${
-    recentEvents.length === 1 ? "meal" : "meals"
-  } so far.`;
-  const suggestionSentence = `For the rest of today, ${suggestions.slice(0, 2).join(" and ")}.`;
-
-  return `${progressSentence} ${mixSentence} ${qualityNote} ${proteinNote} ${suggestionSentence}`;
+  return `${mixSentence} ${energyNote} ${proteinNote}`;
 }
 
 export default function DietView({
   dashError,
-  dashRecentEvents,
-  dashRecentEventsLoading,
-  dashRecentEventsError,
+  dashLoading,
+  dashDay,
+  dashDayTotals,
   dashFoodLogRows,
   fmt,
 }) {
-  const recentEvents = Array.isArray(dashRecentEvents) ? dashRecentEvents : [];
   const historyRows = Array.isArray(dashFoodLogRows) ? dashFoodLogRows : [];
-  const dayTotals = recentEvents.reduce(
-    (acc, event) => {
-      const nutrients = event?.nutrients ?? {};
-      const keys = ["calories", "fat_g", "carbs_g", "protein_g", "fiber_g"];
-      for (const key of keys) {
-        const value = nutrients[key];
-        if (typeof value === "number" && Number.isFinite(value)) {
-          acc[key] += value;
-          acc.counts[key] += 1;
-        }
-      }
-      return acc;
-    },
-    {
-      calories: 0,
-      fat_g: 0,
-      carbs_g: 0,
-      protein_g: 0,
-      fiber_g: 0,
-      counts: {
-        calories: 0,
-        fat_g: 0,
-        carbs_g: 0,
-        protein_g: 0,
-        fiber_g: 0,
-      },
-    },
-  );
-  const showTotal = (key) => (dayTotals.counts[key] > 0 ? fmt(dayTotals[key]) : "—");
-  const dayEatingSummary = buildTodayNarrative({ recentEvents, dayTotals });
+  const totals = {
+    calories: typeof dashDayTotals?.calories === "number" ? dashDayTotals.calories : null,
+    fat_g: typeof dashDayTotals?.fat_g === "number" ? dashDayTotals.fat_g : null,
+    carbs_g: typeof dashDayTotals?.carbs_g === "number" ? dashDayTotals.carbs_g : null,
+    protein_g: typeof dashDayTotals?.protein_g === "number" ? dashDayTotals.protein_g : null,
+    fiber_g: typeof dashDayTotals?.fiber_g === "number" ? dashDayTotals.fiber_g : null,
+  };
+  const dayEatingSummary = buildTodayNarrative({ day: dashDay, totals });
 
   return (
     <div className="mainScroll foodLogView">
@@ -133,52 +87,40 @@ export default function DietView({
         <section className="dietRecentSection">
           <h3>Today</h3>
           <blockquote className="fitnessSummary dietTodaySummary">{dayEatingSummary}</blockquote>
-          {dashRecentEventsError ? <p className="error">{dashRecentEventsError}</p> : null}
-          {dashRecentEventsLoading ? <p className="muted">Loading…</p> : null}
-          {!dashRecentEventsLoading ? (
-            !dashRecentEventsError ? (
-              <div className="tableScroll">
-                <table className="dietRecentTable">
-                  <thead>
-                    <tr>
-                      <th>Food</th>
-                      <th>Calories</th>
-                      <th>Fat (g)</th>
-                      <th>Carbs (g)</th>
-                      <th>Protein (g)</th>
-                      <th>Fiber (g)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="dietTotalsRow">
-                      <td>Day total</td>
-                      <td>{showTotal("calories")}</td>
-                      <td>{showTotal("fat_g")}</td>
-                      <td>{showTotal("carbs_g")}</td>
-                      <td>{showTotal("protein_g")}</td>
-                      <td>{showTotal("fiber_g")}</td>
-                    </tr>
-                    {recentEvents.map((event) => (
-                      <tr key={event.key}>
-                        <td>{event.description ?? "(no description)"}</td>
-                        <td>{fmt(event?.nutrients?.calories)}</td>
-                        <td>{fmt(event?.nutrients?.fat_g)}</td>
-                        <td>{fmt(event?.nutrients?.carbs_g)}</td>
-                        <td>{fmt(event?.nutrients?.protein_g)}</td>
-                        <td>{fmt(event?.nutrients?.fiber_g)}</td>
-                      </tr>
-                    ))}
-                    {!recentEvents.length ? (
-                      <tr>
-                        <td colSpan={6} className="muted">
-                          No food entries today.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            ) : null
+          {dashLoading ? <p className="muted">Loading…</p> : null}
+
+          {!dashLoading ? (
+            <div className="tableScroll">
+              <table className="dietRecentTable">
+                <thead>
+                  <tr>
+                    <th>Entry</th>
+                    <th>Calories</th>
+                    <th>Fat (g)</th>
+                    <th>Carbs (g)</th>
+                    <th>Protein (g)</th>
+                    <th>Fiber (g)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="dietTotalsRow">
+                    <td>Day total</td>
+                    <td>{fmt(totals.calories)}</td>
+                    <td>{fmt(totals.fat_g)}</td>
+                    <td>{fmt(totals.carbs_g)}</td>
+                    <td>{fmt(totals.protein_g)}</td>
+                    <td>{fmt(totals.fiber_g)}</td>
+                  </tr>
+                  <tr>
+                    <td className="notesCell" colSpan={6} title={typeof dashDay?.details === "string" ? dashDay.details : ""}>
+                      {typeof dashDay?.details === "string" && dashDay.details.trim()
+                        ? dashDay.details
+                        : "No details logged yet."}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           ) : null}
         </section>
 

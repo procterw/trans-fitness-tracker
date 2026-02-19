@@ -45,8 +45,6 @@ import { runWithTrackingUser } from "./trackingUser.js";
 import {
   clearFoodEntriesForDate,
   ensureCurrentWeek,
-  getFoodLogForDate,
-  getDailyFoodEventTotals,
   getSeattleDateString,
   getSuggestedLogDate,
   listFitnessWeeks,
@@ -564,19 +562,7 @@ function extractTemplateFromStoredBlock(block) {
 }
 
 const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "agent"];
-const SETTINGS_PROFILE_FIELD_ALIASES = {
-  user_profile: "general",
-  training_profile: "fitness",
-  diet_profile: "diet",
-  agent_profile: "agent",
-};
-const SETTINGS_PROFILE_ALIAS_BY_FIELD = {
-  general: "user_profile",
-  fitness: "training_profile",
-  diet: "diet_profile",
-  agent: "agent_profile",
-};
-const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS, ...Object.keys(SETTINGS_PROFILE_FIELD_ALIASES)];
+const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
 const SETTINGS_TRAINING_BLOCK_FIELD = "training_block";
 const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_INPUT_FIELDS, SETTINGS_CHECKLIST_FIELD, SETTINGS_TRAINING_BLOCK_FIELD];
@@ -629,34 +615,21 @@ function buildStarterUserProfileText() {
 
 function getSettingsProfiles(data) {
   const safe = isPlainObject(data) ? data : {};
-  const general = normalizeProfileText(safe.general ?? safe.user_profile);
-  const fitness = normalizeProfileText(safe.fitness ?? safe.training_profile);
-  const diet = normalizeProfileText(safe.diet ?? safe.diet_profile);
-  const agent = normalizeProfileText(safe.agent ?? safe.agent_profile);
+  const general = normalizeProfileText(safe.general);
+  const fitness = normalizeProfileText(safe.fitness);
+  const diet = normalizeProfileText(safe.diet);
+  const agent = normalizeProfileText(safe.agent);
   return {
     general,
     fitness,
     diet,
     agent,
-    // Transitional aliases for existing client/assistant payloads.
-    user_profile: general,
-    training_profile: fitness,
-    diet_profile: diet,
-    agent_profile: agent,
   };
-}
-
-function getCanonicalSettingsProfileField(field) {
-  if (SETTINGS_PROFILE_FIELDS.includes(field)) return field;
-  const alias = SETTINGS_PROFILE_FIELD_ALIASES[field];
-  return alias && SETTINGS_PROFILE_FIELDS.includes(alias) ? alias : null;
 }
 
 function readSettingsProfileInput(payload, canonicalField) {
   const safe = isPlainObject(payload) ? payload : {};
-  const aliasField = SETTINGS_PROFILE_ALIAS_BY_FIELD[canonicalField] ?? null;
   if (typeof safe[canonicalField] === "string") return normalizeProfileText(safe[canonicalField]);
-  if (aliasField && typeof safe[aliasField] === "string") return normalizeProfileText(safe[aliasField]);
   return null;
 }
 
@@ -1011,16 +984,14 @@ async function saveSettingsProfilesDirect(changes) {
   const changesApplied = [];
   const domains = [];
   for (const field of SETTINGS_PROFILE_FIELDS) {
-    const canonicalField = getCanonicalSettingsProfileField(field);
-    if (!canonicalField) continue;
-    const hasField = field in changes || (SETTINGS_PROFILE_ALIAS_BY_FIELD[canonicalField] || "") in changes;
+    const hasField = field in changes;
     if (!hasField) continue;
-    const nextValue = readSettingsProfileInput(changes, canonicalField);
+    const nextValue = readSettingsProfileInput(changes, field);
     if (typeof nextValue !== "string") throw new Error(`Invalid field: ${field}`);
     if (normalizeProfileText(data[field]) === nextValue) continue;
-    data[canonicalField] = nextValue;
-    domains.push(canonicalField);
-    const label = SETTINGS_PROFILE_LABELS[canonicalField] ?? canonicalField;
+    data[field] = nextValue;
+    domains.push(field);
+    const label = SETTINGS_PROFILE_LABELS[field] ?? field;
     changesApplied.push(`Updated ${label}.`);
   }
   if (changesApplied.length) {
@@ -1654,36 +1625,43 @@ async function buildFoodDayPayload(date) {
   const data = await readTrackingData();
   const days = Array.isArray(data?.days) ? data.days : [];
   const day = days.find((row) => row && row.date === date) ?? null;
-  const totalsForDay = await getDailyFoodEventTotals(date);
-  const logRow = await getFoodLogForDate(date);
-
-  const details = typeof day?.details === "string" ? day.details.trim() : "";
-  const firstLine = details.split("\n").map((line) => line.trim()).find(Boolean) || "";
-  const syntheticEvent = day
-    ? [
-        {
-          id: `day-${date}`,
-          date,
-          source: "day_summary",
-          description: firstLine || "Day summary",
-          input_text: null,
-          notes: details,
-          nutrients: totalsForDay,
-          model: null,
-          confidence: null,
-          items: [],
-          applied_to_food_log: true,
-        },
-      ]
-    : [];
+  const toNumberOrNull = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const dayTotals = day
+    ? {
+        calories: toNumberOrNull(day.calories) ?? 0,
+        fat_g: toNumberOrNull(day.fat_g) ?? 0,
+        carbs_g: toNumberOrNull(day.carbs_g) ?? 0,
+        protein_g: toNumberOrNull(day.protein_g) ?? 0,
+        fiber_g: toNumberOrNull(day.fiber_g),
+      }
+    : {
+        calories: 0,
+        fat_g: 0,
+        carbs_g: 0,
+        protein_g: 0,
+        fiber_g: null,
+      };
+  const foodLogRow = day
+    ? {
+        date: day.date,
+        day_of_week: null,
+        weight_lb: toNumberOrNull(day.weight_lb),
+        calories: toNumberOrNull(day.calories),
+        fat_g: toNumberOrNull(day.fat_g),
+        carbs_g: toNumberOrNull(day.carbs_g),
+        protein_g: toNumberOrNull(day.protein_g),
+        fiber_g: toNumberOrNull(day.fiber_g),
+        status: day.complete === true ? "🟢" : "⚪",
+        healthy: day.complete === true ? "🟢" : "⚪",
+        notes: typeof day.details === "string" ? day.details : "",
+      }
+    : null;
 
   return {
     date,
     day,
-    day_totals: totalsForDay,
-    day_totals_from_events: totalsForDay,
-    events: syntheticEvent,
-    food_log: logRow,
+    day_totals: dayTotals,
+    food_log: foodLogRow,
   };
 }
 
@@ -1719,17 +1697,6 @@ app.post("/api/food/day", async (req, res) => {
     const message = err instanceof Error ? err.message : String(err);
     const isInputError = message.startsWith("Missing field:") || message.startsWith("Invalid field:");
     return res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
-  }
-});
-
-app.get("/api/food/events", async (req, res) => {
-  try {
-    const date = typeof req.query?.date === "string" && req.query.date.trim() ? req.query.date.trim() : null;
-    if (!date) return res.status(400).json({ ok: false, error: "Missing query param: date" });
-    const payload = await buildFoodDayPayload(date);
-    return res.json({ ok: true, ...payload });
-  } catch (err) {
-    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 

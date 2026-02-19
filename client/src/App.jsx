@@ -35,7 +35,6 @@ import StatusMessage from "./components/StatusMessage.jsx";
 import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
 import useSerialQueue from "./hooks/useSerialQueue.js";
 import { addDaysIso, localDateString } from "./utils/date.js";
-import { fetchFlattenedFoodEventsByDate } from "./utils/foodEvents.js";
 import { normalizeProfileText, normalizeSettingsProfiles, settingsProfilesEqual } from "./utils/settingsProfiles.js";
 import SettingsView from "./views/SettingsView.jsx";
 
@@ -97,17 +96,10 @@ export default function App() {
   const [dashError, setDashError] = useState("");
   const [dashPayload, setDashPayload] = useState(null);
   const [dashFoodLogRows, setDashFoodLogRows] = useState([]);
-  const [dashRecentEvents, setDashRecentEvents] = useState([]);
-  const [dashRecentEventsLoading, setDashRecentEventsLoading] = useState(false);
-  const [dashRecentEventsError, setDashRecentEventsError] = useState("");
-  const [dashWeeklyEvents, setDashWeeklyEvents] = useState([]);
-  const [dashWeeklyEventsError, setDashWeeklyEventsError] = useState("");
   const [dashLoading, setDashLoading] = useState(false);
   const dashHeadingRef = useRef(null);
   const dashSkipNextAutoLoadRef = useRef(false);
   const dashLoadSeqRef = useRef(0);
-  const dashRecentEventsSeqRef = useRef(0);
-  const dashWeeklyEventsSeqRef = useRef(0);
 
   // Auth state
   const [authEnabled] = useState(isSupabaseEnabled());
@@ -340,43 +332,6 @@ export default function App() {
     }
   };
 
-  const loadRecentEvents = async (anchorDate) => {
-    const anchor = typeof anchorDate === "string" && anchorDate ? anchorDate : null;
-    if (!anchor) return;
-    const seq = ++dashRecentEventsSeqRef.current;
-    setDashRecentEventsLoading(true);
-    setDashRecentEventsError("");
-    try {
-      const dates = [anchor];
-      const flattened = await fetchFlattenedFoodEventsByDate(dates, getFoodForDate);
-      if (seq !== dashRecentEventsSeqRef.current) return;
-      setDashRecentEvents(flattened);
-    } catch (e) {
-      if (seq !== dashRecentEventsSeqRef.current) return;
-      setDashRecentEventsError(e instanceof Error ? e.message : String(e));
-      setDashRecentEvents([]);
-    } finally {
-      if (seq === dashRecentEventsSeqRef.current) setDashRecentEventsLoading(false);
-    }
-  };
-
-  const loadWeeklyEvents = async (anchorDate) => {
-    const anchor = typeof anchorDate === "string" && anchorDate ? anchorDate : null;
-    if (!anchor) return;
-    const seq = ++dashWeeklyEventsSeqRef.current;
-    setDashWeeklyEventsError("");
-    try {
-      const dates = Array.from({ length: 7 }, (_, idx) => addDaysIso(anchor, -idx)).filter(Boolean);
-      const flattened = await fetchFlattenedFoodEventsByDate(dates, getFoodForDate);
-      if (seq !== dashWeeklyEventsSeqRef.current) return;
-      setDashWeeklyEvents(flattened);
-    } catch (e) {
-      if (seq !== dashWeeklyEventsSeqRef.current) return;
-      setDashWeeklyEventsError(e instanceof Error ? e.message : String(e));
-      setDashWeeklyEvents([]);
-    }
-  };
-
   useEffect(() => {
     if (signedOut) return;
     if (view === "workouts") {
@@ -386,8 +341,8 @@ export default function App() {
     if (view === "diet") {
       loadDashboardFoodLog();
       const anchor = suggestedDate || localDateString(new Date());
-      loadRecentEvents(anchor);
-      loadWeeklyEvents(anchor);
+      loadDashboard(anchor);
+      loadSidebarDaySummary(anchor);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, signedOut, suggestedDate]);
@@ -422,11 +377,28 @@ export default function App() {
     try {
       const json = await getFoodForDate(date);
       if (seq !== sidebarDaySeqRef.current) return;
+      const details =
+        typeof json?.day?.details === "string"
+          ? json.day.details
+          : typeof json?.food_log?.notes === "string"
+            ? json.food_log.notes
+            : "";
+      const syntheticEvents = details.trim()
+        ? details
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line, index) => ({
+              id: `line_${date}_${index}`,
+              description: line,
+            }))
+        : [];
+      const detailLines = syntheticEvents;
       setSidebarDaySummary({
         date,
-        totals: json?.day_totals_from_events ?? null,
-        events: Array.isArray(json?.events) ? json.events : [],
-        eventsCount: Array.isArray(json?.events) ? json.events.length : 0,
+        totals: json?.day_totals ?? null,
+        detail_lines: detailLines,
+        detail_line_count: detailLines.length,
       });
       setSidebarDayStatus("");
     } catch (e) {
@@ -671,8 +643,6 @@ export default function App() {
       const selectedDashDate = dashDate || suggestedDate || foodDate;
       if (selectedDashDate) {
         await loadDashboard(selectedDashDate);
-        await loadRecentEvents(selectedDashDate);
-        await loadWeeklyEvents(selectedDashDate);
         await loadSidebarDaySummary(selectedDashDate);
       }
     } catch (err) {
@@ -792,7 +762,11 @@ export default function App() {
       if (json?.food_result?.date) setDashDate(json.food_result.date);
       if (json?.current_week) setFitnessWeek(json.current_week);
       const summaryDate = json?.food_result?.date || foodDate;
-      if (summaryDate) loadSidebarDaySummary(summaryDate);
+      if (summaryDate) {
+        loadSidebarDaySummary(summaryDate);
+        loadDashboard(summaryDate);
+        loadDashboardFoodLog();
+      }
       clearFoodAttachments({ revoke: false });
     };
 
@@ -1069,17 +1043,9 @@ export default function App() {
   };
 
   const onSettingsProfileChange = (field, value) => {
-    const normalizeField = (rawField) => {
-      if (rawField === "user_profile") return "general";
-      if (rawField === "training_profile") return "fitness";
-      if (rawField === "diet_profile") return "diet";
-      if (rawField === "agent_profile") return "agent";
-      return rawField;
-    };
-    const canonicalField = normalizeField(field);
-    if (!["general", "fitness", "diet", "agent"].includes(canonicalField)) return;
+    if (!["general", "fitness", "diet", "agent"].includes(field)) return;
     setSettingsError("");
-    setSettingsProfilesDraft((prev) => ({ ...prev, [canonicalField]: normalizeProfileText(value) }));
+    setSettingsProfilesDraft((prev) => ({ ...prev, [field]: normalizeProfileText(value) }));
   };
 
   const enqueueFitnessSave = useSerialQueue();
@@ -1153,119 +1119,15 @@ export default function App() {
     focusDashboardHeading();
   };
 
-  const dietWeeklySummary = useMemo(() => {
-    const rows = Array.isArray(dashFoodLogRows) ? dashFoodLogRows : [];
-    const events = Array.isArray(dashWeeklyEvents) ? dashWeeklyEvents : [];
-    const anchor = suggestedDate || localDateString(new Date());
-    if (!anchor || !rows.length) return "No logged days yet this week.";
+  const dashDay = dashPayload?.day ?? null;
+  const dashDayTotals = dashPayload?.day_totals ?? null;
 
-    const rowByDate = new Map(rows.map((row) => [row?.date, row]));
-    const dates = Array.from({ length: 7 }, (_, idx) => addDaysIso(anchor, -idx)).filter(Boolean);
-    const dateSet = new Set(dates);
-    const weekRows = dates.map((date) => rowByDate.get(date)).filter(Boolean);
-    if (!weekRows.length) return "No logged days yet this week.";
-    const weekEvents = events.filter((event) => dateSet.has(event?.date));
-
-    const num = (value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
-    const avg = (values) => {
-      const valid = values.filter((v) => v !== null);
-      if (!valid.length) return null;
-      return valid.reduce((sum, v) => sum + v, 0) / valid.length;
-    };
-
-    const caloriesByDay = weekRows.map((row) => num(row?.calories));
-    const proteinByDay = weekRows.map((row) => num(row?.protein_g));
-    const fiberByDay = weekRows.map((row) => num(row?.fiber_g));
-    const avgCalories = avg(caloriesByDay);
-    const start = dates[dates.length - 1] ?? anchor;
-
-    const topDescriptions = (() => {
-      const counts = new Map();
-      for (const event of weekEvents) {
-        const label = String(event?.description || "").trim();
-        if (!label || label.toLowerCase() === "(no description)") continue;
-        counts.set(label, (counts.get(label) ?? 0) + 1);
-      }
-      return Array.from(counts.entries())
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, 4)
-        .map(([label, count]) => `${label} (${count})`);
-    })();
-
-    const typeMix = (() => {
-      const categories = new Map();
-      const bump = (key) => categories.set(key, (categories.get(key) ?? 0) + 1);
-      for (const event of weekEvents) {
-        const text = String(event?.description || "").toLowerCase();
-        let matched = false;
-        if (/\b(salad|veg|vegetable|fruit|berries|bean|lentil|broccoli|spinach|greens?)\b/.test(text)) {
-          bump("produce/fiber-forward");
-          matched = true;
-        }
-        if (/\b(rice|oat|bread|pasta|potato|cereal|noodle|tortilla)\b/.test(text)) {
-          bump("carb-forward");
-          matched = true;
-        }
-        if (/\b(chicken|fish|salmon|tofu|egg|yogurt|protein|turkey|beef|tempeh|shrimp)\b/.test(text)) {
-          bump("protein-forward");
-          matched = true;
-        }
-        if (/\b(avocado|nut|peanut|olive oil|butter|cheese|chocolate)\b/.test(text)) {
-          bump("fat-forward");
-          matched = true;
-        }
-        if (!matched) bump("mixed/other");
-      }
-      return Array.from(categories.entries())
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, 4)
-        .map(([label, count]) => `${label}: ${count}`);
-    })();
-
-    const proteinTracked = proteinByDay.filter((value) => value !== null);
-    const proteinAlignedDays = proteinTracked.filter((value) => value >= 40 && value <= 80).length;
-    const fiberTracked = fiberByDay.filter((value) => value !== null);
-    const fiberGoalDays = fiberTracked.filter((value) => value >= 25).length;
-
-    const caloriesTracked = caloriesByDay.filter((value) => value !== null);
-    let calorieConsistency = "no calorie data";
-    if (caloriesTracked.length) {
-      const baseline = avg(caloriesTracked);
-      if (baseline && baseline > 0) {
-        const withinBand = caloriesTracked.filter((value) => Math.abs(value - baseline) / baseline <= 0.2).length;
-        calorieConsistency = `${withinBand}/${caloriesTracked.length} days within ±20% of weekly average`;
-      }
-    }
-
-    const asInt = (value) => (value === null ? "—" : String(Math.round(value)));
-    const adherenceParts = [
-      `logging ${weekRows.length}/7 days`,
-      proteinTracked.length
-        ? `moderate protein (40-80 g): ${proteinAlignedDays}/${proteinTracked.length} days`
-        : "moderate protein: no data",
-      fiberTracked.length ? `fiber >=25 g: ${fiberGoalDays}/${fiberTracked.length} days` : "fiber: no data",
-      `calorie consistency: ${calorieConsistency}`,
-    ];
-
-    const lines = [
-      `Week overview (${start} to ${anchor}): ${weekEvents.length} meals logged across ${weekRows.length}/7 days.`,
-      `Energy overview: average ${asInt(avgCalories)} kcal per logged day.`,
-      topDescriptions.length ? `Most frequent foods: ${topDescriptions.join("; ")}.` : "Most frequent foods: not enough detail yet.",
-      typeMix.length ? `Food-type mix: ${typeMix.join("; ")}.` : "Food-type mix: not enough meal descriptions yet.",
-      `Adherence indicators: ${adherenceParts.join("; ")}.`,
-    ];
-    if (dashWeeklyEventsError) {
-      lines.push("Food-type overview is partial because some weekly event data could not be loaded.");
-    }
-    return lines.join("\n");
-  }, [dashFoodLogRows, dashWeeklyEvents, dashWeeklyEventsError, suggestedDate]);
-
-  const sidebarDayEvents = Array.isArray(sidebarDaySummary?.events) ? sidebarDaySummary.events : [];
-  const sidebarDayEventNames = sidebarDayEvents
-    .map((event) => (event?.description ? String(event.description) : "Meal"))
+  const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
+  const sidebarDayLineNames = sidebarDayDetailLines
+    .map((line) => (line?.description ? String(line.description) : "Meal"))
     .filter(Boolean);
-  const sidebarDayMealsSummary = sidebarDayEventNames.length
-    ? `${sidebarDayEventNames.slice(0, 3).join(", ")}${sidebarDayEventNames.length > 3 ? ` +${sidebarDayEventNames.length - 3} more` : ""}`
+  const sidebarDayMealsSummary = sidebarDayLineNames.length
+    ? `${sidebarDayLineNames.slice(0, 3).join(", ")}${sidebarDayLineNames.length > 3 ? ` +${sidebarDayLineNames.length - 3} more` : ""}`
     : "No meals logged yet.";
 
   const sidebarTotals = sidebarDaySummary?.totals ?? {};
@@ -1415,9 +1277,9 @@ export default function App() {
               {view === "diet" ? (
                 <DietView
                   dashError={dashError}
-                  dashRecentEvents={dashRecentEvents}
-                  dashRecentEventsLoading={dashRecentEventsLoading}
-                  dashRecentEventsError={dashRecentEventsError}
+                  dashLoading={dashLoading}
+                  dashDay={dashDay}
+                  dashDayTotals={dashDayTotals}
                   dashFoodLogRows={dashFoodLogRows}
                   fmt={fmt}
                 />

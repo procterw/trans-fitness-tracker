@@ -276,23 +276,15 @@ export async function saveSettingsProfiles({
   fitness = "",
   diet = "",
   agent = "",
-  userProfile = "",
-  trainingProfile = "",
-  dietProfile = "",
-  agentProfile = "",
 }) {
-  const nextGeneral = typeof general === "string" && general.length ? general : userProfile;
-  const nextFitness = typeof fitness === "string" && fitness.length ? fitness : trainingProfile;
-  const nextDiet = typeof diet === "string" && diet.length ? diet : dietProfile;
-  const nextAgent = typeof agent === "string" && agent.length ? agent : agentProfile;
   return fetchJson("/api/settings/profiles", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      general: nextGeneral,
-      fitness: nextFitness,
-      diet: nextDiet,
-      agent: nextAgent,
+      general,
+      fitness,
+      diet,
+      agent,
     }),
   });
 }

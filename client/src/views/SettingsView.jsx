@@ -49,40 +49,40 @@ export default function SettingsView({
               </p>
             </div>
             <div className="settingsProfilesFields">
-              <label className="settingsProfilesField" htmlFor="general_profile_text">
+              <label className="settingsProfilesField" htmlFor="general_text">
                 <span className="sidebarSectionLabel">General profile</span>
                 <textarea
-                  id="general_profile_text"
+                  id="general_text"
                   className="settingsProfileTextarea"
                   value={typeof profiles.general === "string" ? profiles.general : ""}
                   onChange={(e) => onSettingsProfileChange("general", e.target.value)}
                   placeholder="Overall goals, body/health context, lifestyle, meds/conditions, and key coaching context."
                 />
               </label>
-              <label className="settingsProfilesField" htmlFor="fitness_profile_text">
+              <label className="settingsProfilesField" htmlFor="fitness_text">
                 <span className="sidebarSectionLabel">Fitness profile</span>
                 <textarea
-                  id="fitness_profile_text"
+                  id="fitness_text"
                   className="settingsProfileTextarea"
                   value={typeof profiles.fitness === "string" ? profiles.fitness : ""}
                   onChange={(e) => onSettingsProfileChange("fitness", e.target.value)}
                   placeholder="Training plan, phases/blocks schedule, fitness goals, injuries, and logging shortcuts."
                 />
               </label>
-              <label className="settingsProfilesField" htmlFor="diet_profile_text">
+              <label className="settingsProfilesField" htmlFor="diet_text">
                 <span className="sidebarSectionLabel">Diet profile</span>
                 <textarea
-                  id="diet_profile_text"
+                  id="diet_text"
                   className="settingsProfileTextarea"
                   value={typeof profiles.diet === "string" ? profiles.diet : ""}
                   onChange={(e) => onSettingsProfileChange("diet", e.target.value)}
                   placeholder="Diet preferences, recipes, caloric targets, and food logging shortcuts."
                 />
               </label>
-              <label className="settingsProfilesField" htmlFor="agent_profile_text">
+              <label className="settingsProfilesField" htmlFor="agent_text">
                 <span className="sidebarSectionLabel">Agent profile</span>
                 <textarea
-                  id="agent_profile_text"
+                  id="agent_text"
                   className="settingsProfileTextarea"
                   value={typeof profiles.agent === "string" ? profiles.agent : ""}
                   onChange={(e) => onSettingsProfileChange("agent", e.target.value)}

@@ -5,20 +5,15 @@ export function normalizeProfileText(value) {
 
 export function normalizeSettingsProfiles(value) {
   const safe = value && typeof value === "object" ? value : {};
-  const general = normalizeProfileText(safe.general ?? safe.user_profile);
-  const fitness = normalizeProfileText(safe.fitness ?? safe.training_profile);
-  const diet = normalizeProfileText(safe.diet ?? safe.diet_profile);
-  const agent = normalizeProfileText(safe.agent ?? safe.agent_profile);
+  const general = normalizeProfileText(safe.general);
+  const fitness = normalizeProfileText(safe.fitness);
+  const diet = normalizeProfileText(safe.diet);
+  const agent = normalizeProfileText(safe.agent);
   return {
     general,
     fitness,
     diet,
     agent,
-    // Transitional aliases while views are updated.
-    user_profile: general,
-    training_profile: fitness,
-    diet_profile: diet,
-    agent_profile: agent,
   };
 }
 

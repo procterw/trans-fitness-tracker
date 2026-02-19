@@ -30,20 +30,15 @@ function normalizeProfileText(value) {
 
 function pickSettingsProfiles(tracking) {
   const safe = asObject(tracking);
-  const general = normalizeProfileText(safe.general ?? safe.user_profile);
-  const fitness = normalizeProfileText(safe.fitness ?? safe.training_profile);
-  const diet = normalizeProfileText(safe.diet ?? safe.diet_profile);
-  const agent = normalizeProfileText(safe.agent ?? safe.agent_profile);
+  const general = normalizeProfileText(safe.general);
+  const fitness = normalizeProfileText(safe.fitness);
+  const diet = normalizeProfileText(safe.diet);
+  const agent = normalizeProfileText(safe.agent);
   return {
     general,
     fitness,
     diet,
     agent,
-    // Transitional aliases for older prompts/parsers.
-    user_profile: general,
-    training_profile: fitness,
-    diet_profile: diet,
-    agent_profile: agent,
   };
 }
 
@@ -216,7 +211,7 @@ function getIngestModel() {
 }
 
 function buildAgentProfileInstruction(tracking) {
-  const agentProfile = normalizeProfileText(asObject(tracking).agent_profile);
+  const agentProfile = normalizeProfileText(asObject(tracking).agent);
   if (!agentProfile.trim()) return "";
   return `Agent profile (apply these rules):\n${agentProfile}`;
 }
@@ -716,10 +711,10 @@ function normalizeSettingsAssistantOutput(
 ) {
   const rawMessage = typeof message === "string" ? message : "";
   const changes = {
-    general: normalizeSettingsProfileChange(parsed?.changes?.general ?? parsed?.changes?.user_profile),
-    fitness: normalizeSettingsProfileChange(parsed?.changes?.fitness ?? parsed?.changes?.training_profile),
-    diet: normalizeSettingsProfileChange(parsed?.changes?.diet ?? parsed?.changes?.diet_profile),
-    agent: normalizeSettingsProfileChange(parsed?.changes?.agent ?? parsed?.changes?.agent_profile),
+    general: normalizeSettingsProfileChange(parsed?.changes?.general),
+    fitness: normalizeSettingsProfileChange(parsed?.changes?.fitness),
+    diet: normalizeSettingsProfileChange(parsed?.changes?.diet),
+    agent: normalizeSettingsProfileChange(parsed?.changes?.agent),
     checklist_categories: normalizeSettingsChecklistProposal(parsed?.changes?.checklist_categories),
     training_block: normalizeSettingsTrainingBlockChange(parsed?.changes?.training_block),
   };
@@ -1047,10 +1042,10 @@ function buildEmptySettingsChanges() {
 function coerceSettingsChanges(value) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    general: normalizeSettingsProfileChange(raw.general ?? raw.user_profile),
-    fitness: normalizeSettingsProfileChange(raw.fitness ?? raw.training_profile),
-    diet: normalizeSettingsProfileChange(raw.diet ?? raw.diet_profile),
-    agent: normalizeSettingsProfileChange(raw.agent ?? raw.agent_profile),
+    general: normalizeSettingsProfileChange(raw.general),
+    fitness: normalizeSettingsProfileChange(raw.fitness),
+    diet: normalizeSettingsProfileChange(raw.diet),
+    agent: normalizeSettingsProfileChange(raw.agent),
     checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
     training_block: normalizeSettingsTrainingBlockChange(raw.training_block),
   };
