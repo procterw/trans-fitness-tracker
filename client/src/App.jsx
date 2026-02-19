@@ -403,7 +403,7 @@ export default function App() {
     setFitnessStatus("Loading…");
     try {
       const json = await getFitnessCurrent();
-      setFitnessWeek(normalizeFitnessWeek(json?.week ?? json?.current_week));
+      setFitnessWeek(normalizeFitnessWeek(json?.week));
       setFitnessStatus("Loaded.");
     } catch (e) {
       setFitnessError(e instanceof Error ? e.message : String(e));
@@ -881,8 +881,8 @@ export default function App() {
       }
 
       if (json?.food_result?.date) setDashDate(json.food_result.date);
-      if (json?.week || json?.current_week) {
-        setFitnessWeek(normalizeFitnessWeek(json?.week ?? json?.current_week));
+      if (json?.week) {
+        setFitnessWeek(normalizeFitnessWeek(json.week));
       }
       const summaryDate = json?.food_result?.date || foodDate;
       if (summaryDate) {
@@ -1147,8 +1147,8 @@ export default function App() {
       if (!responsePayload) throw new Error("Streaming response did not complete.");
 
       appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
-      if (responsePayload?.week || responsePayload?.current_week) {
-        setFitnessWeek(normalizeFitnessWeek(responsePayload?.week ?? responsePayload?.current_week));
+      if (responsePayload?.week) {
+        setFitnessWeek(normalizeFitnessWeek(responsePayload.week));
       }
       const updatedProfiles = normalizeSettingsProfiles(responsePayload?.updated);
       if (responsePayload?.updated) {
@@ -1180,7 +1180,7 @@ export default function App() {
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
       const json = await updateFitnessItem({ workoutIndex, checked: completed, details });
-      setFitnessWeek(normalizeFitnessWeek(json?.week ?? json?.current_week));
+      setFitnessWeek(normalizeFitnessWeek(json?.week));
       setFitnessStatus("Saved.");
     }).catch((e) => {
       setFitnessError(e instanceof Error ? e.message : String(e));

@@ -47,7 +47,7 @@ This repo includes a minimal local web app that supports:
   - on first authenticated visit, the app seeds minimal starter profile text + checklist defaults
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
   - settings supports direct textarea editing and chat-driven profile/checklist edits without UI confirmation
-- Weekly fitness checklist updates (`current_week`)
+- Weekly fitness checklist updates (`week` payload over canonical activity weeks)
 - Settings for editing four profile text blobs (`general`, `fitness`, `diet`, `agent`)
 - A basic dashboard for browsing:
   - day details + daily totals for a selected date

@@ -4,7 +4,7 @@ Minimal local web app that:
 - Logs meals (photo and/or manual description) into `tracking-food.json.days`
 - Uses the OpenAI API to estimate macros + key micronutrients
 - Updates one day row per date with human-readable `details`
-- Lets you update the weekly fitness checklist (`current_week` API view over canonical weeks)
+- Lets you update the weekly fitness checklist (`week` API view over canonical activity weeks)
 - Includes a basic dashboard for daily totals
 - Includes a simple Q&A assistant (contextualized by the split tracking files)
 

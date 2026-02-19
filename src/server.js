@@ -800,11 +800,6 @@ function getTrackingMetadata(data) {
   return asObject(data?.metadata);
 }
 
-function getTrackingCurrentWeek(data) {
-  const safe = isPlainObject(data) ? data : {};
-  return isPlainObject(safe.current_week) ? safe.current_week : null;
-}
-
 function setTrackingMetadata(data, metadata) {
   const safeMetadata = isPlainObject(metadata) ? metadata : {};
   const rules = ensureTrackingRules(data);
@@ -893,7 +888,7 @@ function applyStarterSeed(data, { now = new Date(), currentWeek = null } = {}) {
   const existingTemplate = extractChecklistTemplate(asObject(getTrackingMetadata(data).checklist_template));
   if (!existingTemplate) {
     const categories = buildStarterChecklistCategories();
-    const baseWeek = isPlainObject(currentWeek) ? currentWeek : asObject(getTrackingCurrentWeek(data));
+    const baseWeek = isPlainObject(currentWeek) ? currentWeek : {};
     const remappedWeek = applyChecklistCategories(baseWeek, categories);
     const template = extractChecklistTemplate(remappedWeek);
     if (template) {
@@ -1076,10 +1071,7 @@ async function applySettingsChanges({ proposal }) {
   let activeBlockId = trainingBlocksState.active_block_id;
   if (!activeBlockId && blocks.length) activeBlockId = blocks[blocks.length - 1].id;
 
-  let currentWeek =
-    (isPlainObject(ensuredCurrentWeek) ? ensuredCurrentWeek : null) ||
-    getTrackingCurrentWeek(data) ||
-    {};
+  let currentWeek = (isPlainObject(ensuredCurrentWeek) ? ensuredCurrentWeek : null) || {};
   const requestedTemplate = normalized[SETTINGS_CHECKLIST_FIELD];
   const requestedBlockPatch = isPlainObject(normalized.training_block) ? normalized.training_block : null;
   const requestedBlockCategories = requestedBlockPatch?.checklist_categories ?? requestedTemplate ?? null;
@@ -1157,7 +1149,7 @@ async function applySettingsChanges({ proposal }) {
     return {
       changesApplied,
       updated: null,
-      current_week: currentWeek,
+      week: currentWeek,
       settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
         ? getTrackingMetadata(data).settings_version
         : null,
@@ -1220,7 +1212,7 @@ async function applySettingsChanges({ proposal }) {
       updated: {
         ...getSettingsProfiles(data),
       },
-      current_week: isPlainObject(refreshedCurrentWeek) ? refreshedCurrentWeek : currentWeek,
+      week: isPlainObject(refreshedCurrentWeek) ? refreshedCurrentWeek : currentWeek,
       settingsVersion: versionMeta.settingsVersion,
       effectiveFrom: versionMeta.effectiveFrom,
       followupQuestion: null,
@@ -1231,7 +1223,7 @@ async function applySettingsChanges({ proposal }) {
   return {
     changesApplied,
     updated: null,
-    current_week: currentWeek,
+    week: currentWeek,
     settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
       ? getTrackingMetadata(data).settings_version
       : null,
@@ -1501,7 +1493,7 @@ app.post("/api/settings/chat", async (req, res) => {
       : {
           changesApplied: [],
           updated: null,
-          current_week: null,
+          week: null,
           settingsVersion: null,
           effectiveFrom: null,
           followupQuestion: null,
@@ -1522,7 +1514,6 @@ app.post("/api/settings/chat", async (req, res) => {
       settings_version: applied.settingsVersion,
       effective_from: applied.effectiveFrom,
       week: canonicalWeek,
-      current_week: applied.current_week,
     };
     if (stream) {
       sendStreamingAssistantDone(res, payload);
@@ -1555,7 +1546,6 @@ app.post("/api/settings/confirm", async (req, res) => {
       changes_applied: applied.changesApplied,
       updated: applied.updated,
       week: canonicalWeek,
-      current_week: applied.current_week,
       settings_version: applied.settingsVersion,
       effective_from: applied.effectiveFrom,
     });
@@ -1826,7 +1816,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
 
       const updatedWeek = await updateCurrentWeekItems(updates);
-      const summarizedWeek = await refreshCurrentWeekSummaryForActivity(updatedWeek);
+      await refreshCurrentWeekSummaryForActivity(updatedWeek);
       const canonicalWeek = await getCurrentActivityWeek();
 
       const responsePayload = {
@@ -1838,7 +1828,6 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         food_result: null,
         activity_updates: resolved,
         week: canonicalWeek,
-        current_week: summarizedWeek,
         answer: null,
       };
       if (stream) {

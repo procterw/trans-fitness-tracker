@@ -46,10 +46,6 @@ function getTrackingMetadata(tracking) {
   return asObject(asObject(tracking).metadata);
 }
 
-function getTrackingCurrentWeek(tracking) {
-  return asObject(tracking).current_week ?? null;
-}
-
 function getDietPhilosophy(tracking) {
   const rules = getTrackingRules(tracking);
   return rules.diet_philosophy ?? asObject(tracking).diet_philosophy ?? null;
@@ -554,7 +550,7 @@ export async function decideIngestAction({
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
-  const checklistCategories = buildChecklistSnapshot(currentWeek ?? getTrackingCurrentWeek(tracking));
+  const checklistCategories = buildChecklistSnapshot(currentWeek ?? {});
 
   const system = buildSystemInstructions({
     tracking,
@@ -625,7 +621,7 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
-    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
+    week: currentWeek ?? {},
   };
 
   const system = buildSystemInstructions({
@@ -666,7 +662,7 @@ export async function streamAssistantResponse({ question, date = null, messages 
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
-    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
+    week: currentWeek ?? {},
   };
 
   const system = buildSystemInstructions({
@@ -1156,7 +1152,7 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     profiles: pickSettingsProfiles(tracking),
     diet_philosophy: getDietPhilosophy(tracking),
     fitness_philosophy: getFitnessPhilosophy(tracking),
-    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
+    week: currentWeek ?? {},
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
@@ -1616,7 +1612,7 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
-    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
+    week: currentWeek ?? {},
     training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
@@ -1647,13 +1643,13 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     const response = await client.responses.create({ model, input });
     parsed = buildSettingsAssistantFallback(response?.output_text ?? "", {
       message,
-      currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
+      currentWeek: currentWeek ?? {},
     });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
+    currentWeek: currentWeek ?? {},
   });
 }
 
@@ -1667,7 +1663,7 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
-    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
+    week: currentWeek ?? {},
     training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
@@ -1701,12 +1697,12 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
   } catch {
     parsed = buildSettingsAssistantFallback(output, {
       message,
-      currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
+      currentWeek: currentWeek ?? {},
     });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
+    currentWeek: currentWeek ?? {},
   });
 }

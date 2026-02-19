@@ -586,7 +586,7 @@ function legacyTotalsFromDay(day) {
   };
 }
 
-function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
+function buildReadPayloadFromCanonical(canonical, { now = new Date(), includeCurrentWeek = false } = {}) {
   const normalized = normalizeCanonicalData(canonical);
   const ensured = ensureCurrentWeekInCanonical(normalized, now);
   const data = ensured.data;
@@ -607,8 +607,10 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
     rules,
     activity: data.activity,
     food: data.food,
-    current_week: currentWeek ? canonicalWeekToLegacy(currentWeek, blockById.get(currentWeek.block_id)) : null,
   };
+  if (includeCurrentWeek) {
+    payload.current_week = currentWeek ? canonicalWeekToLegacy(currentWeek, blockById.get(currentWeek.block_id)) : null;
+  }
 
   return { payload, canonical: data, changed: ensured.changed };
 }
@@ -703,7 +705,7 @@ async function writeCanonicalTrackingData(canonical) {
   safe.rules.metadata.last_updated = formatSeattleIso(new Date());
 
   if (USE_POSTGRES_BACKEND) {
-    const legacyPayload = buildReadPayloadFromCanonical(safe).payload;
+    const legacyPayload = buildReadPayloadFromCanonical(safe, { includeCurrentWeek: true }).payload;
     await writeTrackingDataPostgres(legacyPayload);
     return;
   }

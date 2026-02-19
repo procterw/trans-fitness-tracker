@@ -279,26 +279,28 @@ function debounce(fn, ms) {
   };
 }
 
-function renderFitnessCategory(title, key, items) {
+function renderFitnessWorkouts(week) {
+  const workouts = Array.isArray(week?.workouts) ? week.workouts : [];
   const rows =
-    items?.length > 0
-      ? items
+    workouts.length > 0
+      ? workouts
           .map(
             (it, i) => `
-            <tr data-category="${escapeHtml(key)}" data-index="${i}">
-              <td><input type="checkbox" class="fit-check" ${it.checked ? "checked" : ""} /></td>
-              <td>${escapeHtml(it.item ?? "")}</td>
+            <tr data-workout-index="${i}">
+              <td><input type="checkbox" class="fit-check" ${it.completed ? "checked" : ""} /></td>
+              <td>${escapeHtml(it.name ?? "")}</td>
+              <td>${escapeHtml(it.category ?? "General")}</td>
               <td><input type="text" class="fit-details" value="${escapeHtml(it.details ?? "")}" placeholder="Details…" /></td>
             </tr>
           `,
           )
           .join("")
-      : `<tr><td colspan="3" class="muted">No items.</td></tr>`;
+      : `<tr><td colspan="4" class="muted">No workouts.</td></tr>`;
 
   return `
-    <h3>${escapeHtml(title)}</h3>
+    <h3>Workouts</h3>
     <table>
-      <thead><tr><th>Done</th><th>Item</th><th>Details</th></tr></thead>
+      <thead><tr><th>Done</th><th>Workout</th><th>Category</th><th>Details</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -309,16 +311,13 @@ async function loadFitness() {
   fitnessContentEl.classList.add("hidden");
   try {
     const json = await fetchJson("/api/fitness/current");
-    const w = json.current_week;
+    const w = json.week ?? {};
     fitnessContentEl.innerHTML = `
       <p class="muted">Week: <code>${escapeHtml(w.week_label ?? "")}</code> • Starts: <code>${escapeHtml(
       w.week_start ?? "",
     )}</code></p>
 
-      ${renderFitnessCategory("Cardio", "cardio", w.cardio)}
-      ${renderFitnessCategory("Strength", "strength", w.strength)}
-      ${renderFitnessCategory("Mobility", "mobility", w.mobility)}
-      ${renderFitnessCategory("Other", "other", w.other)}
+      ${renderFitnessWorkouts(w)}
 
       <h3>Summary</h3>
       <textarea id="fitnessSummary" rows="3" placeholder="Weekly summary…">${escapeHtml(w.summary ?? "")}</textarea>
@@ -326,15 +325,14 @@ async function loadFitness() {
     `;
 
     const saveItem = async (row) => {
-      const category = row.dataset.category;
-      const index = Number(row.dataset.index);
+      const workoutIndex = Number(row.dataset.workoutIndex);
       const checked = row.querySelector(".fit-check")?.checked ?? false;
       const details = row.querySelector(".fit-details")?.value ?? "";
 
       await fetchJson("/api/fitness/current/item", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category, index, checked, details }),
+        body: JSON.stringify({ workout_index: workoutIndex, checked, details }),
       });
     };
 
@@ -347,7 +345,7 @@ async function loadFitness() {
       }
     }, 500);
 
-    for (const row of fitnessContentEl.querySelectorAll("tr[data-category]")) {
+    for (const row of fitnessContentEl.querySelectorAll("tr[data-workout-index]")) {
       const check = row.querySelector(".fit-check");
       const details = row.querySelector(".fit-details");
       check?.addEventListener("change", () => debouncedSave(row));

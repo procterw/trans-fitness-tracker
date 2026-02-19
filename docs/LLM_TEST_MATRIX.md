@@ -3,7 +3,7 @@
 This matrix covers non-deterministic LLM routing/output by testing stable behavioral contracts:
 
 - selected action (`food`, `activity`, `question`, `clarify`)
-- data side effects (`food_events`, `food_log`, `current_week`)
+- data side effects (`food.days`, `activity.weeks` via `week`)
 - idempotency and duplicate prevention
 - update semantics (mutate existing row, do not append)
 
@@ -14,10 +14,10 @@ This matrix covers non-deterministic LLM routing/output by testing stable behavi
 
 ## Core Assertions Used Across Cases
 
-- `food_events` count changes only when expected.
-- `food_events[].id` remains unchanged for updates.
-- `food_log` totals are recomputed correctly after add/update/date-move.
-- `current_week` checklist updates only for activity intent.
+- `food.days` rows change only when expected.
+- Logged meal updates mutate the same day row when date is unchanged.
+- Day totals are recomputed correctly after add/update/date-move.
+- `week` workout updates happen only for activity intent.
 - Duplicate submissions do not create extra rows.
 
 ## Matrix
