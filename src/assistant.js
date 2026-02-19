@@ -550,11 +550,11 @@ export async function decideIngestAction({
   const client = clientOverride ?? getOpenAIClient();
   const model = getIngestModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
-  const checklistCategories = buildChecklistSnapshot(getTrackingCurrentWeek(tracking));
+  const checklistCategories = buildChecklistSnapshot(currentWeek ?? getTrackingCurrentWeek(tracking));
 
   const system = buildSystemInstructions({
     tracking,
@@ -607,7 +607,7 @@ export async function askAssistant({ question, date = null, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
@@ -625,7 +625,7 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
-    current_week: getTrackingCurrentWeek(tracking),
+    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
   };
 
   const system = buildSystemInstructions({
@@ -648,7 +648,7 @@ export async function streamAssistantResponse({ question, date = null, messages 
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
@@ -666,7 +666,7 @@ export async function streamAssistantResponse({ question, date = null, messages 
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
-    current_week: getTrackingCurrentWeek(tracking),
+    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
   };
 
   const system = buildSystemInstructions({
@@ -1139,7 +1139,7 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const payloadDate = typeof payload?.date === "string" && payload.date.trim() ? payload.date.trim() : null;
@@ -1156,7 +1156,7 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     profiles: pickSettingsProfiles(tracking),
     diet_philosophy: getDietPhilosophy(tracking),
     fitness_philosophy: getFitnessPhilosophy(tracking),
-    current_week: getTrackingCurrentWeek(tracking),
+    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
     day_for_date: dayForDate,
     day_totals: totalsForDate,
     recent_days: recentDays,
@@ -1610,13 +1610,13 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
-    current_week: getTrackingCurrentWeek(tracking),
+    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
     training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
@@ -1647,13 +1647,13 @@ export async function askSettingsAssistant({ message, messages = [] }) {
     const response = await client.responses.create({ model, input });
     parsed = buildSettingsAssistantFallback(response?.output_text ?? "", {
       message,
-      currentWeek: getTrackingCurrentWeek(tracking),
+      currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
     });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    currentWeek: getTrackingCurrentWeek(tracking),
+    currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
   });
 }
 
@@ -1661,13 +1661,13 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
-  await ensureCurrentWeek();
+  const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
-    current_week: getTrackingCurrentWeek(tracking),
+    current_week: currentWeek ?? getTrackingCurrentWeek(tracking),
     training_blocks: buildTrainingBlocksSnapshot(tracking),
   };
 
@@ -1701,12 +1701,12 @@ export async function streamSettingsAssistant({ message, messages = [] }) {
   } catch {
     parsed = buildSettingsAssistantFallback(output, {
       message,
-      currentWeek: getTrackingCurrentWeek(tracking),
+      currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
     });
   }
 
   return normalizeSettingsAssistantOutput(parsed, {
     message,
-    currentWeek: getTrackingCurrentWeek(tracking),
+    currentWeek: currentWeek ?? getTrackingCurrentWeek(tracking),
   });
 }

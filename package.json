@@ -8,6 +8,7 @@
     "start": "NODE_ENV=production node src/server.js",
     "migrate:postgres": "node scripts/migrate-json-to-postgres.js",
     "migrate:profile": "node scripts/migrate-profile-to-user-profile.js",
+    "reset:simplified-dev-data": "node scripts/reset-simplified-dev-data.js",
     "test:harness": "node scripts/run-deterministic-harness.js",
     "test:ingest-mocked": "node scripts/run-mocked-ingest-harness.js",
     "eval:llm": "node scripts/run-llm-evals.js"

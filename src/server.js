@@ -496,6 +496,88 @@ function normalizeStoredTrainingBlocks(metadata) {
   return { active_block_id: activeBlockId, blocks };
 }
 
+function canonicalBlockFromStoredTrainingBlock(block, fallbackBlock = null) {
+  const safeBlock = isPlainObject(block) ? block : {};
+  const blockId = typeof safeBlock.id === "string" && safeBlock.id.trim() ? safeBlock.id.trim() : "";
+  if (!blockId) return null;
+
+  const checklist = isPlainObject(safeBlock.checklist) ? safeBlock.checklist : {};
+  const rawOrder = Array.isArray(safeBlock.category_order) ? safeBlock.category_order : [];
+  const categoryOrder = rawOrder.filter((value) => typeof value === "string" && value.trim());
+  const categoryLabels = isPlainObject(safeBlock.category_labels) ? safeBlock.category_labels : {};
+  const keys = categoryOrder.length ? categoryOrder : Object.keys(checklist);
+
+  const workouts = [];
+  const seen = new Set();
+  for (const key of keys) {
+    const list = Array.isArray(checklist[key]) ? checklist[key] : [];
+    const fallbackCategory = typeof key === "string" ? key : "";
+    const categoryLabel =
+      typeof categoryLabels[key] === "string" && categoryLabels[key].trim()
+        ? categoryLabels[key].trim()
+        : toFitnessCategoryLabel(fallbackCategory);
+
+    for (const entry of list) {
+      const name = typeof entry?.item === "string" ? entry.item.trim() : typeof entry?.name === "string" ? entry.name.trim() : "";
+      if (!name) continue;
+      const token = name.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      workouts.push({
+        name,
+        description: typeof entry?.description === "string" ? entry.description.trim() : "",
+        category: categoryLabel || "General",
+        optional: false,
+      });
+    }
+  }
+
+  const fallbackStart =
+    typeof fallbackBlock?.block_start === "string" && isIsoDateString(fallbackBlock.block_start) ? fallbackBlock.block_start : "";
+  const createdAtDate =
+    typeof safeBlock.created_at === "string" && isIsoDateString(safeBlock.created_at.slice(0, 10))
+      ? safeBlock.created_at.slice(0, 10)
+      : "";
+  const blockStart = fallbackStart || createdAtDate || getSeattleDateString(new Date());
+
+  return {
+    block_id: blockId,
+    block_start: blockStart,
+    block_name: normalizeTrainingBlockName(safeBlock.name),
+    block_details: normalizeTrainingBlockDescription(safeBlock.description),
+    workouts,
+  };
+}
+
+function syncCanonicalActivityBlocksFromStoredBlocks(data, storedBlocks) {
+  if (!isPlainObject(data)) return [];
+  if (!isPlainObject(data.activity)) data.activity = {};
+
+  const existingBlocks = Array.isArray(data.activity.blocks) ? data.activity.blocks : [];
+  const existingById = new Map(
+    existingBlocks
+      .map((block) => {
+        const id = typeof block?.block_id === "string" && block.block_id.trim() ? block.block_id.trim() : "";
+        return id ? [id, block] : null;
+      })
+      .filter(Boolean),
+  );
+
+  const next = [];
+  const seen = new Set();
+  for (const block of Array.isArray(storedBlocks) ? storedBlocks : []) {
+    const id = typeof block?.id === "string" && block.id.trim() ? block.id.trim() : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const canonicalBlock = canonicalBlockFromStoredTrainingBlock(block, existingById.get(id) ?? null);
+    if (!canonicalBlock) continue;
+    next.push(canonicalBlock);
+  }
+
+  data.activity.blocks = next;
+  return next;
+}
+
 function buildTrainingBlockFromTemplate({
   template,
   blockId = null,
@@ -529,6 +611,117 @@ function buildTrainingBlockFromTemplate({
 function buildWeekFromTemplate(currentWeek, template) {
   const categories = templateToChecklistCategories(template);
   return applyChecklistCategories(currentWeek, categories);
+}
+
+function isIsoDateString(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function getWeekEndSundayFromStart(weekStart) {
+  if (!isIsoDateString(weekStart)) return "";
+  const [year, month, day] = weekStart.split("-").map((part) => Number(part));
+  const start = new Date(Date.UTC(year, month - 1, day));
+  start.setUTCDate(start.getUTCDate() + 6);
+  return start.toISOString().slice(0, 10);
+}
+
+function canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek = null) {
+  const safeLegacy = isPlainObject(legacyWeek) ? legacyWeek : {};
+  const safeFallback = isPlainObject(fallbackWeek) ? fallbackWeek : {};
+  const weekStartRaw =
+    typeof safeLegacy.week_start === "string" && safeLegacy.week_start.trim()
+      ? safeLegacy.week_start.trim()
+      : typeof safeFallback.week_start === "string"
+        ? safeFallback.week_start
+        : "";
+  if (!isIsoDateString(weekStartRaw)) return null;
+
+  const fallbackWorkouts = new Map(
+    (Array.isArray(safeFallback.workouts) ? safeFallback.workouts : [])
+      .map((row) => {
+        const name = typeof row?.name === "string" ? row.name.trim() : "";
+        if (!name) return null;
+        return [name.toLowerCase(), row];
+      })
+      .filter(Boolean),
+  );
+
+  const workouts = [];
+  const seen = new Set();
+  for (const key of getFitnessCategoryKeys(safeLegacy)) {
+    const list = Array.isArray(safeLegacy[key]) ? safeLegacy[key] : [];
+    for (const row of list) {
+      const name = typeof row?.item === "string" ? row.item.trim() : typeof row?.name === "string" ? row.name.trim() : "";
+      if (!name) continue;
+      const token = name.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      const fallback = fallbackWorkouts.get(token);
+      workouts.push({
+        name,
+        details:
+          typeof row?.details === "string"
+            ? row.details
+            : typeof fallback?.details === "string"
+              ? fallback.details
+              : "",
+        completed:
+          row?.checked === true ||
+          row?.completed === true ||
+          fallback?.completed === true,
+      });
+    }
+  }
+
+  const nextWorkouts = workouts.length
+    ? workouts
+    : (Array.isArray(safeFallback.workouts) ? safeFallback.workouts : []).map((row) => ({
+        name: typeof row?.name === "string" ? row.name : "",
+        details: typeof row?.details === "string" ? row.details : "",
+        completed: row?.completed === true,
+      })).filter((row) => row.name);
+
+  const blockId =
+    typeof safeLegacy.training_block_id === "string" && safeLegacy.training_block_id.trim()
+      ? safeLegacy.training_block_id.trim()
+      : typeof safeLegacy.block_id === "string" && safeLegacy.block_id.trim()
+        ? safeLegacy.block_id.trim()
+        : typeof safeFallback.block_id === "string"
+          ? safeFallback.block_id
+          : "";
+
+  return {
+    week_start: weekStartRaw,
+    week_end:
+      typeof safeFallback.week_end === "string" && isIsoDateString(safeFallback.week_end)
+        ? safeFallback.week_end
+        : getWeekEndSundayFromStart(weekStartRaw),
+    block_id: blockId,
+    workouts: nextWorkouts,
+    summary:
+      typeof safeLegacy.summary === "string"
+        ? safeLegacy.summary
+        : typeof safeFallback.summary === "string"
+          ? safeFallback.summary
+          : "",
+  };
+}
+
+function upsertCanonicalWeekFromLegacyCurrentWeek(data, legacyWeek) {
+  if (!isPlainObject(data)) return null;
+  if (!isPlainObject(data.activity)) data.activity = {};
+  const existingWeeks = Array.isArray(data.activity.weeks) ? data.activity.weeks : [];
+  const weekStart = typeof legacyWeek?.week_start === "string" ? legacyWeek.week_start : "";
+  const fallbackWeek = existingWeeks.find((row) => row?.week_start === weekStart) ?? null;
+  const canonicalWeek = canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek);
+  if (!canonicalWeek) return null;
+
+  data.activity.weeks = [
+    ...existingWeeks.filter((row) => row && row.week_start !== canonicalWeek.week_start),
+    canonicalWeek,
+  ].sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)));
+
+  return canonicalWeek;
 }
 
 function extractTemplateFromStoredBlock(block) {
@@ -606,6 +799,11 @@ function getTrackingMetadata(data) {
   return asObject(data?.metadata);
 }
 
+function getTrackingCurrentWeek(data) {
+  const safe = isPlainObject(data) ? data : {};
+  return isPlainObject(safe.current_week) ? safe.current_week : null;
+}
+
 function setTrackingMetadata(data, metadata) {
   const safeMetadata = isPlainObject(metadata) ? metadata : {};
   const rules = ensureTrackingRules(data);
@@ -673,7 +871,7 @@ function hasSeedMarker(data) {
   return hasNonEmptyString(metadata.settings_seeded_at);
 }
 
-function applyStarterSeed(data, { now = new Date() } = {}) {
+function applyStarterSeed(data, { now = new Date(), currentWeek = null } = {}) {
   let changed = false;
   let profileSeeded = false;
   let checklistSeeded = false;
@@ -694,12 +892,30 @@ function applyStarterSeed(data, { now = new Date() } = {}) {
   const existingTemplate = extractChecklistTemplate(asObject(getTrackingMetadata(data).checklist_template));
   if (!existingTemplate) {
     const categories = buildStarterChecklistCategories();
-    const remappedWeek = applyChecklistCategories(data.current_week ?? {}, categories);
+    const baseWeek = isPlainObject(currentWeek) ? currentWeek : asObject(getTrackingCurrentWeek(data));
+    const remappedWeek = applyChecklistCategories(baseWeek, categories);
     const template = extractChecklistTemplate(remappedWeek);
     if (template) {
+      const existingBlocksState = normalizeStoredTrainingBlocks(metadata);
+      if (!existingBlocksState.blocks.length) {
+        const starterBlock = buildTrainingBlockFromTemplate({
+          template,
+          blocks: [],
+        });
+        if (starterBlock) {
+          metadata.training_blocks = {
+            active_block_id: starterBlock.id,
+            blocks: [starterBlock],
+          };
+          remappedWeek.training_block_id = starterBlock.id;
+          remappedWeek.training_block_name = starterBlock.name;
+          remappedWeek.training_block_description = starterBlock.description;
+          syncCanonicalActivityBlocksFromStoredBlocks(data, [starterBlock]);
+        }
+      }
       metadata.checklist_template = template;
       metadata.last_updated = timestamp;
-      data.current_week = remappedWeek;
+      upsertCanonicalWeekFromLegacyCurrentWeek(data, remappedWeek);
       checklistSeeded = true;
       changed = true;
     }
@@ -836,9 +1052,7 @@ function appendSettingsHistoryEvent(data, { domains }) {
 async function applySettingsChanges({ proposal }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
   const normalized = normalizeSettingsProposal(proposal);
-  if (normalized[SETTINGS_CHECKLIST_FIELD] || normalized?.training_block?.checklist_categories) {
-    await ensureCurrentWeek();
-  }
+  const ensuredCurrentWeek = await ensureCurrentWeek();
   const data = await readTrackingData();
   const changesApplied = [];
   const domains = [];
@@ -861,7 +1075,10 @@ async function applySettingsChanges({ proposal }) {
   let activeBlockId = trainingBlocksState.active_block_id;
   if (!activeBlockId && blocks.length) activeBlockId = blocks[blocks.length - 1].id;
 
-  const currentWeek = isPlainObject(data.current_week) ? data.current_week : {};
+  let currentWeek =
+    (isPlainObject(ensuredCurrentWeek) ? ensuredCurrentWeek : null) ||
+    getTrackingCurrentWeek(data) ||
+    {};
   const requestedTemplate = normalized[SETTINGS_CHECKLIST_FIELD];
   const requestedBlockPatch = isPlainObject(normalized.training_block) ? normalized.training_block : null;
   const requestedBlockCategories = requestedBlockPatch?.checklist_categories ?? requestedTemplate ?? null;
@@ -939,7 +1156,7 @@ async function applySettingsChanges({ proposal }) {
     return {
       changesApplied,
       updated: null,
-      current_week: data.current_week ?? null,
+      current_week: currentWeek,
       settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
         ? getTrackingMetadata(data).settings_version
         : null,
@@ -955,6 +1172,7 @@ async function applySettingsChanges({ proposal }) {
       active_block_id: activeBlockId,
       blocks,
     };
+    syncCanonicalActivityBlocksFromStoredBlocks(data, blocks);
     if (activeTemplate) metadata.checklist_template = activeTemplate;
     else delete metadata.checklist_template;
     domains.push(SETTINGS_TRAINING_BLOCK_FIELD);
@@ -982,7 +1200,8 @@ async function applySettingsChanges({ proposal }) {
       currentWeek.training_block_name !== nextWeek.training_block_name ||
       currentWeek.training_block_description !== nextWeek.training_block_description
     ) {
-      data.current_week = nextWeek;
+      const storedWeek = upsertCanonicalWeekFromLegacyCurrentWeek(data, nextWeek);
+      if (storedWeek) currentWeek = nextWeek;
       if (!domains.includes(SETTINGS_CHECKLIST_FIELD)) domains.push(SETTINGS_CHECKLIST_FIELD);
       if (!changesApplied.includes("Updated training checklist template.")) {
         changesApplied.push("Updated training checklist template.");
@@ -994,12 +1213,13 @@ async function applySettingsChanges({ proposal }) {
   if (changesApplied.length) {
     const versionMeta = appendSettingsHistoryEvent(data, { domains });
     await writeTrackingData(data);
+    const refreshedCurrentWeek = await ensureCurrentWeek();
     return {
       changesApplied,
       updated: {
         ...getSettingsProfiles(data),
       },
-      current_week: data.current_week ?? null,
+      current_week: isPlainObject(refreshedCurrentWeek) ? refreshedCurrentWeek : currentWeek,
       settingsVersion: versionMeta.settingsVersion,
       effectiveFrom: versionMeta.effectiveFrom,
       followupQuestion: null,
@@ -1010,7 +1230,7 @@ async function applySettingsChanges({ proposal }) {
   return {
     changesApplied,
     updated: null,
-    current_week: data.current_week ?? null,
+    current_week: currentWeek,
     settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
       ? getTrackingMetadata(data).settings_version
       : null,
@@ -1097,7 +1317,7 @@ app.post("/api/settings/profiles", async (req, res) => {
 
 app.post("/api/settings/bootstrap", async (_req, res) => {
   try {
-    await ensureCurrentWeek();
+    const currentWeek = await ensureCurrentWeek();
     const data = await readTrackingData();
     const seededAlready = hasSeedMarker(data);
     if (seededAlready) {
@@ -1114,7 +1334,7 @@ app.post("/api/settings/bootstrap", async (_req, res) => {
       });
     }
 
-    const seeded = applyStarterSeed(data, { now: new Date() });
+    const seeded = applyStarterSeed(data, { now: new Date(), currentWeek });
     if (seeded.changed) await writeTrackingData(data);
 
     return res.json({
