@@ -7,7 +7,7 @@ function escapeText(value) {
 
 export default function EstimateResult({ payload, onAsk }) {
   if (!payload) return null;
-  const { estimate, day_totals_from_events: dayTotals, event, food_log: foodLog } = payload;
+  const { estimate, day_totals: dayTotals, event, day } = payload;
 
   return (
     <div>
@@ -41,20 +41,17 @@ export default function EstimateResult({ payload, onAsk }) {
         </>
       ) : null}
 
-      <h3>Running totals for {escapeText(event?.date)} (from events)</h3>
+      <h3>Running totals for {escapeText(event?.date)}</h3>
       <NutrientsTable nutrients={dayTotals} />
 
-      {foodLog ? (
+      {day ? (
         <>
-          <h3>Daily log row (food_log)</h3>
+          <h3>Daily row</h3>
           <p className="muted">
-            Status: <code>{escapeText(foodLog.status)}</code>
+            Complete: <code>{day.complete === true ? "yes" : "no"}</code>
           </p>
-          <p className="muted">
-            Healthy: <code>{escapeText(foodLog.healthy ?? "⚪")}</code>
-          </p>
-          <NutrientsTable nutrients={foodLog} />
-          {foodLog.notes ? <p className="muted">{escapeText(foodLog.notes)}</p> : null}
+          <NutrientsTable nutrients={day} />
+          {day.details ? <p className="muted">{escapeText(day.details)}</p> : null}
         </>
       ) : null}
 

@@ -1381,7 +1381,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
           date: targetDate,
           log_action: "cleared",
           removed_count: removed,
-          food_log: cleared?.food_log ?? null,
+          day: cleared?.day ?? null,
         },
         activity_updates: null,
         answer: null,
@@ -1641,27 +1641,10 @@ async function buildFoodDayPayload(date) {
         protein_g: 0,
         fiber_g: null,
       };
-  const foodLogRow = day
-    ? {
-        date: day.date,
-        day_of_week: null,
-        weight_lb: toNumberOrNull(day.weight_lb),
-        calories: toNumberOrNull(day.calories),
-        fat_g: toNumberOrNull(day.fat_g),
-        carbs_g: toNumberOrNull(day.carbs_g),
-        protein_g: toNumberOrNull(day.protein_g),
-        fiber_g: toNumberOrNull(day.fiber_g),
-        status: day.complete === true ? "🟢" : "⚪",
-        healthy: day.complete === true ? "🟢" : "⚪",
-        notes: typeof day.details === "string" ? day.details : "",
-      }
-    : null;
-
   return {
     date,
     day,
     day_totals: dayTotals,
-    food_log: foodLogRow,
   };
 }
 

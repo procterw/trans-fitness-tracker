@@ -1000,7 +1000,7 @@ export async function addFoodEvent({
 
   return {
     event,
-    food_log: canonicalDayToLegacyRow(merged),
+    day: merged,
     log_action: "created",
   };
 }
@@ -1060,7 +1060,7 @@ export async function updateFoodEvent({
 
   return {
     event,
-    food_log: canonicalDayToLegacyRow(replaced),
+    day: replaced,
     log_action: "updated",
   };
 }
@@ -1071,15 +1071,19 @@ export async function syncFoodEventsToFoodLog({ date }) {
   const day = canonical.food.days.find((row) => row.date === date) || null;
   return {
     synced_count: 0,
-    food_log: day ? canonicalDayToLegacyRow(day) : null,
+    day,
   };
 }
 
-export async function getDailyFoodEventTotals(date) {
+export async function getDailyTotalsForDate(date) {
   if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
   const canonical = await readCanonicalTrackingData();
   const day = canonical.food.days.find((row) => row.date === date) || null;
   return legacyTotalsFromDay(day);
+}
+
+export async function getDailyFoodEventTotals(date) {
+  return getDailyTotalsForDate(date);
 }
 
 export async function getFoodEventsForDate(date) {
@@ -1106,7 +1110,7 @@ export async function clearFoodEntriesForDate(date) {
   return {
     date,
     removed_count: removed,
-    food_log: null,
+    day: null,
   };
 }
 
@@ -1299,11 +1303,36 @@ export async function listFoodLog({ limit = 0, from = null, to = null } = {}) {
   return rows;
 }
 
+export async function listFoodDays({ limit = 0, from = null, to = null } = {}) {
+  if (from !== null && !isIsoDateString(from)) throw new Error(`Invalid from date: ${from}`);
+  if (to !== null && !isIsoDateString(to)) throw new Error(`Invalid to date: ${to}`);
+
+  const canonical = await readCanonicalTrackingData();
+  let rows = canonical.food.days.map((row) => normalizeDietDay(row)).filter(Boolean);
+
+  if (from) rows = rows.filter((row) => row.date >= from);
+  if (to) rows = rows.filter((row) => row.date <= to);
+
+  rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  const safeLimit = Math.max(0, Number(limit) || 0);
+  if (safeLimit > 0) rows = rows.slice(0, safeLimit);
+
+  return rows;
+}
+
 export async function getFoodLogForDate(date) {
   if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
   const canonical = await readCanonicalTrackingData();
   const day = canonical.food.days.find((row) => row.date === date) || null;
   return day ? canonicalDayToLegacyRow(day) : null;
+}
+
+export async function getFoodDayForDate(date) {
+  if (!isIsoDateString(date)) throw new Error(`Invalid date: ${date}`);
+  const canonical = await readCanonicalTrackingData();
+  const day = canonical.food.days.find((row) => row.date === date) || null;
+  return day ? normalizeDietDay(day) : null;
 }
 
 export async function rollupFoodLogFromEvents(date) {

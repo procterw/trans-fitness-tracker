@@ -16,14 +16,16 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [x] (2026-02-19 22:03Z) Rewrote ExecPlan to remove migration and compatibility workstreams.
 - [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`; remaining: remove temporary compatibility aliases still exposed to `server.js` and `assistant.js`).
 - [ ] Replace Postgres schema and storage code with new schema only.
-- [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys (completed: canonical `GET/POST /api/food/day`, canonical settings profile fields in `server.js`, removed `/api/food/events` alias, removed `/api/food/rollup` + `/api/food/sync`, and updated `assistant.js` settings-change schema/parsing to canonical profile keys; remaining: remove remaining legacy settings/profile prompt references and old compatibility payload names in assistant/ingest paths).
-- [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use canonical `general/fitness/diet/agent` only, removed rollup/sync client calls, `getFoodForDate` targets `/api/food/day`, food-day utilities no longer depend on server `events`, and `App` + `DietView` are wired to explicit `day`/`day_totals`; remaining: finish broader simplified-contract cleanup outside the settings path, especially workouts and assistant ingest contexts).
+- [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys (completed: canonical `GET/POST /api/food/day`, canonical settings profile fields in `server.js`, removed `/api/food/events` alias, removed `/api/food/rollup` + `/api/food/sync`, updated `assistant.js` settings-change schema/parsing to canonical profile keys, and renamed active food logging payload fields from `food_log`/`day_totals_from_events` to `day`/`day_totals`; remaining: remove remaining legacy settings/profile prompt references and old compatibility payload names in onboarding/import/workout paths).
+- [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use canonical `general/fitness/diet/agent` only, removed rollup/sync client calls, `getFoodForDate` targets `/api/food/day`, food-day utilities no longer depend on server `events`, `App` + `DietView` are wired to explicit `day`/`day_totals`, and sidebar day summary no longer falls back to `food_log.notes`; remaining: finish broader simplified-contract cleanup outside the settings path, especially workouts and onboarding/import contexts).
 - [ ] Add one command/script to reset local JSON and Postgres dev data.
 - [x] (2026-02-19 22:11Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
-- [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, and `readTrackingData()` smoke checks after server/client updates; remaining: manual app flow validation).
+- [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, `readTrackingData()` smoke checks after server/client updates, and `PROJECT.md` updates to canonical day-centric contracts; remaining: manual app flow validation).
 - [x] (2026-02-19 22:22Z) Fixed diet runtime contract mismatch by removing stale event props from `App.jsx` and binding `DietView` to `dashPayload.day` + `dashPayload.day_totals`; verified with `npm run build`.
 - [x] (2026-02-19 22:24Z) Removed settings-profile alias handling from active client/server/assistant paths so settings are canonical-only (`general/fitness/diet/agent`); verified with `npm run build`, `node --check src/server.js`, and `node --check src/assistant.js`.
 - [x] (2026-02-19 22:25Z) Removed unused event helper `client/src/utils/foodEvents.js` and renamed remaining sidebar internals from event wording to detail-line wording; revalidated with `npm run build`.
+- [x] (2026-02-19 22:31Z) Converted active meal-response context/payload naming to day-centric fields (`day`, `day_totals`, `day_for_date`, `recent_days`) across `trackingData.js`, `server/ingestHelpers.js`, `server.js`, `assistant.js`, `App.jsx`, and `EstimateResult.jsx`; verified with syntax checks and `npm run build`.
+- [x] (2026-02-19 22:32Z) Updated `PROJECT.md` to remove stale event/profile-key docs and align documented model/endpoints with canonical day-centric contracts.
 
 ## Surprises & Discoveries
 
@@ -60,6 +62,12 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: A full frontend event-model removal needs dead-code cleanup after route cuts; otherwise old utility files remain without references.
   Evidence: `client/src/utils/foodEvents.js` had zero imports after app diet flow switched to direct day payload usage, so it was deleted safely.
 
+- Observation: Event-oriented field names persisted longer than event routes, so assistant and ingest contracts still looked legacy even when behavior was day-based.
+  Evidence: `assistant.js` and `server/ingestHelpers.js` were still using `food_log_for_date` / `day_totals_from_events` until the 22:30Z contract rename.
+
+- Observation: Product docs were significantly behind implementation and still described removed endpoints (`/api/food/events`, rollup/sync) and old profile keys.
+  Evidence: `PROJECT.md` had numerous references to `food_events`, `food_log`, and `user_profile`-style keys until the 22:32Z update.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -86,9 +94,17 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: Hard-reset scope allows strict canonical contracts; doing this per-domain reduces breakage risk and keeps validation tight.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Standardize active meal/assistant context payload names to day-centric terms now (`day`, `day_totals`, `day_for_date`, `recent_days`) while retaining legacy helper function names only where not yet refactored.
+  Rationale: This cuts visible event-model language from active contracts immediately without requiring an all-at-once rewrite of every historical helper in one pass.
+  Date/Author: 2026-02-19 / Codex
+
+- Decision: Update `PROJECT.md` immediately after each contract shift instead of deferring docs to the end.
+  Rationale: The migration spans many files; keeping product docs current reduces future regressions and conflicting assumptions during implementation.
+  Date/Author: 2026-02-19 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are now canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering consumes day-centric payload fields directly (`day`, `day_totals`) with no event-prop dependency in `App`/`DietView`. Remaining work is broader legacy cleanup (import/onboarding/workout contracts) and Postgres rewrite.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are now canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts now consume day-centric fields directly (`day`, `day_totals`) with no event-prop dependency in `App`/`DietView` or assistant meal context payloads. Remaining work is broader legacy cleanup (import/onboarding/workout contracts) and Postgres rewrite.
 
 ## Context and Orientation
 
@@ -329,3 +345,5 @@ Plan change note (2026-02-19 22:18Z): Logged removal of the `/api/food/events` a
 Plan change note (2026-02-19 22:22Z): Logged the diet UI contract fix after aligning `App.jsx` prop passing to `DietView` (`day`/`day_totals` instead of removed `dashRecentEvents*`) and revalidating with `npm run build`.
 Plan change note (2026-02-19 22:24Z): Logged canonical-only settings cleanup after removing `user_profile`/`training_profile`/`diet_profile`/`agent_profile` alias handling in active client API, settings normalization, server settings routes, and assistant settings parsing.
 Plan change note (2026-02-19 22:25Z): Logged frontend cleanup after deleting dead `foodEvents` helper and renaming sidebar day-summary internals to detail-line terminology.
+Plan change note (2026-02-19 22:31Z): Logged active meal/assistant contract rename from legacy event language to day-centric fields and corresponding server/client/assistant updates (including `EstimateResult`), validated by syntax checks and `npm run build`.
+Plan change note (2026-02-19 22:32Z): Logged `PROJECT.md` alignment updates so documented data model and endpoint contracts now match the day-centric implementation.

@@ -2,7 +2,7 @@ import { getFitnessCategoryKeys, resolveFitnessCategoryKey } from "../fitnessChe
 import { generateWeeklyFitnessSummary } from "../fitnessSummary.js";
 import {
   addFoodEvent,
-  getDailyFoodEventTotals,
+  getDailyTotalsForDate,
   getSuggestedLogDate,
   updateFoodEvent,
   updateCurrentWeekSummary,
@@ -62,16 +62,16 @@ export async function logFoodFromInputs({ file, descriptionText, notes, date, ev
         idempotency_key: normalizedRequestId,
       });
 
-  const { event, food_log, log_action } = writeResult;
-  const totalsForDay = await getDailyFoodEventTotals(effectiveDate);
+  const { event, day, log_action } = writeResult;
+  const totalsForDay = await getDailyTotalsForDate(effectiveDate);
 
   return {
     ok: true,
     date: effectiveDate,
     event,
     estimate,
-    day_totals_from_events: totalsForDay,
-    food_log,
+    day_totals: totalsForDay,
+    day,
     log_action: log_action ?? (normalizedEventId ? "updated" : "created"),
   };
 }
@@ -188,7 +188,7 @@ export function summarizeFoodResult(payload) {
   const title = formatPlainText(payload?.estimate?.meal_title) || "meal";
   const date = formatPlainText(payload?.date);
   const totals = payload?.estimate?.totals ?? {};
-  const dayTotals = payload?.day_totals_from_events ?? {};
+  const dayTotals = payload?.day_totals ?? {};
 
   const calories = fmtNutrient(totals.calories, "kcal", { round: true });
   const carbs = fmtNutrient(totals.carbs_g, "g carbs");

@@ -378,11 +378,7 @@ export default function App() {
       const json = await getFoodForDate(date);
       if (seq !== sidebarDaySeqRef.current) return;
       const details =
-        typeof json?.day?.details === "string"
-          ? json.day.details
-          : typeof json?.food_log?.notes === "string"
-            ? json.food_log.notes
-            : "";
+        typeof json?.day?.details === "string" ? json.day.details : "";
       const syntheticEvents = details.trim()
         ? details
             .split("\n")

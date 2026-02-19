@@ -13,13 +13,11 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 
 ## Source of truth: split tracking files
 Tracking data is split across four files in the repo root:
-- `tracking-food.json` — `food_log` + `food_events`
-- `tracking-activity.json` — `fitness_weeks` + `current_week`
-- `tracking-profile.json` — profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
+- `tracking-food.json` — `days`
+- `tracking-activity.json` — `blocks` + `weeks`
+- `tracking-profile.json` — profile text blobs (`general`, `fitness`, `diet`, `agent`)
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (JSON backend / local fallback source)
 These files are optional when `TRACKING_BACKEND=postgres`; empty template files are valid for future local JSON development.
-
-To normalize existing profile payloads into the text-blob shape, run `npm run migrate:profile` (idempotent). This migrates `tracking-profile.json`.
 
 When `TRACKING_BACKEND=postgres`, rules/philosophy are stored per-user in Postgres (`user_rules.rules_data`).
 When `TRACKING_BACKEND=json` (or split-file mode), rules are loaded from `tracking-rules.json`.
@@ -50,11 +48,10 @@ This repo includes a minimal local web app that supports:
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
   - settings supports direct textarea editing and chat-driven profile/checklist edits without UI confirmation
 - Weekly fitness checklist updates (`current_week`)
-- Settings for editing four profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
+- Settings for editing four profile text blobs (`general`, `fitness`, `diet`, `agent`)
 - A basic dashboard for browsing:
-  - food events + daily totals for a selected date
-  - a full `food_log` table across all days (including each day’s notes)
-  - optional “recalculate from events” rollups
+  - day details + daily totals for a selected date
+  - a full days table across all dates
 
 ### Run
 1. `npm install`
@@ -85,7 +82,7 @@ This repo includes a minimal local web app that supports:
 - `GET /api/settings/state` → returns current profile text blobs + `settings_version`
   - also returns `training_blocks` summary (`active_block_id`, block list)
 - `POST /api/settings/profiles` → JSON body with any of:
-  - `user_profile`, `training_profile`, `diet_profile`, `agent_profile` (all text)
+  - `general`, `fitness`, `diet`, `agent` (all text)
   - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `GET /api/user/export` → returns all user tracking data for export/download
@@ -99,18 +96,13 @@ This repo includes a minimal local web app that supports:
   - optional `image` (if present, uses vision)
   - optional `description` (if no image, required; if image is present, used as additional context)
   - optional `date` and `notes`
-  - Appends a `food_events` entry and updates the matching `food_log` row (adds the meal totals)
-  - Recalculates `food_log.status` (on-track) and `food_log.healthy` with GPT‑5 after each added meal for that date
-  - Returns the created event + the estimate + running totals for that date (from `food_events`) + updated `food_log` row
+  - Updates the matching day row in `tracking-food.json.days`
+  - Returns the estimate, normalized meal event metadata, updated day totals, and updated day row
 - `POST /api/food/photo` → multipart upload (`image`) + optional `date`, `notes`, and `description` (legacy; still supported)
 - `POST /api/food/manual` → JSON body: `description` + optional `date` and `notes` (legacy; still supported)
-- `GET /api/food/events?date=YYYY-MM-DD` → events for that date + running totals + existing `food_log` row (if present)
-- `POST /api/food/rollup` → JSON body: `date` + optional `overwrite`
-  - Recalculates a `food_log` row *from `food_events`* (useful if you want the daily totals to equal the sum of events)
-  - By default it will **not overwrite** an existing non-auto-generated `food_log` entry unless `overwrite: true`
-- `POST /api/food/sync` → JSON body: `date` + optional `only_unsynced` (default `true`)
-  - Adds existing `food_events` totals into the matching `food_log` row (useful for events created before auto-sync existed)
-  - Marks synced events with `applied_to_food_log: true` to avoid double counting
+- `GET /api/food/day?date=YYYY-MM-DD` → day row + day totals for that date
+- `POST /api/food/day` → direct write/update of a day row (`date`, nutrients, `complete`, `details`)
+- `GET /api/food/log` → list of day rows (supports `limit`, `from`, `to`)
 - `GET /api/fitness/current` → current week checklist (rollover-aware)
 - `POST /api/fitness/current/item` → JSON body: `category` (any key present in the user’s current-week checklist), `index`, `checked`, `details`
   - Recomputes `current_week.summary` after each activity change as a workout-only progress summary + rest-of-week plan (no diet guidance).
@@ -122,7 +114,7 @@ This repo includes a minimal local web app that supports:
   - For image inputs, routing inspects image content (for example meal photos vs Strava/workout screenshots)
 - `POST /api/settings/chat` → JSON body: `message` + optional `messages`
   - GPT‑5.2 settings assistant that can answer settings questions and propose updates to:
-    - `user_profile`, `training_profile`, `diet_profile`, `agent_profile`
+    - `general`, `fitness`, `diet`, `agent`
     - `training_block` (`id`, `name`, `description`, `apply_timing`, `checklist_categories`)
   - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
@@ -131,20 +123,15 @@ This repo includes a minimal local web app that supports:
   - each week includes phase snapshot fields:
     - `training_block_id`, `training_block_name`, `training_block_description`
 
-## Food event logging format
-Photo + manual logs append to `tracking-food.json.food_events` with:
-- `id` (uuid)
-- `date` (effective date used for the log)
-- `logged_at` (Seattle-local ISO string)
-- `rollover_applied` (true if effective date differs from “today” in Seattle time)
-- `source` (e.g. `"photo"` or `"manual"`)
-- `description` (short meal title)
-- `input_text` (user-provided description text, if any)
-- `notes` (user-supplied)
-- `nutrients` (macros + micros; some may be `null`)
-- `items` (itemized breakdown)
-- `model`, `confidence`
-- `applied_to_food_log` (true if the event totals were applied into `food_log`)
+## Day logging format
+Photo + manual logs update one row in `tracking-food.json.days`:
+- `date`
+- `weight_lb`
+- `calories`, `fat_g`, `carbs_g`, `protein_g`, `fiber_g`
+- `complete`
+- `details` (free text; includes the human-readable food narrative)
+
+Meal responses still include lightweight event metadata (`id`, `source`, `description`, `logged_at`) for chat continuity, but persistent storage is day-centric.
 
 ## OpenAI nutrition inference (photo + text)
 Implementation: `src/visionNutrition.js`
@@ -154,9 +141,9 @@ Implementation: `src/visionNutrition.js`
 - Sets micronutrients to `null` when they’re genuinely not inferable from image/context (rather than guessing).
 
 ## File layout
-- `tracking-food.json` — food events + daily food log
-- `tracking-activity.json` — weekly fitness checklist data
-- `tracking-profile.json` — canonical settings profile text blobs (`user_profile`, `training_profile`, `diet_profile`, `agent_profile`)
+- `tracking-food.json` — day rows (`days`)
+- `tracking-activity.json` — training blocks + week snapshots
+- `tracking-profile.json` — canonical settings profile text blobs (`general`, `fitness`, `diet`, `agent`)
 - `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules (JSON backend or migration source)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups
@@ -169,10 +156,10 @@ Project intent includes a workflow where:
 - When you mention eating food or doing activities, the tracker should **immediately** update the split tracking files.
 - Advice should be contextualized by reading recent patterns from the tracking files first.
 
-(Current code implements a unified chat-style input with GPT‑5.2 routing, photo + manual meal logging → `food_events` + auto-updated `food_log`, current-week fitness checklist updates, and optional “recalculate from events” rollups.)
+(Current code implements a unified chat-style input with GPT‑5.2 routing, photo + manual meal logging that updates `days`, current-week fitness checklist updates, and day-centric diet browsing.)
 
 ## Next steps (likely)
 - Add “quick add” without OpenAI for foods with numeric definitions (e.g., soy milk / fish oil / chili per-serving).
-- Add edit/delete for `food_events` (and recompute totals).
+- Add edit/delete for day detail lines with optional nutrient recompute.
 - Expand dashboards: weekly adherence, cardio volume, glute sessions, calorie/macro averages, weight trend.
 - Add safety rails: warn on sustained under-eating, high systemic training stress, or accidental upper-body training stimulus.

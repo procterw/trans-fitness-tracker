@@ -7,11 +7,10 @@ import { normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import {
   ensureCurrentWeek,
-  getDailyFoodEventTotals,
-  getFoodEventsForDate,
-  getFoodLogForDate,
+  getDailyTotalsForDate,
+  getFoodDayForDate,
   getSuggestedLogDate,
-  listFoodLog,
+  listFoodDays,
   readTrackingData,
 } from "./trackingData.js";
 
@@ -82,7 +81,7 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a helpful assistant for a personal health & fitness tracker.",
   "Use general, fitness, and diet profile texts as primary personalization context.",
-  "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
+  "Use the provided JSON context as the source of truth. Do not invent dates, totals, or entries.",
   "Do not claim system permission limitations (for example, saying you cannot write or delete).",
   "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
   "When referencing numbers, use the units as shown (kcal, g, mg).",
@@ -571,11 +570,10 @@ export async function askAssistant({ question, date = null, messages = [] }) {
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
-  const [foodLogRow, eventsForDate, totalsForDate, recentFoodLog] = await Promise.all([
-    getFoodLogForDate(selectedDate),
-    getFoodEventsForDate(selectedDate),
-    getDailyFoodEventTotals(selectedDate),
-    listFoodLog({ limit: 14 }),
+  const [dayForDate, totalsForDate, recentDays] = await Promise.all([
+    getFoodDayForDate(selectedDate),
+    getDailyTotalsForDate(selectedDate),
+    listFoodDays({ limit: 14 }),
   ]);
   const context = {
     timezone: "America/Los_Angeles",
@@ -583,10 +581,9 @@ export async function askAssistant({ question, date = null, messages = [] }) {
     profiles: pickSettingsProfiles(tracking),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
-    food_log_for_date: foodLogRow,
-    food_events_for_date: eventsForDate,
-    day_totals_from_events: totalsForDate,
-    recent_food_log: recentFoodLog,
+    day_for_date: dayForDate,
+    day_totals: totalsForDate,
+    recent_days: recentDays,
     current_week: tracking.current_week ?? null,
   };
 
@@ -614,11 +611,10 @@ export async function streamAssistantResponse({ question, date = null, messages 
   const tracking = await readTrackingData();
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
-  const [foodLogRow, eventsForDate, totalsForDate, recentFoodLog] = await Promise.all([
-    getFoodLogForDate(selectedDate),
-    getFoodEventsForDate(selectedDate),
-    getDailyFoodEventTotals(selectedDate),
-    listFoodLog({ limit: 14 }),
+  const [dayForDate, totalsForDate, recentDays] = await Promise.all([
+    getFoodDayForDate(selectedDate),
+    getDailyTotalsForDate(selectedDate),
+    listFoodDays({ limit: 14 }),
   ]);
   const context = {
     timezone: "America/Los_Angeles",
@@ -626,10 +622,9 @@ export async function streamAssistantResponse({ question, date = null, messages 
     profiles: pickSettingsProfiles(tracking),
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
-    food_log_for_date: foodLogRow,
-    food_events_for_date: eventsForDate,
-    day_totals_from_events: totalsForDate,
-    recent_food_log: recentFoodLog,
+    day_for_date: dayForDate,
+    day_totals: totalsForDate,
+    recent_days: recentDays,
     current_week: tracking.current_week ?? null,
   };
 
@@ -1109,11 +1104,10 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
   const payloadDate = typeof payload?.date === "string" && payload.date.trim() ? payload.date.trim() : null;
   const selectedDate = isIsoDateString(date) ? date : payloadDate && isIsoDateString(payloadDate) ? payloadDate : getSuggestedLogDate();
 
-  const [foodLogRow, eventsForDate, totalsForDate, recentFoodLog] = await Promise.all([
-    getFoodLogForDate(selectedDate),
-    getFoodEventsForDate(selectedDate),
-    getDailyFoodEventTotals(selectedDate),
-    listFoodLog({ limit: 14 }),
+  const [dayForDate, totalsForDate, recentDays] = await Promise.all([
+    getFoodDayForDate(selectedDate),
+    getDailyTotalsForDate(selectedDate),
+    listFoodDays({ limit: 14 }),
   ]);
   const context = {
     timezone: "America/Los_Angeles",
@@ -1122,10 +1116,9 @@ export async function composeMealEntryResponse({ payload, date = null, messages 
     diet_philosophy: tracking.diet_philosophy ?? null,
     fitness_philosophy: tracking.fitness_philosophy ?? null,
     current_week: tracking.current_week ?? null,
-    food_log_for_date: foodLogRow,
-    food_events_for_date: eventsForDate,
-    day_totals_from_events: totalsForDate,
-    recent_food_log: recentFoodLog,
+    day_for_date: dayForDate,
+    day_totals: totalsForDate,
+    recent_days: recentDays,
     logged_meal: {
       date: payload?.date ?? selectedDate,
       source: payload?.event?.source ?? null,
