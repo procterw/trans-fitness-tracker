@@ -1,11 +1,11 @@
 # Health & Fitness Tracker
 
 Minimal local web app that:
-- Logs meals (photo and/or manual description) into `tracking-food.json.food_events`
+- Logs meals (photo and/or manual description) into `tracking-food.json.days`
 - Uses the OpenAI API to estimate macros + key micronutrients
-- Updates `tracking-food.json.food_log` when meals are logged
-- Lets you update the weekly fitness checklist (`current_week`)
-- Includes a basic dashboard for daily totals + optional “recalculate from events” rollups
+- Updates one day row per date with human-readable `details`
+- Lets you update the weekly fitness checklist (`current_week` API view over canonical weeks)
+- Includes a basic dashboard for daily totals
 - Includes a simple Q&A assistant (contextualized by the split tracking files)
 
 ## Setup
@@ -28,13 +28,15 @@ Minimal local web app that:
 ## Data
 - Tracking data is split across `tracking-food.json`, `tracking-activity.json`, `tracking-profile.json`, and `tracking-rules.json`
 - When `TRACKING_BACKEND=postgres`, these local files are optional and can remain empty template files.
-- Meal logs are appended to `food_events` (created automatically if missing)
-- If you logged events before `food_log` syncing existed, use Dashboard → “Sync unsynced events”.
 - `tracking-profile.json` stores four canonical text profiles:
-  - `user_profile`
-  - `training_profile`
-  - `diet_profile`
-  - `agent_profile`
+  - `general`
+  - `fitness`
+  - `diet`
+  - `agent`
+
+Destructive dev reset:
+- `npm run reset:simplified-dev-data`
+- Add `-- --dry-run` to preview actions.
 
 ## Settings API (profiles)
 - `GET /api/settings/state` returns current settings profile text blobs.

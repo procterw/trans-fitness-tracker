@@ -88,7 +88,7 @@ This repo includes a minimal local web app that supports:
 - `GET /api/user/export` → returns all user tracking data for export/download
   - includes `exported_at`, authenticated `user_id`, and full tracking payload (`data`)
 - `POST /api/user/import/analyze` → multipart form with `file` and/or pasted JSON text field (`raw_text`)
-  - Parses legacy/current JSON payloads and returns shape detection, per-domain importability summary, warnings, preview metadata, and an `import_token`
+  - Parses canonical JSON payloads (including current export envelope) and returns shape detection, per-domain importability summary, warnings, preview metadata, and an `import_token`
 - `POST /api/user/import/confirm` → JSON body: `import_token`, `confirm_text`
   - Requires typed confirmation (`IMPORT`) and applies a domain-scoped direct replace for validated domains
   - Returns `applied_domains`, `skipped_domains`, `warnings`, and import `stats`
@@ -119,7 +119,7 @@ This repo includes a minimal local web app that supports:
   - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
   - Applies a previously proposed settings change for manual confirmation workflows
-- `GET /api/fitness/history?limit=N` → recent `fitness_weeks`
+- `GET /api/fitness/history?limit=N` → recent week snapshots
   - each week includes phase snapshot fields:
     - `training_block_id`, `training_block_name`, `training_block_description`
 

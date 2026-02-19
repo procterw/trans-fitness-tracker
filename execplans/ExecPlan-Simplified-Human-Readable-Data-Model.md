@@ -14,11 +14,12 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 
 - [x] (2026-02-19 22:03Z) Confirmed scope is destructive cutover with no migration/backward compatibility.
 - [x] (2026-02-19 22:03Z) Rewrote ExecPlan to remove migration and compatibility workstreams.
-- [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`, removal of dead legacy food helper exports, and canonical nested payload objects `rules/activity/food`; remaining: remove `current_week`/`fitness_weeks` compatibility and legacy ingestion merge paths).
+- [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`, removal of dead legacy food helper exports, canonical nested payload objects `rules/activity/food`, and removal of legacy merge/adapters in `normalizeCanonicalData`/`extractCanonicalFromIncoming`; remaining: remove `current_week` compatibility output and Postgres legacy payload bridging).
 - [ ] Replace Postgres schema and storage code with new schema only.
 - [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys (completed: canonical `GET/POST /api/food/day`, canonical settings profile fields in `server.js`, removed `/api/food/events` alias, removed `/api/food/rollup` + `/api/food/sync`, updated `assistant.js` settings-change schema/parsing to canonical profile keys, and renamed active food logging payload fields from `food_log`/`day_totals_from_events` to `day`/`day_totals`; remaining: remove remaining legacy settings/profile prompt references and old compatibility payload names in onboarding/import/workout paths).
 - [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use canonical `general/fitness/diet/agent` only, removed rollup/sync client calls, `getFoodForDate` targets `/api/food/day`, food-day utilities no longer depend on server `events`, `App` + `DietView` are wired to explicit `day`/`day_totals`, and sidebar day summary no longer falls back to `food_log.notes`; remaining: finish broader simplified-contract cleanup outside the settings path, especially workouts and onboarding/import contexts).
 - [x] (2026-02-19 23:20Z) Added destructive reset command `npm run reset:simplified-dev-data` (`scripts/reset-simplified-dev-data.js`) for JSON + Postgres dev data, with `--dry-run`/`--skip-*` flags; validated via dry run and `node --check`.
+- [x] (2026-02-19 23:37Z) Rewrote import analysis/apply to canonical domains (`profile`, `food_days`, `activity_blocks`, `activity_weeks`, `rules`) and dropped legacy import-shape application; validated with module smoke test + `npm run build`.
 - [x] (2026-02-19 22:11Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
 - [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, `readTrackingData()` smoke checks after server/client updates, and `PROJECT.md` updates to canonical day-centric contracts; remaining: manual app flow validation).
 - [x] (2026-02-19 22:22Z) Fixed diet runtime contract mismatch by removing stale event props from `App.jsx` and binding `DietView` to `dashPayload.day` + `dashPayload.day_totals`; verified with `npm run build`.
@@ -87,6 +88,9 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: Settings training-block edits were primarily mutating `rules.metadata.training_blocks`, which risked leaving canonical `activity.blocks` stale.
   Evidence: `applySettingsChanges()` updated metadata block state but did not persist matching changes into `activity.blocks` until the 23:11Z sync helper update.
 
+- Observation: Import apply logic was still writing legacy keys (`food_log`, `fitness_weeks`, `user_profile`) that no longer match canonical write paths.
+  Evidence: `applyImportPlan()` mutated top-level legacy fields in `src/importData.js` before the 23:37Z rewrite.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -141,9 +145,13 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: This keeps canonical training storage authoritative immediately and avoids hidden drift during the remaining `current_week` compatibility period.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Make importer canonical-first and treat legacy unified import payloads as unsupported.
+  Rationale: Hard-reset scope prioritizes a simple single schema and avoids silently writing ignored legacy fields.
+  Date/Author: 2026-02-19 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path now also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. A destructive reset command now exists for local JSON + Postgres dev data. Remaining work is broader legacy cleanup (import/onboarding/workout contracts and `current_week` compatibility layer) plus Postgres rewrite.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes and now enforces canonical-only normalization/input extraction. `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. Import analysis/apply now targets canonical domains directly, and legacy unified import payloads are treated as unsupported. A destructive reset command exists for local JSON + Postgres dev data. Remaining work is broader cleanup around onboarding/workout prompt contracts, `current_week` compatibility output, and Postgres rewrite.
 
 ## Context and Orientation
 
@@ -391,3 +399,4 @@ Plan change note (2026-02-19 22:38Z): Logged read-payload canonical nesting addi
 Plan change note (2026-02-19 22:47Z): Logged canonical accessor migration in `server.js` and `assistant.js` (`profile`/`rules`/`rules.metadata`), removal of unused top-level read payload aliases in `trackingData.js`, and deliberate deferral of full `current_week` contract removal to a dedicated next pass.
 Plan change note (2026-02-19 23:11Z): Logged `server.js` settings-path cleanup: removed direct `data.current_week` reads, added canonical `activity.blocks` sync from settings block updates, and seeded starter training block metadata+activity state when absent.
 Plan change note (2026-02-19 23:20Z): Logged new destructive reset command (`scripts/reset-simplified-dev-data.js`) and npm script wiring, including dry-run/skip flags and support for both legacy and simplified Postgres table names.
+Plan change note (2026-02-19 23:37Z): Logged canonical-only `trackingData.js` normalization/input extraction (legacy merge removal), plus canonical import rewrite in `importData.js` (`profile`/`food_days`/`activity_blocks`/`activity_weeks`/`rules`) and doc alignment updates.

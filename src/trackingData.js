@@ -346,152 +346,9 @@ function canonicalizeDays(days) {
   return out;
 }
 
-function metadataBlockToCanonical(block) {
-  const safe = asObject(block);
-  const blockId = normalizeText(safe.id || safe.block_id);
-  if (!blockId) return null;
-
-  const workouts = [];
-  const checklist = asObject(safe.checklist);
-  const order = asArray(safe.category_order).filter((k) => typeof k === "string" && k.trim());
-  const labels = asObject(safe.category_labels);
-  for (const key of order) {
-    const list = asArray(checklist[key]);
-    const label = normalizeText(labels[key]) || key;
-    for (const item of list) {
-      const safeItem = asObject(item);
-      const name = normalizeText(safeItem.item || safeItem.name);
-      if (!name) continue;
-      workouts.push({
-        name,
-        description: normalizeOptionalText(safeItem.description),
-        category: label,
-        optional: false,
-      });
-    }
-  }
-
-  return normalizeBlock({
-    block_id: blockId,
-    block_start: safe.block_start,
-    block_name: safe.name || safe.block_name,
-    block_details: safe.description || safe.block_details,
-    workouts,
-  });
-}
-
-function legacyWeekRows(legacyWeek) {
-  const safe = asObject(legacyWeek);
-  if (Array.isArray(safe.workouts)) return safe.workouts;
-
-  const rows = [];
-  for (const key of getFitnessCategoryKeys(safe)) {
-    const list = asArray(safe[key]);
-    for (const item of list) {
-      const safeItem = asObject(item);
-      rows.push({
-        name: safeItem.item,
-        details: safeItem.details,
-        completed: safeItem.checked === true,
-      });
-    }
-  }
-  return rows;
-}
-
-function legacyWeekToCanonical(legacyWeek, activeBlockId = "") {
-  const safe = asObject(legacyWeek);
-  const weekStart = isIsoDateString(safe.week_start) ? safe.week_start : null;
-  if (!weekStart) return null;
-
-  const workouts = [];
-  const seen = new Set();
-  for (const row of legacyWeekRows(safe)) {
-    const normalized = normalizeWeekWorkout(row);
-    if (!normalized) continue;
-    const token = normalized.name.toLowerCase();
-    if (seen.has(token)) continue;
-    seen.add(token);
-    workouts.push(normalized);
-  }
-
-  return normalizeWeek({
-    week_start: weekStart,
-    week_end: isIsoDateString(safe.week_end) ? safe.week_end : getWeekEndSunday(weekStart),
-    block_id: safe.block_id || safe.training_block_id || activeBlockId,
-    workouts,
-    summary: safe.summary,
-  });
-}
-
-function mergeLegacyIntoCanonical({ canonical, legacy }) {
-  const out = {
-    profile: normalizeProfileData(canonical.profile),
-    activity: {
-      blocks: canonicalizeBlocks(canonical.activity?.blocks),
-      weeks: canonicalizeWeeks(canonical.activity?.weeks),
-    },
-    food: {
-      days: canonicalizeDays(canonical.food?.days),
-    },
-    rules: ensureMetadataFields(canonical.rules),
-  };
-
-  const old = asObject(legacy);
-
-  if (!out.profile.general && typeof old.user_profile === "string") out.profile.general = old.user_profile;
-  if (!out.profile.fitness && typeof old.training_profile === "string") out.profile.fitness = old.training_profile;
-  if (!out.profile.diet && typeof old.diet_profile === "string") out.profile.diet = old.diet_profile;
-  if (!out.profile.agent && typeof old.agent_profile === "string") out.profile.agent = old.agent_profile;
-
-  if (!out.food.days.length && Array.isArray(old.food_log)) {
-    out.food.days = canonicalizeDays(old.food_log.map((row) => ({
-      date: row?.date,
-      weight_lb: row?.weight_lb,
-      calories: row?.calories,
-      fat_g: row?.fat_g,
-      carbs_g: row?.carbs_g,
-      protein_g: row?.protein_g,
-      fiber_g: row?.fiber_g,
-      complete: row?.complete === true,
-      details: row?.details ?? row?.notes ?? "",
-    })));
-  }
-
-  const metadata = asObject(out.rules.metadata);
-  const legacyBlocks = asArray(metadata?.training_blocks?.blocks).map(metadataBlockToCanonical).filter(Boolean);
-  if (!out.activity.blocks.length && legacyBlocks.length) {
-    out.activity.blocks = canonicalizeBlocks(legacyBlocks);
-  }
-
-  if (!out.activity.weeks.length) {
-    const activeBlockId = normalizeText(metadata?.training_blocks?.active_block_id);
-    const fromHistory = asArray(old.fitness_weeks).map((row) => legacyWeekToCanonical(row, activeBlockId)).filter(Boolean);
-    const currentWeek = legacyWeekToCanonical(old.current_week, activeBlockId);
-    const rows = [...fromHistory];
-    if (currentWeek && !rows.some((row) => row.week_start === currentWeek.week_start)) rows.push(currentWeek);
-    out.activity.weeks = canonicalizeWeeks(rows);
-  }
-
-  out.rules = ensureMetadataFields({
-    ...out.rules,
-    metadata: {
-      ...asObject(old.metadata),
-      ...asObject(out.rules.metadata),
-    },
-    diet_philosophy: Object.keys(asObject(old.diet_philosophy)).length ? asObject(old.diet_philosophy) : out.rules.diet_philosophy,
-    fitness_philosophy: Object.keys(asObject(old.fitness_philosophy)).length
-      ? asObject(old.fitness_philosophy)
-      : out.rules.fitness_philosophy,
-    assistant_rules: Object.keys(asObject(old.assistant_rules)).length ? asObject(old.assistant_rules) : out.rules.assistant_rules,
-  });
-
-  return out;
-}
-
 function normalizeCanonicalData(candidate) {
   const safe = asObject(candidate);
-  const canonical = {
+  return {
     profile: normalizeProfileData(asObject(safe.profile)),
     activity: {
       blocks: canonicalizeBlocks(asArray(asObject(safe.activity).blocks)),
@@ -502,8 +359,6 @@ function normalizeCanonicalData(candidate) {
     },
     rules: ensureMetadataFields(safe.rules),
   };
-
-  return mergeLegacyIntoCanonical({ canonical, legacy: safe });
 }
 
 function upsertWeek(weeks, nextWeek) {
@@ -699,33 +554,12 @@ function buildReadPayloadFromCanonical(canonical, { now = new Date() } = {}) {
 
 function extractCanonicalFromIncoming(data) {
   const safe = asObject(data);
-  const profile = {
-    general: normalizeOptionalText(safe.general || safe?.profile?.general),
-    fitness: normalizeOptionalText(safe.fitness || safe?.profile?.fitness),
-    diet: normalizeOptionalText(safe.diet || safe?.profile?.diet),
-    agent: normalizeOptionalText(safe.agent || safe?.profile?.agent),
-  };
-
-  const blocks = canonicalizeBlocks(safe.blocks || safe?.training?.blocks || safe?.activity?.blocks);
-  const weeks = canonicalizeWeeks(safe.weeks || safe?.training?.weeks || safe?.activity?.weeks);
-
-  const days = canonicalizeDays(
-    safe.days ||
-      safe?.diet_data?.days ||
-      safe?.food?.days,
-  );
-
-  const derivedFromLegacy = mergeLegacyIntoCanonical({
-    canonical: {
-      profile,
-      activity: { blocks, weeks },
-      food: { days },
-      rules: normalizeRulesData(safe.rules || safe),
-    },
-    legacy: safe,
+  return normalizeCanonicalData({
+    profile: asObject(safe.profile),
+    activity: asObject(safe.activity),
+    food: asObject(safe.food),
+    rules: asObject(safe.rules),
   });
-
-  return normalizeCanonicalData(derivedFromLegacy);
 }
 
 async function atomicWriteJson(filePath, data) {
@@ -797,12 +631,6 @@ async function readCanonicalTrackingData() {
     activity: activityRaw,
     food: foodRaw,
     rules: rulesRaw,
-
-    // fallback if files still contain old shape
-    ...foodRaw,
-    ...activityRaw,
-    ...profileRaw,
-    ...rulesRaw,
   });
 
   return canonical;
