@@ -45,7 +45,6 @@ import { runWithTrackingUser } from "./trackingUser.js";
 import {
   clearFoodEntriesForDate,
   ensureCurrentWeek,
-  getFoodEventsForDate,
   getFoodLogForDate,
   getDailyFoodEventTotals,
   getSeattleDateString,
@@ -53,9 +52,7 @@ import {
   listFitnessWeeks,
   listFoodLog,
   readTrackingData,
-  rollupFoodLogFromEvents,
   summarizeTrainingBlocks,
-  syncFoodEventsToFoodLog,
   updateCurrentWeekItems,
   updateCurrentWeekItem,
   updateCurrentWeekSummary,
@@ -566,15 +563,28 @@ function extractTemplateFromStoredBlock(block) {
   return out;
 }
 
-const SETTINGS_PROFILE_FIELDS = ["user_profile", "training_profile", "diet_profile", "agent_profile"];
+const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "agent"];
+const SETTINGS_PROFILE_FIELD_ALIASES = {
+  user_profile: "general",
+  training_profile: "fitness",
+  diet_profile: "diet",
+  agent_profile: "agent",
+};
+const SETTINGS_PROFILE_ALIAS_BY_FIELD = {
+  general: "user_profile",
+  fitness: "training_profile",
+  diet: "diet_profile",
+  agent: "agent_profile",
+};
+const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS, ...Object.keys(SETTINGS_PROFILE_FIELD_ALIASES)];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
 const SETTINGS_TRAINING_BLOCK_FIELD = "training_block";
-const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_FIELDS, SETTINGS_CHECKLIST_FIELD, SETTINGS_TRAINING_BLOCK_FIELD];
+const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_INPUT_FIELDS, SETTINGS_CHECKLIST_FIELD, SETTINGS_TRAINING_BLOCK_FIELD];
 const SETTINGS_PROFILE_LABELS = {
-  user_profile: "user profile",
-  training_profile: "training profile",
-  diet_profile: "diet profile",
-  agent_profile: "agent profile",
+  general: "general profile",
+  fitness: "fitness profile",
+  diet: "diet profile",
+  agent: "agent profile",
   [SETTINGS_CHECKLIST_FIELD]: "training checklist template",
   [SETTINGS_TRAINING_BLOCK_FIELD]: "training block",
 };
@@ -619,12 +629,35 @@ function buildStarterUserProfileText() {
 
 function getSettingsProfiles(data) {
   const safe = isPlainObject(data) ? data : {};
+  const general = normalizeProfileText(safe.general ?? safe.user_profile);
+  const fitness = normalizeProfileText(safe.fitness ?? safe.training_profile);
+  const diet = normalizeProfileText(safe.diet ?? safe.diet_profile);
+  const agent = normalizeProfileText(safe.agent ?? safe.agent_profile);
   return {
-    user_profile: normalizeProfileText(safe.user_profile),
-    training_profile: normalizeProfileText(safe.training_profile),
-    diet_profile: normalizeProfileText(safe.diet_profile),
-    agent_profile: normalizeProfileText(safe.agent_profile),
+    general,
+    fitness,
+    diet,
+    agent,
+    // Transitional aliases for existing client/assistant payloads.
+    user_profile: general,
+    training_profile: fitness,
+    diet_profile: diet,
+    agent_profile: agent,
   };
+}
+
+function getCanonicalSettingsProfileField(field) {
+  if (SETTINGS_PROFILE_FIELDS.includes(field)) return field;
+  const alias = SETTINGS_PROFILE_FIELD_ALIASES[field];
+  return alias && SETTINGS_PROFILE_FIELDS.includes(alias) ? alias : null;
+}
+
+function readSettingsProfileInput(payload, canonicalField) {
+  const safe = isPlainObject(payload) ? payload : {};
+  const aliasField = SETTINGS_PROFILE_ALIAS_BY_FIELD[canonicalField] ?? null;
+  if (typeof safe[canonicalField] === "string") return normalizeProfileText(safe[canonicalField]);
+  if (aliasField && typeof safe[aliasField] === "string") return normalizeProfileText(safe[aliasField]);
+  return null;
 }
 
 function hasSeedMarker(data) {
@@ -640,14 +673,14 @@ function applyStarterSeed(data, { now = new Date() } = {}) {
   const profiles = getSettingsProfiles(data);
   const metadata = isPlainObject(data.metadata) ? { ...data.metadata } : {};
 
-  if (!hasNonEmptyString(profiles.user_profile)) {
-    data.user_profile = buildStarterUserProfileText();
+  if (!hasNonEmptyString(profiles.general)) {
+    data.general = buildStarterUserProfileText();
     profileSeeded = true;
     changed = true;
   }
-  if (!hasNonEmptyString(profiles.training_profile)) data.training_profile = "";
-  if (!hasNonEmptyString(profiles.diet_profile)) data.diet_profile = "";
-  if (!hasNonEmptyString(profiles.agent_profile)) data.agent_profile = "";
+  if (!hasNonEmptyString(profiles.fitness)) data.fitness = "";
+  if (!hasNonEmptyString(profiles.diet)) data.diet = "";
+  if (!hasNonEmptyString(profiles.agent)) data.agent = "";
 
   const existingTemplate = extractChecklistTemplate(asObject(asObject(data.metadata).checklist_template));
   if (!existingTemplate) {
@@ -697,7 +730,7 @@ function isValidSettingsProposal(value) {
   for (const key of Object.keys(value)) {
     if (!SETTINGS_PROPOSAL_FIELDS.includes(key)) return false;
   }
-  for (const field of SETTINGS_PROFILE_FIELDS) {
+  for (const field of SETTINGS_PROFILE_INPUT_FIELDS) {
     const fieldValue = value[field];
     if (fieldValue !== null && fieldValue !== undefined && typeof fieldValue !== "string") return false;
   }
@@ -739,10 +772,10 @@ function normalizeSettingsProposal(value) {
   const raw = isPlainObject(value) ? value : {};
   const out = {
     [SETTINGS_CHECKLIST_FIELD]: null,
-    user_profile: null,
-    training_profile: null,
-    diet_profile: null,
-    agent_profile: null,
+    general: null,
+    fitness: null,
+    diet: null,
+    agent: null,
     training_block: null,
   };
   out[SETTINGS_CHECKLIST_FIELD] = normalizeChecklistProposal(raw[SETTINGS_CHECKLIST_FIELD]);
@@ -766,13 +799,7 @@ function normalizeSettingsProposal(value) {
     out.training_block = hasBlockFields ? normalizedBlock : null;
   }
   for (const field of SETTINGS_PROFILE_FIELDS) {
-    const fieldValue = raw[field];
-    if (fieldValue === null || fieldValue === undefined) {
-      out[field] = null;
-      continue;
-    }
-    if (typeof fieldValue === "string") out[field] = normalizeProfileText(fieldValue);
-    else out[field] = null;
+    out[field] = readSettingsProfileInput(raw, field);
   }
   return out;
 }
@@ -984,13 +1011,16 @@ async function saveSettingsProfilesDirect(changes) {
   const changesApplied = [];
   const domains = [];
   for (const field of SETTINGS_PROFILE_FIELDS) {
-    if (!(field in changes)) continue;
-    if (typeof changes[field] !== "string") throw new Error(`Invalid field: ${field}`);
-    const nextValue = normalizeProfileText(changes[field]);
+    const canonicalField = getCanonicalSettingsProfileField(field);
+    if (!canonicalField) continue;
+    const hasField = field in changes || (SETTINGS_PROFILE_ALIAS_BY_FIELD[canonicalField] || "") in changes;
+    if (!hasField) continue;
+    const nextValue = readSettingsProfileInput(changes, canonicalField);
+    if (typeof nextValue !== "string") throw new Error(`Invalid field: ${field}`);
     if (normalizeProfileText(data[field]) === nextValue) continue;
-    data[field] = nextValue;
-    domains.push(field);
-    const label = SETTINGS_PROFILE_LABELS[field] ?? field;
+    data[canonicalField] = nextValue;
+    domains.push(canonicalField);
+    const label = SETTINGS_PROFILE_LABELS[canonicalField] ?? canonicalField;
     changesApplied.push(`Updated ${label}.`);
   }
   if (changesApplied.length) {
@@ -1028,7 +1058,7 @@ app.get("/api/settings/state", async (_req, res) => {
 app.post("/api/settings/profiles", async (req, res) => {
   try {
     const payload = isPlainObject(req.body) ? req.body : {};
-    const hasAnyField = SETTINGS_PROFILE_FIELDS.some((field) => field in payload);
+    const hasAnyField = SETTINGS_PROFILE_INPUT_FIELDS.some((field) => field in payload);
     if (!hasAnyField) return res.status(400).json({ ok: false, error: "Provide at least one profile field to save." });
 
     const saved = await saveSettingsProfilesDirect(payload);
@@ -1593,16 +1623,113 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
   }
 });
 
+function normalizeDietDayPatchInput(body) {
+  const safe = isPlainObject(body) ? body : {};
+  const date = typeof safe.date === "string" ? safe.date.trim() : "";
+  if (!date) throw new Error("Missing field: date");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invalid field: date");
+
+  const toNumberOrNull = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const patch = {
+    date,
+    weight_lb: toNumberOrNull(safe.weight_lb),
+    calories: toNumberOrNull(safe.calories),
+    fat_g: toNumberOrNull(safe.fat_g),
+    carbs_g: toNumberOrNull(safe.carbs_g),
+    protein_g: toNumberOrNull(safe.protein_g),
+    fiber_g: toNumberOrNull(safe.fiber_g),
+    complete: safe.complete === true,
+    details: typeof safe.details === "string" ? safe.details : "",
+  };
+
+  return patch;
+}
+
+async function buildFoodDayPayload(date) {
+  const data = await readTrackingData();
+  const days = Array.isArray(data?.days) ? data.days : [];
+  const day = days.find((row) => row && row.date === date) ?? null;
+  const totalsForDay = await getDailyFoodEventTotals(date);
+  const logRow = await getFoodLogForDate(date);
+
+  const details = typeof day?.details === "string" ? day.details.trim() : "";
+  const firstLine = details.split("\n").map((line) => line.trim()).find(Boolean) || "";
+  const syntheticEvent = day
+    ? [
+        {
+          id: `day-${date}`,
+          date,
+          source: "day_summary",
+          description: firstLine || "Day summary",
+          input_text: null,
+          notes: details,
+          nutrients: totalsForDay,
+          model: null,
+          confidence: null,
+          items: [],
+          applied_to_food_log: true,
+        },
+      ]
+    : [];
+
+  return {
+    date,
+    day,
+    day_totals: totalsForDay,
+    day_totals_from_events: totalsForDay,
+    events: syntheticEvent,
+    food_log: logRow,
+  };
+}
+
+app.get("/api/food/day", async (req, res) => {
+  try {
+    const date = typeof req.query?.date === "string" && req.query.date.trim() ? req.query.date.trim() : null;
+    if (!date) return res.status(400).json({ ok: false, error: "Missing query param: date" });
+    const payload = await buildFoodDayPayload(date);
+    return res.json({ ok: true, ...payload });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/food/day", async (req, res) => {
+  try {
+    const patch = normalizeDietDayPatchInput(req.body);
+    const data = await readTrackingData();
+    const existing = Array.isArray(data?.days) ? data.days : [];
+    const nextDays = [...existing.filter((row) => row && row.date !== patch.date), patch].sort((a, b) =>
+      String(a.date).localeCompare(String(b.date)),
+    );
+
+    data.days = nextDays;
+    if (isPlainObject(data.metadata)) {
+      data.metadata.last_updated = formatSeattleIso(new Date());
+    }
+    await writeTrackingData(data);
+
+    const payload = await buildFoodDayPayload(patch.date);
+    return res.json({ ok: true, ...payload });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isInputError = message.startsWith("Missing field:") || message.startsWith("Invalid field:");
+    return res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
+  }
+});
+
 app.get("/api/food/events", async (req, res) => {
   try {
     const date = typeof req.query?.date === "string" && req.query.date.trim() ? req.query.date.trim() : null;
     if (!date) return res.status(400).json({ ok: false, error: "Missing query param: date" });
-    const events = await getFoodEventsForDate(date);
-    const totalsForDay = await getDailyFoodEventTotals(date);
-    const logRow = await getFoodLogForDate(date);
-    res.json({ ok: true, date, events, day_totals_from_events: totalsForDay, food_log: logRow });
+    const payload = await buildFoodDayPayload(date);
+    return res.json({ ok: true, ...payload });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -1614,30 +1741,6 @@ app.get("/api/food/log", async (req, res) => {
     const limit = limitRaw ? Number(limitRaw) : 0;
     const rows = await listFoodLog({ limit, from, to });
     res.json({ ok: true, rows });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/food/rollup", async (req, res) => {
-  try {
-    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    if (!date) return res.status(400).json({ ok: false, error: "Missing field: date" });
-    const overwrite = typeof req.body?.overwrite === "boolean" ? req.body.overwrite : false;
-    const result = await rollupFoodLogFromEvents(date, { overwrite });
-    res.json({ ok: true, date, ...result });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/food/sync", async (req, res) => {
-  try {
-    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    if (!date) return res.status(400).json({ ok: false, error: "Missing field: date" });
-    const onlyUnsynced = typeof req.body?.only_unsynced === "boolean" ? req.body.only_unsynced : true;
-    const result = await syncFoodEventsToFoodLog({ date, onlyUnsynced });
-    res.json({ ok: true, date, ...result });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }

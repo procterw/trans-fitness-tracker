@@ -16,11 +16,11 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [x] (2026-02-19 22:03Z) Rewrote ExecPlan to remove migration and compatibility workstreams.
 - [ ] Replace backend canonical data contracts in `src/trackingData.js` with new schema only (completed: canonical split-file read/write + simplified `days/blocks/weeks/general/fitness/diet/agent`; remaining: remove temporary compatibility aliases still exposed to `server.js` and `assistant.js`).
 - [ ] Replace Postgres schema and storage code with new schema only.
-- [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys.
-- [ ] Rewrite UI data usage to consume only simplified contracts.
+- [ ] Rewrite API routes to remove event-centric diet endpoints and old profile/training keys (completed: added canonical `GET/POST /api/food/day`, converted settings profile canonical fields in `server.js`, made `/api/food/events` an alias payload built from day data, removed `/api/food/rollup` + `/api/food/sync`, and updated `assistant.js` settings-change schema/parsing to canonical profile keys; remaining: remove deprecated `/api/food/events` alias and remaining legacy settings/profile prompt references).
+- [ ] Rewrite UI data usage to consume only simplified contracts (completed: settings profile UI/API now use `general/fitness/diet/agent`, removed rollup/sync client calls, and `getFoodForDate` now targets `/api/food/day`; remaining: remove event-centric diet summaries and legacy alias assumptions in app state).
 - [ ] Add one command/script to reset local JSON and Postgres dev data.
-- [x] (2026-02-19 22:06Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
-- [ ] Validate end-to-end behavior and update docs (completed: `npm run build`, syntax checks, and `readTrackingData()` smoke check; remaining: manual app flow validation).
+- [x] (2026-02-19 22:11Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
+- [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, and `readTrackingData()` smoke checks after server/client updates; remaining: manual app flow validation).
 
 ## Surprises & Discoveries
 
@@ -35,6 +35,15 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 
 - Observation: Replacing `trackingData.js` first is mechanically safe because current consumers compile as long as exported function names remain unchanged.
   Evidence: `node --check src/server.js`, `node --check src/assistant.js`, and `npm run build` all pass after the storage rewrite.
+
+- Observation: Introducing canonical `/api/food/day` while keeping `/api/food/events` as an alias avoids breaking existing diet fetch flows during transition.
+  Evidence: client now calls `/api/food/day` in `client/src/api.js`, while existing event flattening still receives an `events` array from the alias payload.
+
+- Observation: Removing dead rollup/sync endpoints is low risk because the UI no longer references those API calls.
+  Evidence: project-wide search has no references to `/api/food/rollup`, `/api/food/sync`, `rollupFoodForDate`, or `syncFoodForDate`.
+
+- Observation: Converting settings assistant output schema to canonical keys is safe as long as parser fallbacks still accept old keys.
+  Evidence: `SettingsChangesSchema` now uses `general/fitness/diet/agent`, while normalization still reads `user_profile/training_profile/diet_profile/agent_profile` as fallback.
 
 ## Decision Log
 
@@ -54,9 +63,13 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: This allows immediate canonical storage changes without breaking the app during staged implementation in the same branch.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Treat `general/fitness/diet/agent` as canonical settings fields in `server.js`, but continue to accept old input keys (`user_profile`, etc.) during transition.
+  Rationale: Enables forward progress on simplified contracts without requiring an atomic assistant+client rewrite in the same edit.
+  Date/Author: 2026-02-19 / Codex
+
 ## Outcomes & Retrospective
 
-Implementation has started with canonical storage changes. `src/trackingData.js` now persists simplified split-file shapes and local JSON files were reset to the new format. The remaining work is to remove temporary compatibility aliases by rewriting server, assistant, Postgres schema/storage, and UI contracts.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and UI settings save flow now uses canonical profile keys. Remaining work is full removal of deprecated diet/event paths, assistant/settings schema updates, and Postgres rewrite.
 
 ## Context and Orientation
 
@@ -290,3 +303,6 @@ At completion, the following interfaces must exist and be stable:
 
 Plan change note (2026-02-19 22:03Z): Rewrote this plan from phased migration to hard reset after explicit user instruction that production compatibility and data preservation are unnecessary.
 Plan change note (2026-02-19 22:06Z): Recorded initial implementation progress after replacing `src/trackingData.js` with a simplified canonical split-file model and resetting local tracking JSON files to the new schema; documented temporary compatibility aliases that remain to be removed.
+Plan change note (2026-02-19 22:11Z): Logged continued implementation: server settings profile fields now canonicalized to `general/fitness/diet/agent` (with transitional aliases), canonical `/api/food/day` endpoints were added, and client settings/food API calls were updated to the new routes/keys.
+Plan change note (2026-02-19 22:13Z): Logged additional cleanup after removing deprecated food rollup/sync routes and client calls, and updated progress/discoveries for the canonical day-centric food flow transition.
+Plan change note (2026-02-19 22:14Z): Logged assistant-side contract updates after changing settings output schema/parsing to canonical profile keys with fallback alias parsing for transitional compatibility.

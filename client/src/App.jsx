@@ -14,9 +14,7 @@ import {
   saveSettingsProfiles,
   settingsBootstrap,
   ingestAssistantStream,
-  rollupFoodForDate,
   settingsChatStream,
-  syncFoodForDate,
   updateFitnessItem,
 } from "./api.js";
 import { getFitnessCategories } from "./fitnessChecklist.js";
@@ -493,10 +491,10 @@ export default function App() {
       setSettingsProfilesSaving(true);
       try {
         const json = await saveSettingsProfiles({
-          userProfile: profileSnapshot.user_profile,
-          trainingProfile: profileSnapshot.training_profile,
-          dietProfile: profileSnapshot.diet_profile,
-          agentProfile: profileSnapshot.agent_profile,
+          general: profileSnapshot.general,
+          fitness: profileSnapshot.fitness,
+          diet: profileSnapshot.diet,
+          agent: profileSnapshot.agent,
         });
         const normalized = normalizeSettingsProfiles(json?.updated ?? profileSnapshot);
         setSettingsProfilesSaved(normalized);
@@ -1071,9 +1069,17 @@ export default function App() {
   };
 
   const onSettingsProfileChange = (field, value) => {
-    if (!["user_profile", "training_profile", "diet_profile", "agent_profile"].includes(field)) return;
+    const normalizeField = (rawField) => {
+      if (rawField === "user_profile") return "general";
+      if (rawField === "training_profile") return "fitness";
+      if (rawField === "diet_profile") return "diet";
+      if (rawField === "agent_profile") return "agent";
+      return rawField;
+    };
+    const canonicalField = normalizeField(field);
+    if (!["general", "fitness", "diet", "agent"].includes(canonicalField)) return;
     setSettingsError("");
-    setSettingsProfilesDraft((prev) => ({ ...prev, [field]: normalizeProfileText(value) }));
+    setSettingsProfilesDraft((prev) => ({ ...prev, [canonicalField]: normalizeProfileText(value) }));
   };
 
   const enqueueFitnessSave = useSerialQueue();
@@ -1126,42 +1132,6 @@ export default function App() {
       });
       return next;
     });
-  };
-
-  const onRollupDash = async () => {
-    if (!dashDate) return;
-    const ok = window.confirm(
-      `Recalculate food_log for ${dashDate} from food_events?\n\nThis overwrites the daily totals with the sum of all events for that day. (Notes/status/weight are preserved.)`,
-    );
-    if (!ok) return;
-
-    setDashError("");
-    setDashStatus("Rolling up…");
-    try {
-      await rollupFoodForDate({ date: dashDate, overwrite: true });
-      await loadDashboard(dashDate);
-      await loadDashboardFoodLog();
-      setDashStatus("Recalculated from events.");
-    } catch (e) {
-      setDashError(e instanceof Error ? e.message : String(e));
-      setDashStatus("");
-    }
-  };
-
-  const onSyncDash = async () => {
-    if (!dashDate) return;
-
-    setDashError("");
-    setDashStatus("Syncing…");
-    try {
-      const result = await syncFoodForDate({ date: dashDate, onlyUnsynced: true });
-      await loadDashboard(dashDate);
-      await loadDashboardFoodLog();
-      setDashStatus(result.synced_count ? `Synced ${result.synced_count} event(s).` : "No unsynced events.");
-    } catch (e) {
-      setDashError(e instanceof Error ? e.message : String(e));
-      setDashStatus("");
-    }
   };
 
   const focusDashboardHeading = () => {

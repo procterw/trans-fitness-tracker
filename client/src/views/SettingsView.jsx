@@ -49,23 +49,23 @@ export default function SettingsView({
               </p>
             </div>
             <div className="settingsProfilesFields">
-              <label className="settingsProfilesField" htmlFor="user_profile_text">
-                <span className="sidebarSectionLabel">User profile</span>
+              <label className="settingsProfilesField" htmlFor="general_profile_text">
+                <span className="sidebarSectionLabel">General profile</span>
                 <textarea
-                  id="user_profile_text"
+                  id="general_profile_text"
                   className="settingsProfileTextarea"
-                  value={typeof profiles.user_profile === "string" ? profiles.user_profile : ""}
-                  onChange={(e) => onSettingsProfileChange("user_profile", e.target.value)}
+                  value={typeof profiles.general === "string" ? profiles.general : ""}
+                  onChange={(e) => onSettingsProfileChange("general", e.target.value)}
                   placeholder="Overall goals, body/health context, lifestyle, meds/conditions, and key coaching context."
                 />
               </label>
-              <label className="settingsProfilesField" htmlFor="training_profile_text">
-                <span className="sidebarSectionLabel">Training profile</span>
+              <label className="settingsProfilesField" htmlFor="fitness_profile_text">
+                <span className="sidebarSectionLabel">Fitness profile</span>
                 <textarea
-                  id="training_profile_text"
+                  id="fitness_profile_text"
                   className="settingsProfileTextarea"
-                  value={typeof profiles.training_profile === "string" ? profiles.training_profile : ""}
-                  onChange={(e) => onSettingsProfileChange("training_profile", e.target.value)}
+                  value={typeof profiles.fitness === "string" ? profiles.fitness : ""}
+                  onChange={(e) => onSettingsProfileChange("fitness", e.target.value)}
                   placeholder="Training plan, phases/blocks schedule, fitness goals, injuries, and logging shortcuts."
                 />
               </label>
@@ -74,8 +74,8 @@ export default function SettingsView({
                 <textarea
                   id="diet_profile_text"
                   className="settingsProfileTextarea"
-                  value={typeof profiles.diet_profile === "string" ? profiles.diet_profile : ""}
-                  onChange={(e) => onSettingsProfileChange("diet_profile", e.target.value)}
+                  value={typeof profiles.diet === "string" ? profiles.diet : ""}
+                  onChange={(e) => onSettingsProfileChange("diet", e.target.value)}
                   placeholder="Diet preferences, recipes, caloric targets, and food logging shortcuts."
                 />
               </label>
@@ -84,8 +84,8 @@ export default function SettingsView({
                 <textarea
                   id="agent_profile_text"
                   className="settingsProfileTextarea"
-                  value={typeof profiles.agent_profile === "string" ? profiles.agent_profile : ""}
-                  onChange={(e) => onSettingsProfileChange("agent_profile", e.target.value)}
+                  value={typeof profiles.agent === "string" ? profiles.agent : ""}
+                  onChange={(e) => onSettingsProfileChange("agent", e.target.value)}
                   placeholder="Broad rules for assistant behavior and response style."
                 />
               </label>

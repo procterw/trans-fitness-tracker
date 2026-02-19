@@ -1,4 +1,12 @@
 {
   "blocks": [],
-  "weeks": []
+  "weeks": [
+    {
+      "week_start": "2026-02-16",
+      "week_end": "2026-02-22",
+      "block_id": "",
+      "workouts": [],
+      "summary": ""
+    }
+  ]
 }

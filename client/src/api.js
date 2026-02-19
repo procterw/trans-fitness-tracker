@@ -272,19 +272,27 @@ export async function getSettingsState() {
 }
 
 export async function saveSettingsProfiles({
+  general = "",
+  fitness = "",
+  diet = "",
+  agent = "",
   userProfile = "",
   trainingProfile = "",
   dietProfile = "",
   agentProfile = "",
 }) {
+  const nextGeneral = typeof general === "string" && general.length ? general : userProfile;
+  const nextFitness = typeof fitness === "string" && fitness.length ? fitness : trainingProfile;
+  const nextDiet = typeof diet === "string" && diet.length ? diet : dietProfile;
+  const nextAgent = typeof agent === "string" && agent.length ? agent : agentProfile;
   return fetchJson("/api/settings/profiles", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      user_profile: userProfile,
-      training_profile: trainingProfile,
-      diet_profile: dietProfile,
-      agent_profile: agentProfile,
+      general: nextGeneral,
+      fitness: nextFitness,
+      diet: nextDiet,
+      agent: nextAgent,
     }),
   });
 }
@@ -300,7 +308,7 @@ export async function confirmSettingsChanges({ proposal }) {
 }
 
 export async function getFoodForDate(date) {
-  return fetchJson(`/api/food/events?date=${encodeURIComponent(date)}`);
+  return fetchJson(`/api/food/day?date=${encodeURIComponent(date)}`);
 }
 
 export async function getFoodLog({ limit = 0, from = null, to = null } = {}) {
@@ -310,22 +318,6 @@ export async function getFoodLog({ limit = 0, from = null, to = null } = {}) {
   if (to) params.set("to", to);
   const qs = params.toString();
   return fetchJson(`/api/food/log${qs ? `?${qs}` : ""}`);
-}
-
-export async function rollupFoodForDate({ date, overwrite = false }) {
-  return fetchJson("/api/food/rollup", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date, overwrite }),
-  });
-}
-
-export async function syncFoodForDate({ date, onlyUnsynced = true }) {
-  return fetchJson("/api/food/sync", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ date, only_unsynced: onlyUnsynced }),
-  });
 }
 
 export async function getFitnessCurrent() {

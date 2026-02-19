@@ -30,11 +30,20 @@ function normalizeProfileText(value) {
 
 function pickSettingsProfiles(tracking) {
   const safe = asObject(tracking);
+  const general = normalizeProfileText(safe.general ?? safe.user_profile);
+  const fitness = normalizeProfileText(safe.fitness ?? safe.training_profile);
+  const diet = normalizeProfileText(safe.diet ?? safe.diet_profile);
+  const agent = normalizeProfileText(safe.agent ?? safe.agent_profile);
   return {
-    user_profile: normalizeProfileText(safe.user_profile),
-    training_profile: normalizeProfileText(safe.training_profile),
-    diet_profile: normalizeProfileText(safe.diet_profile),
-    agent_profile: normalizeProfileText(safe.agent_profile),
+    general,
+    fitness,
+    diet,
+    agent,
+    // Transitional aliases for older prompts/parsers.
+    user_profile: general,
+    training_profile: fitness,
+    diet_profile: diet,
+    agent_profile: agent,
   };
 }
 
@@ -77,7 +86,7 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
 
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a helpful assistant for a personal health & fitness tracker.",
-  "Use user_profile, training_profile, and diet_profile as primary personalization context.",
+  "Use general, fitness, and diet profile texts as primary personalization context.",
   "Use the provided JSON context as the source of truth. Do not invent dates, totals, or events.",
   "Do not claim system permission limitations (for example, saying you cannot write or delete).",
   "If the context does not contain the information needed, say what is missing and ask a clarifying question.",
@@ -154,7 +163,7 @@ const DEFAULT_ONBOARDING_DIET_INSTRUCTIONS = [
 
 const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
-  "The user can update four settings profile texts: user_profile, training_profile, diet_profile, and agent_profile.",
+  "The user can update four settings profile texts: general, fitness, diet, and agent.",
   "The user can also manage training phases/blocks.",
   "For phase changes, use changes.training_block with optional id, name, description, checklist_categories, and apply_timing (immediate or next_week).",
   "Use checklist_categories at the top level only for backward compatibility; prefer changes.training_block.",
@@ -409,10 +418,10 @@ const SettingsTrainingBlockSchema = z.object({
 });
 
 const SettingsChangesSchema = z.object({
-  user_profile: z.string().nullable(),
-  training_profile: z.string().nullable(),
-  diet_profile: z.string().nullable(),
-  agent_profile: z.string().nullable(),
+  general: z.string().nullable(),
+  fitness: z.string().nullable(),
+  diet: z.string().nullable(),
+  agent: z.string().nullable(),
   checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
   training_block: SettingsTrainingBlockSchema.nullable().optional(),
 });
@@ -707,19 +716,19 @@ function normalizeSettingsAssistantOutput(
 ) {
   const rawMessage = typeof message === "string" ? message : "";
   const changes = {
-    user_profile: normalizeSettingsProfileChange(parsed?.changes?.user_profile),
-    training_profile: normalizeSettingsProfileChange(parsed?.changes?.training_profile),
-    diet_profile: normalizeSettingsProfileChange(parsed?.changes?.diet_profile),
-    agent_profile: normalizeSettingsProfileChange(parsed?.changes?.agent_profile),
+    general: normalizeSettingsProfileChange(parsed?.changes?.general ?? parsed?.changes?.user_profile),
+    fitness: normalizeSettingsProfileChange(parsed?.changes?.fitness ?? parsed?.changes?.training_profile),
+    diet: normalizeSettingsProfileChange(parsed?.changes?.diet ?? parsed?.changes?.diet_profile),
+    agent: normalizeSettingsProfileChange(parsed?.changes?.agent ?? parsed?.changes?.agent_profile),
     checklist_categories: normalizeSettingsChecklistProposal(parsed?.changes?.checklist_categories),
     training_block: normalizeSettingsTrainingBlockChange(parsed?.changes?.training_block),
   };
 
   const hasChanges = Boolean(
-    changes.user_profile ||
-      changes.training_profile ||
-      changes.diet_profile ||
-      changes.agent_profile ||
+    changes.general ||
+      changes.fitness ||
+      changes.diet ||
+      changes.agent ||
       (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) ||
       changes.training_block,
   );
@@ -998,10 +1007,10 @@ function applyChecklistInferenceFallback({ parsed, message, currentWeek }) {
   const hasChecklist = Array.isArray(existingChecklist) && existingChecklist.length;
   if (hasChecklist) return parsed;
   const hasProfileEdits = Boolean(
-    parsed?.changes?.user_profile ||
-      parsed?.changes?.training_profile ||
-      parsed?.changes?.diet_profile ||
-      parsed?.changes?.agent_profile,
+    parsed?.changes?.general ||
+      parsed?.changes?.fitness ||
+      parsed?.changes?.diet ||
+      parsed?.changes?.agent,
   );
   if (hasProfileEdits) return parsed;
   if (parsed?.changes?.training_block) return parsed;
@@ -1026,10 +1035,10 @@ function applyChecklistInferenceFallback({ parsed, message, currentWeek }) {
 
 function buildEmptySettingsChanges() {
   return {
-    user_profile: null,
-    training_profile: null,
-    diet_profile: null,
-    agent_profile: null,
+    general: null,
+    fitness: null,
+    diet: null,
+    agent: null,
     checklist_categories: null,
     training_block: null,
   };
@@ -1038,10 +1047,10 @@ function buildEmptySettingsChanges() {
 function coerceSettingsChanges(value) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    user_profile: normalizeSettingsProfileChange(raw.user_profile),
-    training_profile: normalizeSettingsProfileChange(raw.training_profile),
-    diet_profile: normalizeSettingsProfileChange(raw.diet_profile),
-    agent_profile: normalizeSettingsProfileChange(raw.agent_profile),
+    general: normalizeSettingsProfileChange(raw.general ?? raw.user_profile),
+    fitness: normalizeSettingsProfileChange(raw.fitness ?? raw.training_profile),
+    diet: normalizeSettingsProfileChange(raw.diet ?? raw.diet_profile),
+    agent: normalizeSettingsProfileChange(raw.agent ?? raw.agent_profile),
     checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
     training_block: normalizeSettingsTrainingBlockChange(raw.training_block),
   };
@@ -1058,10 +1067,10 @@ function buildSettingsAssistantFallback(text, { message = "", currentWeek = null
         const followupQuestion = cleanText(parsed.followup_question ?? "") || null;
         const changes = coerceSettingsChanges(parsed.changes);
         const hasChanges = Boolean(
-          changes.user_profile ||
-            changes.training_profile ||
-            changes.diet_profile ||
-            changes.agent_profile ||
+          changes.general ||
+            changes.fitness ||
+            changes.diet ||
+            changes.agent ||
             (Array.isArray(changes.checklist_categories) && changes.checklist_categories.length) ||
             changes.training_block,
         );
