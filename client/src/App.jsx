@@ -46,6 +46,7 @@ function normalizeWorkoutRow(row, fallbackCategory = "Workouts") {
   const safe = asObject(row);
   const name = typeof safe.name === "string" ? safe.name.trim() : typeof safe.item === "string" ? safe.item.trim() : "";
   if (!name) return null;
+  const date = typeof safe.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(safe.date) ? safe.date : "";
   return {
     name,
     description: typeof safe.description === "string" ? safe.description : "",
@@ -56,6 +57,7 @@ function normalizeWorkoutRow(row, fallbackCategory = "Workouts") {
     optional: safe.optional === true,
     details: typeof safe.details === "string" ? safe.details : "",
     completed: safe.completed === true || safe.checked === true,
+    date,
   };
 }
 
@@ -120,7 +122,8 @@ function normalizeFitnessWeek(value) {
           ? safe.training_block_description
           : "",
     workouts,
-    summary: typeof safe.summary === "string" ? safe.summary : "",
+    ai_summary: typeof safe.ai_summary === "string" ? safe.ai_summary : typeof safe.summary === "string" ? safe.summary : "",
+    context: typeof safe.context === "string" ? safe.context : "",
   };
 }
 
@@ -557,7 +560,7 @@ export default function App() {
       const json = await getFoodForDate(date);
       if (seq !== sidebarDaySeqRef.current) return;
       const details =
-        typeof json?.day?.details === "string" ? json.day.details : "";
+        typeof json?.day?.ai_summary === "string" ? json.day.ai_summary : "";
       const syntheticEvents = details.trim()
         ? details
             .split("\n")
@@ -1229,11 +1232,11 @@ export default function App() {
 
   const enqueueFitnessSave = useSerialQueue();
 
-  const saveFitnessItem = ({ workoutIndex, completed, details }) => {
+  const saveFitnessItem = ({ workoutIndex, completed, details, date = undefined }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
-      const json = await updateFitnessItem({ workoutIndex, checked: completed, details });
+      const json = await updateFitnessItem({ workoutIndex, checked: completed, details, date });
       setFitnessWeek(normalizeFitnessWeek(json?.week));
       setFitnessStatus("Saved.");
     }).catch((e) => {
@@ -1256,6 +1259,7 @@ export default function App() {
         workoutIndex,
         completed,
         details: list[workoutIndex].details ?? "",
+        date: list[workoutIndex].date || "",
       });
       return next;
     });
@@ -1272,6 +1276,24 @@ export default function App() {
         workoutIndex,
         completed: Boolean(list[workoutIndex].completed),
         details,
+        date: list[workoutIndex].date || "",
+      });
+      return next;
+    });
+  };
+
+  const onEditFitnessDate = (workoutIndex, date) => {
+    setFitnessWeek((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      const list = Array.isArray(next?.workouts) ? next.workouts : [];
+      if (!list[workoutIndex]) return prev;
+      list[workoutIndex].date = date;
+      debouncedSaveFitnessItem(`workout:${workoutIndex}`, {
+        workoutIndex,
+        completed: Boolean(list[workoutIndex].completed),
+        details: typeof list[workoutIndex].details === "string" ? list[workoutIndex].details : "",
+        date,
       });
       return next;
     });
@@ -1541,6 +1563,7 @@ export default function App() {
                   fitnessHistoryLoading={fitnessHistoryLoading}
                   onToggleFitness={onToggleFitness}
                   onEditFitnessDetails={onEditFitnessDetails}
+                  onEditFitnessDate={onEditFitnessDate}
                 />
               ) : null}
 

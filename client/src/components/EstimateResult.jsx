@@ -48,10 +48,10 @@ export default function EstimateResult({ payload, onAsk }) {
         <>
           <h3>Daily row</h3>
           <p className="muted">
-            Complete: <code>{day.complete === true ? "yes" : "no"}</code>
+            Status: <code>{escapeText(day.status || "incomplete")}</code>
           </p>
           <NutrientsTable nutrients={day} />
-          {day.details ? <p className="muted">{escapeText(day.details)}</p> : null}
+          {day.ai_summary ? <p className="muted">{escapeText(day.ai_summary)}</p> : null}
         </>
       ) : null}
 

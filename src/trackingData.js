@@ -30,7 +30,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CATEGORY_KEY = "workouts";
 
 const DAY_NUMERIC_KEYS = ["calories", "fat_g", "carbs_g", "protein_g", "fiber_g"];
-const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
+const DAY_STATUS_VALUES = new Set(["green", "yellow", "red", "incomplete"]);
 
 function seattleParts(date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -136,10 +136,10 @@ function normalizeOptionalText(value) {
   return typeof value === "string" ? value.replace(/\r\n/g, "\n") : "";
 }
 
-function normalizeOnTrack(value) {
-  if (value === null || value === undefined) return null;
+function normalizeDayStatus(value) {
+  if (value === null || value === undefined) return "incomplete";
   const text = normalizeText(value).toLowerCase();
-  return ON_TRACK_VALUES.has(text) ? text : null;
+  return DAY_STATUS_VALUES.has(text) ? text : "incomplete";
 }
 
 function toNumberOrNull(value) {
@@ -205,10 +205,12 @@ function normalizeWeekWorkout(entry) {
   const safe = asObject(entry);
   const name = normalizeText(safe.name || safe.item);
   if (!name) return null;
+  const date = isIsoDateString(safe.date) ? safe.date : null;
   return {
     name,
     details: normalizeOptionalText(safe.details),
     completed: safe.completed === true || safe.checked === true,
+    date,
   };
 }
 
@@ -233,7 +235,8 @@ function normalizeWeek(entry, { requireStart = true } = {}) {
     week_end: isIsoDateString(safe.week_end) ? safe.week_end : getWeekEndSunday(weekStart || getSeattleDateString()),
     block_id: normalizeOptionalText(safe.block_id || safe.training_block_id),
     workouts,
-    summary: normalizeOptionalText(safe.summary),
+    ai_summary: normalizeOptionalText(safe.ai_summary || safe.summary),
+    context: normalizeOptionalText(safe.context),
   };
 }
 
@@ -244,9 +247,8 @@ function normalizeDietDay(row) {
   const out = {
     date,
     weight_lb: toNumberOrNull(safe.weight_lb),
-    complete: safe.complete === true,
-    details: normalizeOptionalText(safe.details || safe.notes),
-    on_track: normalizeOnTrack(safe.on_track),
+    status: normalizeDayStatus(safe.status || safe.on_track),
+    ai_summary: normalizeOptionalText(safe.ai_summary || safe.details || safe.notes),
   };
   for (const key of DAY_NUMERIC_KEYS) {
     out[key] = toNumberOrNull(safe[key]);
@@ -384,19 +386,14 @@ function pickPreferredBlockForDate(blocks, targetDate) {
 
   const active = safeBlocks.filter((block) => {
     const start = isIsoDateString(block.block_start) ? block.block_start : "";
-    const end = isIsoDateString(block.block_end) ? block.block_end : "";
     if (!start) return false;
     if (start > day) return false;
-    if (end && end < day) return false;
     return true;
   });
 
   const sortByLatestStart = (a, b) => String(b.block_start || "").localeCompare(String(a.block_start || ""));
-  const planned = active.filter((block) => isIsoDateString(block.block_end)).sort(sortByLatestStart);
-  if (planned.length) return planned[0];
-
-  const openEnded = active.filter((block) => !isIsoDateString(block.block_end)).sort(sortByLatestStart);
-  if (openEnded.length) return openEnded[0];
+  const activeByStart = active.sort(sortByLatestStart);
+  if (activeByStart.length) return activeByStart[0];
 
   const past = safeBlocks
     .filter((block) => isIsoDateString(block.block_start) && block.block_start <= day)
@@ -432,8 +429,10 @@ function ensureCurrentWeekInCanonical(canonical, now = new Date()) {
       name: workout.name,
       details: "",
       completed: false,
+      date: null,
     })),
-    summary: "",
+    ai_summary: "",
+    context: "",
   };
 
   safe.activity.weeks = upsertWeek(safe.activity.weeks, normalizeWeek(current));
@@ -524,13 +523,16 @@ function canonicalWeekToLegacy(week, block) {
       description: normalizeOptionalText(def?.description),
       checked: row.completed === true,
       details: normalizeOptionalText(row.details),
+      date: isIsoDateString(row.date) ? row.date : null,
     };
   });
 
   return {
     week_start: safeWeek.week_start,
     week_label: weekLabelFromStart(safeWeek.week_start),
-    summary: normalizeOptionalText(safeWeek.summary),
+    summary: normalizeOptionalText(safeWeek.ai_summary),
+    ai_summary: normalizeOptionalText(safeWeek.ai_summary),
+    context: normalizeOptionalText(safeWeek.context),
     training_block_id: normalizeOptionalText(safeWeek.block_id),
     training_block_name: normalizeOptionalText(safeBlock?.block_name),
     training_block_description: normalizeOptionalText(safeBlock?.block_details),
@@ -572,6 +574,7 @@ function canonicalWeekToView(week, block) {
       optional: def?.optional === true,
       details: normalizeOptionalText(workout?.details),
       completed: workout?.completed === true,
+      date: isIsoDateString(workout?.date) ? workout.date : null,
     });
   }
 
@@ -588,6 +591,7 @@ function canonicalWeekToView(week, block) {
       optional: def?.optional === true,
       details: "",
       completed: false,
+      date: null,
     });
   }
 
@@ -601,7 +605,9 @@ function canonicalWeekToView(week, block) {
     block_name: normalizeOptionalText(safeBlock?.block_name),
     block_details: normalizeOptionalText(safeBlock?.block_details),
     workouts,
-    summary: normalizeOptionalText(safeWeek.summary),
+    ai_summary: normalizeOptionalText(safeWeek.ai_summary),
+    context: normalizeOptionalText(safeWeek.context),
+    summary: normalizeOptionalText(safeWeek.ai_summary),
   };
 }
 
@@ -849,11 +855,12 @@ export async function addFoodEvent({
   const now = new Date();
   const loggedAt = formatSeattleIso(now);
 
-  const existing = canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, complete: false, details: "" });
+  const existing =
+    canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const merged = mergeNutrientsIntoDay(existing, nutrients);
 
   const detailsInput = [normalizeText(description), normalizeText(input_text), normalizeText(notes)].filter(Boolean).join(" | ");
-  merged.details = appendDayDetails(existing.details, detailsInput, loggedAt);
+  merged.ai_summary = appendDayDetails(existing.ai_summary, detailsInput, loggedAt);
 
   canonical.food.days = upsertDietDay(canonical.food.days, merged);
   canonical.rules.metadata = {
@@ -907,12 +914,13 @@ export async function updateFoodEvent({
   const now = new Date();
   const loggedAt = formatSeattleIso(now);
 
-  const existing = canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, complete: false, details: "" });
+  const existing =
+    canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const replaced = replaceDayTotals(existing, nutrients);
   const detailsInput = ["updated", normalizeText(description), normalizeText(input_text), normalizeText(notes)]
     .filter(Boolean)
     .join(" | ");
-  replaced.details = appendDayDetails(existing.details, detailsInput, loggedAt);
+  replaced.ai_summary = appendDayDetails(existing.ai_summary, detailsInput, loggedAt);
 
   canonical.food.days = upsertDietDay(canonical.food.days, replaced);
   canonical.rules.metadata = {
@@ -997,6 +1005,7 @@ function weekFromLegacyPatch(legacyWeek, fallbackWeek, blockId) {
         name,
         details: normalizeOptionalText(safeRow.details || fallback?.details),
         completed: safeRow.checked === true || safeRow.completed === true,
+        date: isIsoDateString(safeRow.date) ? safeRow.date : isIsoDateString(fallback?.date) ? fallback.date : null,
       };
     })
     .filter(Boolean);
@@ -1006,15 +1015,22 @@ function weekFromLegacyPatch(legacyWeek, fallbackWeek, blockId) {
     week_end: safeFallback.week_end,
     block_id: blockId || safeFallback.block_id,
     workouts,
-    summary: typeof safeLegacy.summary === "string" ? safeLegacy.summary : safeFallback.summary,
+    ai_summary:
+      typeof safeLegacy.ai_summary === "string"
+        ? safeLegacy.ai_summary
+        : typeof safeLegacy.summary === "string"
+          ? safeLegacy.summary
+          : safeFallback.ai_summary,
+    context: typeof safeLegacy.context === "string" ? safeLegacy.context : safeFallback.context,
   });
 }
 
-export async function updateCurrentWeekItem({ category, index, checked, details }) {
+export async function updateCurrentWeekItem({ category, index, checked, details, date = null }) {
   if (typeof category !== "string" || !category.trim()) throw new Error(`Invalid category: ${category}`);
   if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid index: ${index}`);
   if (typeof checked !== "boolean") throw new Error("Invalid checked value");
   if (typeof details !== "string") throw new Error("Invalid details value");
+  if (!(date === null || isIsoDateString(date))) throw new Error(`Invalid date: ${date}`);
 
   const canonical = await readCanonicalTrackingData();
   const ensured = ensureCurrentWeekInCanonical(canonical);
@@ -1033,6 +1049,7 @@ export async function updateCurrentWeekItem({ category, index, checked, details 
     ...asObject(list[index]),
     checked,
     details,
+    date: date ?? (isIsoDateString(asObject(list[index]).date) ? asObject(list[index]).date : null),
   };
   legacyCurrent[categoryKey] = list;
 
@@ -1067,6 +1084,9 @@ export async function updateCurrentWeekItems(updates) {
     if (!Number.isInteger(update?.index) || update.index < 0) throw new Error(`Invalid index: ${update?.index}`);
     if (typeof update?.checked !== "boolean") throw new Error("Invalid checked value");
     if (typeof update?.details !== "string") throw new Error("Invalid details value");
+    if (!(update?.date === undefined || update?.date === null || isIsoDateString(update.date))) {
+      throw new Error(`Invalid date: ${update?.date}`);
+    }
 
     const categoryKey = resolveFitnessCategoryKey(legacyCurrent, update.category);
     if (!categoryKey) throw new Error(`Invalid category: ${update.category}`);
@@ -1077,6 +1097,12 @@ export async function updateCurrentWeekItems(updates) {
       ...asObject(list[update.index]),
       checked: update.checked,
       details: update.details,
+      date:
+        update?.date === undefined
+          ? isIsoDateString(asObject(list[update.index]).date)
+            ? asObject(list[update.index]).date
+            : null
+          : update.date,
     };
     legacyCurrent[categoryKey] = list;
   }
@@ -1104,7 +1130,7 @@ export async function updateCurrentWeekSummary(summary) {
 
   const next = normalizeWeek({
     ...current,
-    summary,
+    ai_summary: summary,
   });
   ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
   ensured.data.rules.metadata = {
@@ -1138,10 +1164,11 @@ export async function listActivityWeeks({ limit = 12 } = {}) {
   return picked.map((week) => canonicalWeekToView(week, blockById.get(week.block_id))).filter(Boolean);
 }
 
-export async function updateCurrentActivityWorkout({ index, completed, details }) {
+export async function updateCurrentActivityWorkout({ index, completed, details, date = null }) {
   if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid workout index: ${index}`);
   if (typeof completed !== "boolean") throw new Error("Invalid completed value");
   if (typeof details !== "string") throw new Error("Invalid details value");
+  if (!(date === null || isIsoDateString(date))) throw new Error(`Invalid date: ${date}`);
 
   const canonical = await readCanonicalTrackingData();
   const ensured = ensureCurrentWeekInCanonical(canonical);
@@ -1152,6 +1179,7 @@ export async function updateCurrentActivityWorkout({ index, completed, details }
     name: normalizeText(row?.name),
     details: normalizeOptionalText(row?.details),
     completed: row?.completed === true,
+    date: isIsoDateString(row?.date) ? row.date : null,
   }));
   const target = workouts[index];
   if (!target || !target.name) throw new Error("Workout not found");
@@ -1160,6 +1188,7 @@ export async function updateCurrentActivityWorkout({ index, completed, details }
     ...target,
     details: normalizeOptionalText(details),
     completed,
+    date: date ?? target.date ?? null,
   };
 
   const next = normalizeWeek({
@@ -1187,7 +1216,7 @@ export async function updateCurrentActivityWeekSummary(summary) {
 
   const next = normalizeWeek({
     ...current,
-    summary,
+    ai_summary: summary,
   });
   ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
   ensured.data.rules.metadata = {

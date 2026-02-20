@@ -3,7 +3,7 @@ const SHAPE_CURRENT_EXPORT = "current_export";
 const SHAPE_CANONICAL = "canonical";
 const SHAPE_UNSUPPORTED_FORMAT = "unsupported_format";
 const SHAPE_UNKNOWN = "unknown";
-const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
+const DAY_STATUS_VALUES = new Set(["green", "yellow", "red", "incomplete"]);
 
 const PROTECTED_METADATA_KEYS = new Set([
   "data_files",
@@ -52,10 +52,10 @@ function toNumberOrNull(value) {
   return null;
 }
 
-function normalizeOnTrack(value) {
-  if (value === null || value === undefined) return null;
+function normalizeDayStatus(value) {
+  if (value === null || value === undefined) return "incomplete";
   const text = normalizeText(value).toLowerCase();
-  return ON_TRACK_VALUES.has(text) ? text : null;
+  return DAY_STATUS_VALUES.has(text) ? text : "incomplete";
 }
 
 function detectShape(raw) {
@@ -158,7 +158,7 @@ function normalizeWeekWorkout(entry) {
   return {
     name,
     details: normalizeOptionalText(safe.details),
-    completed: safe.completed === true,
+    completed: safe.completed === true || safe.checked === true,
   };
 }
 
@@ -183,7 +183,8 @@ function normalizeWeek(entry) {
     week_end: hasIsoDate(safe.week_end) ? safe.week_end : "",
     block_id: normalizeOptionalText(safe.block_id),
     workouts,
-    summary: normalizeOptionalText(safe.summary),
+    ai_summary: normalizeOptionalText(safe.ai_summary || safe.summary),
+    context: normalizeOptionalText(safe.context),
   };
 }
 
@@ -199,9 +200,8 @@ function normalizeDietDay(row) {
     carbs_g: toNumberOrNull(safe.carbs_g),
     protein_g: toNumberOrNull(safe.protein_g),
     fiber_g: toNumberOrNull(safe.fiber_g),
-    complete: safe.complete === true,
-    details: normalizeOptionalText(safe.details),
-    on_track: normalizeOnTrack(safe.on_track),
+    status: normalizeDayStatus(safe.status || safe.on_track),
+    ai_summary: normalizeOptionalText(safe.ai_summary || safe.details),
   };
 }
 

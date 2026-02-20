@@ -24,7 +24,7 @@ function buildTodayNarrative({ day, totals }) {
     return "Quiet start so far. No meals logged yet today. A steady next step is one balanced meal with carbs, fats, and fiber-forward foods.";
   }
 
-  const detailsText = typeof day?.details === "string" ? day.details : "";
+  const detailsText = typeof day?.ai_summary === "string" ? day.ai_summary : "";
   const info = classifyFoodText(detailsText);
   const tags = [];
   if (info.produce) tags.push("produce/fiber-forward foods");
@@ -112,10 +112,10 @@ export default function DietView({
                     <td>{fmt(totals.fiber_g)}</td>
                   </tr>
                   <tr>
-                    <td className="notesCell" colSpan={6} title={typeof dashDay?.details === "string" ? dashDay.details : ""}>
-                      {typeof dashDay?.details === "string" && dashDay.details.trim()
-                        ? dashDay.details
-                        : "No details logged yet."}
+                    <td className="notesCell" colSpan={6} title={typeof dashDay?.ai_summary === "string" ? dashDay.ai_summary : ""}>
+                      {typeof dashDay?.ai_summary === "string" && dashDay.ai_summary.trim()
+                        ? dashDay.ai_summary
+                        : "No summary logged yet."}
                     </td>
                   </tr>
                 </tbody>
@@ -137,7 +137,7 @@ export default function DietView({
                     <th>Carbs</th>
                     <th>Protein</th>
                     <th>Fiber</th>
-                    <th>Complete</th>
+                    <th>Status</th>
                     <th>Notes</th>
                   </tr>
                 </thead>
@@ -150,9 +150,9 @@ export default function DietView({
                       <td>{fmt(row.carbs_g)}</td>
                       <td>{fmt(row.protein_g)}</td>
                       <td>{fmt(row.fiber_g)}</td>
-                      <td>{row.complete === true ? "Yes" : "No"}</td>
-                      <td className="notesCell" title={row.details ?? ""}>
-                        {row.details ?? ""}
+                      <td>{row.status ?? "incomplete"}</td>
+                      <td className="notesCell" title={row.ai_summary ?? ""}>
+                        {row.ai_summary ?? ""}
                       </td>
                     </tr>
                   ))}

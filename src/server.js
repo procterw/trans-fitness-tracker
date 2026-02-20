@@ -83,7 +83,7 @@ const importUpload = multer({
 });
 const IMPORT_SESSION_TTL_MS = 10 * 60 * 1000;
 const importSessions = new Map();
-const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
+const DAY_STATUS_VALUES = new Set(["green", "yellow", "red", "incomplete"]);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,11 +179,11 @@ function hasNonEmptyArray(value) {
   return Array.isArray(value) && value.some((entry) => hasNonEmptyString(entry));
 }
 
-function normalizeOnTrackValue(value) {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value !== "string") throw new Error("Invalid field: on_track");
+function normalizeDayStatusValue(value) {
+  if (value === null || value === undefined || value === "") return "incomplete";
+  if (typeof value !== "string") throw new Error("Invalid field: status");
   const text = value.trim().toLowerCase();
-  if (!ON_TRACK_VALUES.has(text)) throw new Error("Invalid field: on_track");
+  if (!DAY_STATUS_VALUES.has(text)) throw new Error("Invalid field: status");
   return text;
 }
 
@@ -330,7 +330,12 @@ function applyChecklistCategories(currentWeek, categories) {
   const nextWeek = {
     week_start: typeof safeWeek.week_start === "string" ? safeWeek.week_start : "",
     week_label: typeof safeWeek.week_label === "string" ? safeWeek.week_label : "",
-    summary: typeof safeWeek.summary === "string" ? safeWeek.summary : "",
+    summary:
+      typeof safeWeek.summary === "string"
+        ? safeWeek.summary
+        : typeof safeWeek.ai_summary === "string"
+          ? safeWeek.ai_summary
+          : "",
   };
 
   const usedKeys = new Set();
@@ -761,12 +766,16 @@ function canonicalWeekFromChecklistTemplateWeek(templateWeek, fallbackWeek = nul
         : getWeekEndSundayFromStart(weekStartRaw),
     block_id: blockId,
     workouts: nextWorkouts,
-    summary:
-      typeof safeTemplateWeek.summary === "string"
-        ? safeTemplateWeek.summary
-        : typeof safeFallback.summary === "string"
-          ? safeFallback.summary
-          : "",
+    ai_summary:
+      typeof safeTemplateWeek.ai_summary === "string"
+        ? safeTemplateWeek.ai_summary
+        : typeof safeTemplateWeek.summary === "string"
+          ? safeTemplateWeek.summary
+          : typeof safeFallback.ai_summary === "string"
+            ? safeFallback.ai_summary
+            : typeof safeFallback.summary === "string"
+              ? safeFallback.summary
+              : "",
   };
 }
 
@@ -1882,11 +1891,13 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         });
       }
 
+      const activityDate = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getSuggestedLogDate();
       const updates = resolved.map((u) => ({
         category: u.category,
         index: u.index,
         checked: true,
         details: u.details,
+        date: activityDate,
       }));
       const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
 
@@ -1954,9 +1965,8 @@ function normalizeDietDayPatchInput(body) {
     carbs_g: toNumberOrNull(safe.carbs_g),
     protein_g: toNumberOrNull(safe.protein_g),
     fiber_g: toNumberOrNull(safe.fiber_g),
-    complete: safe.complete === true,
-    details: typeof safe.details === "string" ? safe.details : "",
-    on_track: normalizeOnTrackValue(safe.on_track),
+    status: normalizeDayStatusValue(safe.status ?? safe.on_track),
+    ai_summary: typeof safe.ai_summary === "string" ? safe.ai_summary : typeof safe.details === "string" ? safe.details : "",
   };
 
   return patch;
@@ -2081,11 +2091,15 @@ app.post("/api/fitness/current/item", async (req, res) => {
     const index = typeof req.body?.workout_index === "number" ? req.body.workout_index : Number(req.body?.workout_index);
     const checked = typeof req.body?.checked === "boolean" ? req.body.checked : null;
     const details = typeof req.body?.details === "string" ? req.body.details : "";
+    const dateRaw = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    if (dateRaw !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+      return res.status(400).json({ ok: false, error: "Invalid field: date" });
+    }
 
     if (!Number.isInteger(index) || index < 0) return res.status(400).json({ ok: false, error: "Invalid field: workout_index" });
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
-    await updateCurrentActivityWorkout({ index, completed: checked, details });
+    await updateCurrentActivityWorkout({ index, completed: checked, details, date: dateRaw });
     const checklistWeek = await ensureCurrentWeek();
     await refreshCurrentWeekSummaryForActivity(checklistWeek);
     const week = await getCurrentActivityWeek();
@@ -2096,6 +2110,7 @@ app.post("/api/fitness/current/item", async (req, res) => {
       message.startsWith("Invalid workout index:") ||
       message.startsWith("Invalid completed value") ||
       message.startsWith("Invalid details value") ||
+      message.startsWith("Invalid date:") ||
       message.startsWith("Workout not found");
     res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
   }
@@ -2103,7 +2118,12 @@ app.post("/api/fitness/current/item", async (req, res) => {
 
 app.post("/api/fitness/current/summary", async (req, res) => {
   try {
-    const summary = typeof req.body?.summary === "string" ? req.body.summary : "";
+    const summary =
+      typeof req.body?.summary === "string"
+        ? req.body.summary
+        : typeof req.body?.ai_summary === "string"
+          ? req.body.ai_summary
+          : "";
     const week = await updateCurrentActivityWeekSummary(summary);
     res.json({ ok: true, week });
   } catch (err) {

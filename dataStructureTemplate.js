@@ -11,6 +11,7 @@ const user_profile_data_structure = {
   // Crucially, recipes and shorthands for logging food go in here
   "diet": "",
   // Very optional user preferences for interacting with GPT-5
+  // There should probably be default instructions in this for new users?
   "agent": "",
 };
 
@@ -54,16 +55,21 @@ const training_data_structure = {
         {
           "name": "Long ride",
           "details": "Zwift ride: 15.9 mi, 50 min, 566 ft gain, 140W avg power, max 286W; 407 cal",
-          "completed": true
+          "completed": true,
+          "date": "2026-01-26"
         },
         {
           "name": "Gym workout #1",
           "details": "",
-          "completed": false
+          "completed": false,
+          "date": null
         },
       ],
       // AI generated summary that updates throughout the week as more activities are logged
-      "summary": "High overall volume with a demanding hike, two aerobic runs, and well-controlled glute work (one hard, one easy, one outlier). Quality run achieved without overreaching. Stopping here appropriate given cumulative load.",
+      "ai_summary": "High overall volume with a demanding hike, two aerobic runs, and well-controlled glute work (one hard, one easy, one outlier). Quality run achieved without overreaching. Stopping here appropriate given cumulative load.",
+      // Human written context or notes on the week of training
+      // One example would be logging illness, which the agent could then use to change recommendations or feedback
+      "context": "Feeling really good this week!"
     }
   ]
 
@@ -79,13 +85,12 @@ const diet_data_structure = [
     "carbs_g": 173,
     "protein_g": 35,
     "fiber_g": 11,
-    // days are incomplete by default until the user says otherwise or a threshold of calories is reached
-    "complete": false,
     // Optional quick status flag for whether the day is aligned with goals
-    // Allowed values: "green", "yellow", "red", or null
-    "on_track": null,
+    // Until a threshold of calories is met, is marked as "incomplete"
+    // Allowed values: "green", "yellow", "red", 
+    "status": "incomplete",
     // AI generated summray that tracks what food was eaten, as well as a general impression
     // of how it fits into the users goals and activity
-    "details": "Breakfast: 3 eggs in 1-2 Tbsp butter, 2 slices rye toast. Snacks: Standard smoothie, half cheese sandwich, handful gummy worms, 3 pieces See's chocolate, cup soy milk. Dinner: Chicken teriyaki from Teriyaki Bowl with gyoza, glass of wine. Slightly elevated but diffuse and fat-paired."
+    "ai_summary": "Breakfast: 3 eggs in 1-2 Tbsp butter, 2 slices rye toast. Snacks: Standard smoothie, half cheese sandwich, handful gummy worms, 3 pieces See's chocolate, cup soy milk. Dinner: Chicken teriyaki from Teriyaki Bowl with gyoza, glass of wine. Slightly elevated but diffuse and fat-paired."
   }
 ];

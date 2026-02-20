@@ -276,7 +276,12 @@ export function summarizeActivityUpdates(updates) {
 
 export async function refreshCurrentWeekSummaryForActivity(currentWeek) {
   const summary = generateWeeklyFitnessSummary(currentWeek);
-  const previous = typeof currentWeek?.summary === "string" ? currentWeek.summary.trim() : "";
+  const previous =
+    typeof currentWeek?.ai_summary === "string"
+      ? currentWeek.ai_summary.trim()
+      : typeof currentWeek?.summary === "string"
+        ? currentWeek.summary.trim()
+        : "";
   if (summary.trim() === previous) return currentWeek;
   return updateCurrentWeekSummary(summary);
 }
@@ -285,5 +290,6 @@ export function isExistingActivityEntry(currentWeek, update) {
   const item = currentWeek?.[update?.category]?.[update?.index];
   if (!item || typeof item !== "object") return false;
   const hasDetails = typeof item.details === "string" && item.details.trim().length > 0;
-  return Boolean(item.checked) || hasDetails;
+  const hasDate = typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date.trim());
+  return Boolean(item.checked) || hasDetails || hasDate;
 }
