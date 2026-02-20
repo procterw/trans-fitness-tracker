@@ -30,6 +30,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CATEGORY_KEY = "workouts";
 
 const DAY_NUMERIC_KEYS = ["calories", "fat_g", "carbs_g", "protein_g", "fiber_g"];
+const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
 
 function seattleParts(date) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -133,6 +134,12 @@ function normalizeText(value) {
 
 function normalizeOptionalText(value) {
   return typeof value === "string" ? value.replace(/\r\n/g, "\n") : "";
+}
+
+function normalizeOnTrack(value) {
+  if (value === null || value === undefined) return null;
+  const text = normalizeText(value).toLowerCase();
+  return ON_TRACK_VALUES.has(text) ? text : null;
 }
 
 function toNumberOrNull(value) {
@@ -239,6 +246,7 @@ function normalizeDietDay(row) {
     weight_lb: toNumberOrNull(safe.weight_lb),
     complete: safe.complete === true,
     details: normalizeOptionalText(safe.details || safe.notes),
+    on_track: normalizeOnTrack(safe.on_track),
   };
   for (const key of DAY_NUMERIC_KEYS) {
     out[key] = toNumberOrNull(safe[key]);
@@ -369,6 +377,40 @@ function upsertWeek(weeks, nextWeek) {
   return out;
 }
 
+function pickPreferredBlockForDate(blocks, targetDate) {
+  const safeBlocks = canonicalizeBlocks(blocks);
+  const day = isIsoDateString(targetDate) ? targetDate : getSeattleDateString();
+  if (!safeBlocks.length) return null;
+
+  const active = safeBlocks.filter((block) => {
+    const start = isIsoDateString(block.block_start) ? block.block_start : "";
+    const end = isIsoDateString(block.block_end) ? block.block_end : "";
+    if (!start) return false;
+    if (start > day) return false;
+    if (end && end < day) return false;
+    return true;
+  });
+
+  const sortByLatestStart = (a, b) => String(b.block_start || "").localeCompare(String(a.block_start || ""));
+  const planned = active.filter((block) => isIsoDateString(block.block_end)).sort(sortByLatestStart);
+  if (planned.length) return planned[0];
+
+  const openEnded = active.filter((block) => !isIsoDateString(block.block_end)).sort(sortByLatestStart);
+  if (openEnded.length) return openEnded[0];
+
+  const past = safeBlocks
+    .filter((block) => isIsoDateString(block.block_start) && block.block_start <= day)
+    .sort(sortByLatestStart);
+  if (past.length) return past[0];
+
+  const future = safeBlocks
+    .filter((block) => isIsoDateString(block.block_start) && block.block_start > day)
+    .sort((a, b) => String(a.block_start || "").localeCompare(String(b.block_start || "")));
+  if (future.length) return future[0];
+
+  return safeBlocks[safeBlocks.length - 1] || null;
+}
+
 function ensureCurrentWeekInCanonical(canonical, now = new Date()) {
   const seattleDate = getSeattleDateString(now);
   const weekStart = getWeekStartMonday(seattleDate);
@@ -377,11 +419,10 @@ function ensureCurrentWeekInCanonical(canonical, now = new Date()) {
   let current = safe.activity.weeks.find((week) => week.week_start === weekStart) || null;
   if (current) return { data: safe, currentWeek: current, changed: false };
 
-  const metadata = asObject(safe.rules.metadata);
-  const activeBlockId =
-    normalizeText(metadata?.training_blocks?.active_block_id) ||
-    normalizeText(safe.activity.blocks[safe.activity.blocks.length - 1]?.block_id);
-  const activeBlock = safe.activity.blocks.find((block) => block.block_id === activeBlockId) || safe.activity.blocks[safe.activity.blocks.length - 1] || null;
+  const activeBlock =
+    pickPreferredBlockForDate(safe.activity.blocks, seattleDate) ||
+    safe.activity.blocks[safe.activity.blocks.length - 1] ||
+    null;
 
   current = {
     week_start: weekStart,
@@ -428,6 +469,8 @@ function metadataTrainingBlocksFromCanonical(activity, metadata = {}) {
       id: block.block_id,
       name: block.block_name,
       description: block.block_details,
+      block_start: block.block_start,
+      block_end: block.block_end,
       category_order: template?.category_order ?? [DEFAULT_CATEGORY_KEY],
       category_labels: template?.category_labels ?? { [DEFAULT_CATEGORY_KEY]: "Workouts" },
       checklist:
@@ -449,7 +492,8 @@ function metadataTrainingBlocksFromCanonical(activity, metadata = {}) {
   });
 
   const activeFromMeta = normalizeText(safeMetadata?.training_blocks?.active_block_id);
-  const activeBlockId = activeFromMeta || normalizeText(blocks[blocks.length - 1]?.block_id) || null;
+  const activeFromDate = normalizeText(pickPreferredBlockForDate(blocks, getSeattleDateString())?.block_id);
+  const activeBlockId = activeFromDate || activeFromMeta || normalizeText(blocks[blocks.length - 1]?.block_id) || null;
 
   const outMeta = {
     ...safeMetadata,
@@ -1168,6 +1212,8 @@ export function summarizeTrainingBlocks(data) {
       id: normalizeOptionalText(block.id),
       name: normalizeOptionalText(block.name),
       description: normalizeOptionalText(block.description),
+      block_start: isIsoDateString(block.block_start) ? block.block_start : "",
+      block_end: isIsoDateString(block.block_end) ? block.block_end : "",
       category_order: asArray(block.category_order).filter((value) => typeof value === "string"),
       updated_at: typeof block.updated_at === "string" ? block.updated_at : "",
     })),

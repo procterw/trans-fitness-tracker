@@ -1,6 +1,7 @@
 import React from "react";
 
 import AutoGrowTextarea from "../components/AutoGrowTextarea.jsx";
+import { localDateString } from "../utils/date.js";
 
 function workoutKey(name) {
   return String(name || "")
@@ -92,7 +93,18 @@ function renderFitnessHistoryTableForWeeks({ weeks }) {
 }
 
 function renderFitnessHistoryByPhase({ fitnessHistory }) {
-  const weeks = Array.isArray(fitnessHistory) ? [...fitnessHistory].reverse() : [];
+  const today = localDateString(new Date());
+  const weeks = Array.isArray(fitnessHistory)
+    ? [...fitnessHistory]
+        .filter((week) => {
+          const weekStart = typeof week?.week_start === "string" ? week.week_start : "";
+          const blockStart = typeof week?.block_start === "string" ? week.block_start : "";
+          if (weekStart) return weekStart <= today;
+          if (blockStart) return blockStart <= today;
+          return true;
+        })
+        .reverse()
+    : [];
   if (!weeks.length) return <p className="muted">No past weeks yet.</p>;
 
   const groups = [];

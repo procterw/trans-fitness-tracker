@@ -86,7 +86,10 @@ This repo includes a minimal local web app that supports:
   - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `GET /api/user/export` → returns all user tracking data for export/download
-  - includes `exported_at`, authenticated `user_id`, and full tracking payload (`data`)
+  - includes `exported_at`, authenticated `user_id`, and import/export payload (`data`) shaped as:
+    - `user_profile` (`general`, `fitness`, `diet`, `agent`)
+    - `training` (`blocks`, `weeks`)
+    - `diet` (array of day rows)
 - `POST /api/user/import/analyze` → multipart form with `file` and/or pasted JSON text field (`raw_text`)
   - Parses canonical JSON payloads (including current export envelope) and returns shape detection, per-domain importability summary, warnings, preview metadata, and an `import_token`
 - `POST /api/user/import/confirm` → JSON body: `import_token`, `confirm_text`
@@ -99,7 +102,7 @@ This repo includes a minimal local web app that supports:
   - Updates the matching day row in `tracking-food.json.days`
   - Returns the estimate, normalized meal event metadata, updated day totals, and updated day row
 - `GET /api/food/day?date=YYYY-MM-DD` → day row + day totals for that date
-- `POST /api/food/day` → direct write/update of a day row (`date`, nutrients, `complete`, `details`)
+- `POST /api/food/day` → direct write/update of a day row (`date`, nutrients, `complete`, `details`, `on_track`)
 - `GET /api/food/log` → list of day rows (supports `limit`, `from`, `to`)
 - `GET /api/fitness/current` → rollover-aware canonical current week payload (`week`)
   - `week` shape: `{ week_start, week_end, week_label, block_id, block_start, block_end, block_name, block_details, workouts[], summary }`
@@ -128,6 +131,7 @@ Photo + manual logs update one row in `tracking-food.json.days`:
 - `calories`, `fat_g`, `carbs_g`, `protein_g`, `fiber_g`
 - `complete`
 - `details` (free text; includes the human-readable food narrative)
+- `on_track` (`"green" | "yellow" | "red" | null`)
 
 Meal responses still include lightweight event metadata (`id`, `source`, `description`, `logged_at`) for chat continuity, but persistent storage is day-centric.
 

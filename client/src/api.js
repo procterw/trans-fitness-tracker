@@ -288,7 +288,7 @@ export async function getFitnessCurrent() {
 
 export async function getFitnessHistory({ limit = 12 } = {}) {
   const params = new URLSearchParams();
-  if (limit) params.set("limit", String(limit));
+  if (limit !== null && limit !== undefined) params.set("limit", String(limit));
   const qs = params.toString();
   return fetchJson(`/api/fitness/history${qs ? `?${qs}` : ""}`);
 }

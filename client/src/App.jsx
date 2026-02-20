@@ -164,6 +164,40 @@ function checklistCategoriesFromFitnessWeek(week) {
   return Array.from(byCategory.values());
 }
 
+function normalizeSettingsTrainingBlocks(value) {
+  const safe = asObject(value);
+  const rawBlocks = Array.isArray(safe.blocks) ? safe.blocks : [];
+  const blocks = rawBlocks
+    .map((row) => {
+      const safeRow = asObject(row);
+      const id = typeof safeRow.id === "string" ? safeRow.id.trim() : "";
+      if (!id) return null;
+      return {
+        id,
+        name: typeof safeRow.name === "string" ? safeRow.name.trim() : "",
+        description: typeof safeRow.description === "string" ? safeRow.description.trim() : "",
+        block_start: typeof safeRow.block_start === "string" ? safeRow.block_start : "",
+        block_end: typeof safeRow.block_end === "string" ? safeRow.block_end : "",
+        updated_at: typeof safeRow.updated_at === "string" ? safeRow.updated_at : "",
+      };
+    })
+    .filter(Boolean);
+
+  const activeRaw = typeof safe.active_block_id === "string" ? safe.active_block_id.trim() : "";
+  const hasActive = activeRaw && blocks.some((row) => row.id === activeRaw);
+  return {
+    active_block_id: hasActive ? activeRaw : "",
+    blocks,
+  };
+}
+
+function pickDisplayWeekForBlock({ blockId, currentWeek, historyWeeks }) {
+  if (!blockId) return currentWeek || null;
+  if (currentWeek?.block_id === blockId) return currentWeek;
+  const match = (Array.isArray(historyWeeks) ? historyWeeks : []).find((week) => week?.block_id === blockId);
+  return match || null;
+}
+
 export default function App() {
   const [view, setView] = useState("chat");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -206,6 +240,8 @@ export default function App() {
   const sidebarDaySeqRef = useRef(0);
   const [settingsProfilesSaved, setSettingsProfilesSaved] = useState(() => normalizeSettingsProfiles({}));
   const [settingsProfilesDraft, setSettingsProfilesDraft] = useState(() => normalizeSettingsProfiles({}));
+  const [settingsTrainingBlocks, setSettingsTrainingBlocks] = useState(() => normalizeSettingsTrainingBlocks({}));
+  const [settingsSelectedBlockId, setSettingsSelectedBlockId] = useState("");
 
   // Workouts view state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -315,8 +351,24 @@ export default function App() {
     const normalized = normalizeSettingsProfiles(json?.profiles);
     setSettingsProfilesSaved(normalized);
     setSettingsProfilesDraft(normalized);
+    setSettingsTrainingBlocks(normalizeSettingsTrainingBlocks(json?.training_blocks));
     return normalized;
   }, []);
+
+  useEffect(() => {
+    const blocks = Array.isArray(settingsTrainingBlocks.blocks) ? settingsTrainingBlocks.blocks : [];
+    if (!blocks.length) {
+      if (settingsSelectedBlockId) setSettingsSelectedBlockId("");
+      return;
+    }
+    if (settingsSelectedBlockId && blocks.some((row) => row.id === settingsSelectedBlockId)) return;
+
+    const fallbackId =
+      settingsTrainingBlocks.active_block_id ||
+      (typeof fitnessWeek?.block_id === "string" ? fitnessWeek.block_id : "") ||
+      blocks[0].id;
+    setSettingsSelectedBlockId(fallbackId);
+  }, [settingsTrainingBlocks, settingsSelectedBlockId, fitnessWeek?.block_id]);
 
   useEffect(() => {
     if (signedOut) return;
@@ -419,7 +471,7 @@ export default function App() {
     setFitnessHistoryLoading(true);
     setFitnessHistoryError("");
     try {
-      const json = await getFitnessHistory({ limit: 8 });
+      const json = await getFitnessHistory({ limit: 0 });
       const weeks = Array.isArray(json?.weeks) ? json.weeks.map((week) => normalizeFitnessWeek(week)).filter(Boolean) : [];
       setFitnessHistory(weeks);
     } catch (e) {
@@ -461,7 +513,7 @@ export default function App() {
 
   useEffect(() => {
     if (signedOut) return;
-    if (view === "workouts") {
+    if (view === "workouts" || view === "settings") {
       loadFitness();
       loadFitnessHistory();
     }
@@ -1246,6 +1298,96 @@ export default function App() {
 
   const dashDay = dashPayload?.day ?? null;
   const dashDayTotals = dashPayload?.day_totals ?? null;
+  const settingsBlockOptions = useMemo(() => {
+    const blocks = Array.isArray(settingsTrainingBlocks.blocks) ? [...settingsTrainingBlocks.blocks] : [];
+    const knownBlockIds = new Set(blocks.map((row) => row.id));
+    const weeksForBlocks = [fitnessWeek, ...(Array.isArray(fitnessHistory) ? fitnessHistory : [])].filter(Boolean);
+    for (const week of weeksForBlocks) {
+      const id = typeof week?.block_id === "string" ? week.block_id.trim() : "";
+      if (!id || knownBlockIds.has(id)) continue;
+      knownBlockIds.add(id);
+      blocks.push({
+        id,
+        name: typeof week?.block_name === "string" ? week.block_name : "",
+        description: typeof week?.block_details === "string" ? week.block_details : "",
+        block_start: typeof week?.block_start === "string" ? week.block_start : "",
+        block_end: typeof week?.block_end === "string" ? week.block_end : "",
+        updated_at: "",
+      });
+    }
+    const currentBlockId = typeof fitnessWeek?.block_id === "string" ? fitnessWeek.block_id : "";
+    if (currentBlockId && !blocks.some((row) => row.id === currentBlockId)) {
+      blocks.push({
+        id: currentBlockId,
+        name: typeof fitnessWeek?.block_name === "string" ? fitnessWeek.block_name : "Current block",
+        description: typeof fitnessWeek?.block_details === "string" ? fitnessWeek.block_details : "",
+        block_start: typeof fitnessWeek?.block_start === "string" ? fitnessWeek.block_start : "",
+        block_end: typeof fitnessWeek?.block_end === "string" ? fitnessWeek.block_end : "",
+        updated_at: "",
+      });
+    }
+    const activeId = settingsTrainingBlocks.active_block_id || fitnessWeek?.block_id || "";
+    const activeIndex = blocks.findIndex((row) => row.id === activeId);
+    const today = localDateString(new Date());
+
+    const blockRanges = new Map();
+    const allWeeks = [fitnessWeek, ...(Array.isArray(fitnessHistory) ? fitnessHistory : [])].filter(Boolean);
+    for (const week of allWeeks) {
+      const id = typeof week?.block_id === "string" ? week.block_id : "";
+      if (!id) continue;
+      const start = typeof week?.block_start === "string" ? week.block_start : "";
+      const end = typeof week?.block_end === "string" ? week.block_end : "";
+      if (!blockRanges.has(id)) {
+        blockRanges.set(id, { start: "", end: "" });
+      }
+      const range = blockRanges.get(id);
+      if (start && (!range.start || start < range.start)) range.start = start;
+      if (end && (!range.end || end > range.end)) range.end = end;
+    }
+
+    return blocks.map((row, index) => {
+      const rangeFromBlock = {
+        start: typeof row.block_start === "string" ? row.block_start : "",
+        end: typeof row.block_end === "string" ? row.block_end : "",
+      };
+      const rangeFromWeeks = blockRanges.get(row.id) || { start: "", end: "" };
+      const range = {
+        start: rangeFromBlock.start || rangeFromWeeks.start,
+        end: rangeFromBlock.end || rangeFromWeeks.end,
+      };
+      const hasRange = Boolean(range?.start || range?.end);
+      let phase = "Block";
+      if (hasRange) {
+        if (range.end && range.end < today) phase = "Past";
+        else if (range.start && range.start > today) phase = "Future";
+        else phase = "Current";
+      } else if (activeIndex >= 0) {
+        phase = index < activeIndex ? "Past" : index > activeIndex ? "Future" : "Current";
+      }
+      const title = row.name || "Untitled block";
+      return {
+        id: row.id,
+        label: `${title} (${phase})`,
+        name: title,
+        description: row.description,
+      };
+    });
+  }, [settingsTrainingBlocks, fitnessWeek, fitnessHistory]);
+
+  const selectedBlockOption =
+    settingsBlockOptions.find((row) => row.id === settingsSelectedBlockId) ||
+    settingsBlockOptions.find((row) => row.id === (settingsTrainingBlocks.active_block_id || fitnessWeek?.block_id || "")) ||
+    null;
+  const settingsDisplayWeek = pickDisplayWeekForBlock({
+    blockId: selectedBlockOption?.id || "",
+    currentWeek: fitnessWeek,
+    historyWeeks: fitnessHistory,
+  });
+  const settingsChecklistCategories = checklistCategoriesFromFitnessWeek(settingsDisplayWeek);
+  const settingsChecklistWeekLabel = settingsDisplayWeek?.week_label || "";
+  const settingsChecklistPhaseName = selectedBlockOption?.name || settingsDisplayWeek?.block_name || fitnessWeek?.block_name || "";
+  const settingsChecklistPhaseDescription =
+    selectedBlockOption?.description || settingsDisplayWeek?.block_details || fitnessWeek?.block_details || "";
 
   const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
   const sidebarDayLineNames = sidebarDayDetailLines
@@ -1344,10 +1486,13 @@ export default function App() {
             onSettingsInputChange={setSettingsInput}
             onSettingsInputAutoSize={autosizeComposerTextarea}
             onSettingsProfileChange={onSettingsProfileChange}
-            checklistCategories={checklistCategoriesFromFitnessWeek(fitnessWeek)}
-            checklistWeekLabel={fitnessWeek?.week_label || ""}
-            checklistPhaseName={fitnessWeek?.block_name || ""}
-            checklistPhaseDescription={fitnessWeek?.block_details || ""}
+            checklistCategories={settingsChecklistCategories}
+            checklistWeekLabel={settingsChecklistWeekLabel}
+            checklistPhaseName={settingsChecklistPhaseName}
+            checklistPhaseDescription={settingsChecklistPhaseDescription}
+            blockOptions={settingsBlockOptions}
+            selectedBlockId={selectedBlockOption?.id || ""}
+            onSelectBlock={setSettingsSelectedBlockId}
           />
         ) : (
           <div className="mainContentRow">

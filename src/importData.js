@@ -3,6 +3,7 @@ const SHAPE_CURRENT_EXPORT = "current_export";
 const SHAPE_CANONICAL = "canonical";
 const SHAPE_UNSUPPORTED_FORMAT = "unsupported_format";
 const SHAPE_UNKNOWN = "unknown";
+const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
 
 const PROTECTED_METADATA_KEYS = new Set([
   "data_files",
@@ -51,6 +52,12 @@ function toNumberOrNull(value) {
   return null;
 }
 
+function normalizeOnTrack(value) {
+  if (value === null || value === undefined) return null;
+  const text = normalizeText(value).toLowerCase();
+  return ON_TRACK_VALUES.has(text) ? text : null;
+}
+
 function detectShape(raw) {
   const safe = asObject(raw);
   const exportData = asObject(asObject(safe.export).data);
@@ -59,13 +66,22 @@ function detectShape(raw) {
   const embeddedData = asObject(safe.data);
   if (Object.keys(embeddedData).length) return SHAPE_CURRENT_EXPORT;
 
-  if (safe.profile || safe.activity || safe.food || safe.rules || safe.training) return SHAPE_CANONICAL;
+  if (
+    safe.profile ||
+    safe.activity ||
+    safe.food ||
+    safe.rules ||
+    safe.training ||
+    safe.user_profile ||
+    Array.isArray(safe.diet)
+  ) {
+    return SHAPE_CANONICAL;
+  }
 
   if (
     safe.food_log ||
     safe.food_events ||
     safe.fitness_weeks ||
-    safe.user_profile ||
     safe.training_profile ||
     safe.diet_profile ||
     safe.agent_profile
@@ -185,6 +201,7 @@ function normalizeDietDay(row) {
     fiber_g: toNumberOrNull(safe.fiber_g),
     complete: safe.complete === true,
     details: normalizeOptionalText(safe.details),
+    on_track: normalizeOnTrack(safe.on_track),
   };
 }
 
@@ -246,16 +263,19 @@ export function analyzeImportPayload(raw) {
     warnings.push("Older import formats are no longer supported. Import a current canonical export instead.");
   }
 
-  const profileRoot = asObject(source.profile);
+  const profileRootSource = asObject(source.profile);
+  const profileRoot = Object.keys(profileRootSource).length ? profileRootSource : asObject(source.user_profile);
   const profilePresent = Object.keys(profileRoot).length > 0;
   const profileValue = normalizeProfile(profileRoot);
   const profileFields = ["general", "fitness", "diet", "agent"].filter((field) => field in profileRoot);
   const profileImportable = profileFields.length > 0;
 
-  const foodDaysRaw = asArray(asObject(source.food).days);
-  const foodDaysPresent = asObject(source.food).days !== undefined;
+  const foodRoot = asObject(source.food);
+  const foodDaysSource = foodRoot.days !== undefined ? foodRoot.days : source.diet;
+  const foodDaysRaw = asArray(foodDaysSource);
+  const foodDaysPresent = foodDaysSource !== undefined;
   const foodDays = canonicalizeByKey(foodDaysRaw.map((row) => normalizeDietDay(row)).filter(Boolean), "date");
-  if (foodDaysPresent && !foodDays.length) warnings.push("food.days was present but no valid day rows were found.");
+  if (foodDaysPresent && !foodDays.length) warnings.push("diet (or food.days) was present but no valid day rows were found.");
 
   const activityRoot = asObject(source.activity);
   const trainingRoot = asObject(source.training);
@@ -263,12 +283,12 @@ export function analyzeImportPayload(raw) {
   const blocksRaw = asArray(activityRoot.blocks !== undefined ? activityRoot.blocks : trainingRoot.blocks);
   const blocksPresent = activityRoot.blocks !== undefined || trainingRoot.blocks !== undefined;
   const blocks = canonicalizeByKey(blocksRaw.map((row) => normalizeBlock(row)).filter(Boolean), "block_id");
-  if (blocksPresent && !blocks.length) warnings.push("activity.blocks was present but no valid blocks were found.");
+  if (blocksPresent && !blocks.length) warnings.push("training/activity blocks were present but no valid blocks were found.");
 
   const weeksRaw = asArray(activityRoot.weeks !== undefined ? activityRoot.weeks : trainingRoot.weeks);
   const weeksPresent = activityRoot.weeks !== undefined || trainingRoot.weeks !== undefined;
   const weeks = canonicalizeByKey(weeksRaw.map((row) => normalizeWeek(row)).filter(Boolean), "week_start");
-  if (weeksPresent && !weeks.length) warnings.push("activity.weeks was present but no valid weeks were found.");
+  if (weeksPresent && !weeks.length) warnings.push("training/activity weeks were present but no valid weeks were found.");
 
   const rules = normalizeRulesDomain(source);
 

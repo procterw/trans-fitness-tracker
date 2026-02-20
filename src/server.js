@@ -83,6 +83,7 @@ const importUpload = multer({
 });
 const IMPORT_SESSION_TTL_MS = 10 * 60 * 1000;
 const importSessions = new Map();
+const ON_TRACK_VALUES = new Set(["green", "yellow", "red"]);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -176,6 +177,38 @@ function hasNonEmptyString(value) {
 
 function hasNonEmptyArray(value) {
   return Array.isArray(value) && value.some((entry) => hasNonEmptyString(entry));
+}
+
+function normalizeOnTrackValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") throw new Error("Invalid field: on_track");
+  const text = value.trim().toLowerCase();
+  if (!ON_TRACK_VALUES.has(text)) throw new Error("Invalid field: on_track");
+  return text;
+}
+
+function normalizeExportProfileText(value) {
+  return typeof value === "string" ? value : "";
+}
+
+function toImportExportDataShape(data) {
+  const safe = isPlainObject(data) ? data : {};
+  const profile = asObject(safe.profile);
+  const activity = asObject(safe.activity);
+  const food = asObject(safe.food);
+  return {
+    user_profile: {
+      general: normalizeExportProfileText(profile.general),
+      fitness: normalizeExportProfileText(profile.fitness),
+      diet: normalizeExportProfileText(profile.diet),
+      agent: normalizeExportProfileText(profile.agent),
+    },
+    training: {
+      blocks: Array.isArray(activity.blocks) ? activity.blocks : [],
+      weeks: Array.isArray(activity.weeks) ? activity.weeks : [],
+    },
+    diet: Array.isArray(food.days) ? food.days : [],
+  };
 }
 
 function normalizeGoalList(value) {
@@ -471,6 +504,18 @@ function hasCurrentWeekProgress(currentWeek) {
   return false;
 }
 
+function findOpenEndedTrainingBlockIds(blocks) {
+  const ids = [];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const id = typeof block?.id === "string" ? block.id.trim() : "";
+    if (!id) continue;
+    const end = typeof block?.block_end === "string" ? block.block_end.trim() : "";
+    if (end && isIsoDateString(end)) continue;
+    ids.push(id);
+  }
+  return ids;
+}
+
 function normalizeStoredTrainingBlocks(metadata) {
   const safeMetadata = isPlainObject(metadata) ? metadata : {};
   const raw = isPlainObject(safeMetadata.training_blocks) ? safeMetadata.training_blocks : {};
@@ -485,6 +530,8 @@ function normalizeStoredTrainingBlocks(metadata) {
         id,
         name: normalizeTrainingBlockName(block?.name),
         description: normalizeTrainingBlockDescription(block?.description),
+        block_start: typeof block?.block_start === "string" && isIsoDateString(block.block_start) ? block.block_start : "",
+        block_end: typeof block?.block_end === "string" && isIsoDateString(block.block_end) ? block.block_end : "",
         category_order: categoryOrder,
         category_labels: isPlainObject(block?.category_labels) ? block.category_labels : {},
         checklist,
@@ -540,13 +587,17 @@ function canonicalBlockFromStoredTrainingBlock(block, fallbackBlock = null) {
       ? safeBlock.created_at.slice(0, 10)
       : "";
   const blockStart = fallbackStart || createdAtDate || getSeattleDateString(new Date());
+  const explicitStart =
+    typeof safeBlock.block_start === "string" && isIsoDateString(safeBlock.block_start) ? safeBlock.block_start : "";
   const fallbackEnd =
     typeof fallbackBlock?.block_end === "string" && isIsoDateString(fallbackBlock.block_end) ? fallbackBlock.block_end : "";
+  const explicitEnd =
+    typeof safeBlock.block_end === "string" && isIsoDateString(safeBlock.block_end) ? safeBlock.block_end : "";
 
   return {
     block_id: blockId,
-    block_start: blockStart,
-    block_end: fallbackEnd,
+    block_start: explicitStart || blockStart,
+    block_end: explicitEnd || fallbackEnd,
     block_name: normalizeTrainingBlockName(safeBlock.name),
     block_details: normalizeTrainingBlockDescription(safeBlock.description),
     workouts,
@@ -604,6 +655,14 @@ function buildTrainingBlockFromTemplate({
     id,
     name: resolvedName,
     description: resolvedDescription,
+    block_start:
+      typeof existing?.block_start === "string" && isIsoDateString(existing.block_start)
+        ? existing.block_start
+        : createdAt.slice(0, 10),
+    block_end:
+      typeof existing?.block_end === "string" && isIsoDateString(existing.block_end)
+        ? existing.block_end
+        : "",
     category_order: safeTemplate.category_order,
     category_labels: isPlainObject(safeTemplate.category_labels) ? safeTemplate.category_labels : {},
     checklist: templateToChecklistObject(safeTemplate),
@@ -1163,6 +1222,12 @@ async function applySettingsChanges({ proposal }) {
   }
 
   if (trainingBlockChanged || phaseShiftRequested) {
+    const openEndedIds = findOpenEndedTrainingBlockIds(blocks);
+    if (openEndedIds.length > 1) {
+      throw new Error(
+        `Invalid training block configuration: only one open-ended block is allowed (found ${openEndedIds.length}).`,
+      );
+    }
     activeBlockId = targetBlockId;
     metadata.training_blocks = {
       active_block_id: activeBlockId,
@@ -1371,12 +1436,13 @@ app.get("/api/context", async (_req, res) => {
 app.get("/api/user/export", async (req, res) => {
   try {
     const data = await readTrackingData();
+    const exportData = toImportExportDataShape(data);
     res.json({
       ok: true,
       export: {
         exported_at: new Date().toISOString(),
         user_id: req.user?.id ?? null,
-        data,
+        data: exportData,
       },
     });
   } catch (err) {
@@ -1524,12 +1590,16 @@ app.post("/api/settings/chat", async (req, res) => {
     }
     return res.json(payload);
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isValidationError =
+      message === "Invalid settings proposal payload." ||
+      message.startsWith("Invalid training block configuration:");
     if (isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream)) {
       sendStreamingAssistantError(res, err);
       if (!res.writableEnded) res.end();
       return;
     }
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 
@@ -1554,7 +1624,9 @@ app.post("/api/settings/confirm", async (req, res) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const isValidationError = message === "Invalid settings proposal payload.";
+    const isValidationError =
+      message === "Invalid settings proposal payload." ||
+      message.startsWith("Invalid training block configuration:");
     res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
@@ -1884,6 +1956,7 @@ function normalizeDietDayPatchInput(body) {
     fiber_g: toNumberOrNull(safe.fiber_g),
     complete: safe.complete === true,
     details: typeof safe.details === "string" ? safe.details : "",
+    on_track: normalizeOnTrackValue(safe.on_track),
   };
 
   return patch;

@@ -81,6 +81,9 @@ const diet_data_structure = [
     "fiber_g": 11,
     // days are incomplete by default until the user says otherwise or a threshold of calories is reached
     "complete": false,
+    // Optional quick status flag for whether the day is aligned with goals
+    // Allowed values: "green", "yellow", "red", or null
+    "on_track": null,
     // AI generated summray that tracks what food was eaten, as well as a general impression
     // of how it fits into the users goals and activity
     "details": "Breakfast: 3 eggs in 1-2 Tbsp butter, 2 slices rye toast. Snacks: Standard smoothie, half cheese sandwich, handful gummy worms, 3 pieces See's chocolate, cup soy milk. Dinner: Chicken teriyaki from Teriyaki Bowl with gyoza, glass of wine. Slightly elevated but diffuse and fat-paired."

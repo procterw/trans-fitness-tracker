@@ -22,6 +22,9 @@ export default function SettingsView({
   checklistWeekLabel = "",
   checklistPhaseName = "",
   checklistPhaseDescription = "",
+  blockOptions = [],
+  selectedBlockId = "",
+  onSelectBlock = () => {},
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
 
@@ -92,11 +95,30 @@ export default function SettingsView({
             </div>
           </aside>
 
-          <aside className="settingsChecklistPanel" aria-label="Current checklist">
+          <aside className="settingsChecklistPanel" aria-label="Blocks">
             <div className="sidebarSectionHeader">
-              <h2 className="sidebarHeading">Current checklist</h2>
+              <h2 className="sidebarHeading">Blocks</h2>
               {checklistWeekLabel ? <span className="sidebarDate">{checklistWeekLabel}</span> : null}
             </div>
+            <label className="settingsBlockSelectField" htmlFor="settings_block_select">
+              <span className="sidebarSectionLabel">Current block</span>
+              <select
+                id="settings_block_select"
+                className="settingsBlockSelect"
+                value={selectedBlockId}
+                onChange={(e) => onSelectBlock(e.target.value)}
+              >
+                {Array.isArray(blockOptions) && blockOptions.length ? (
+                  blockOptions.map((block) => (
+                    <option key={block.id || block.label} value={block.id || ""}>
+                      {typeof block?.label === "string" && block.label ? block.label : "Block"}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No blocks yet</option>
+                )}
+              </select>
+            </label>
             {checklistPhaseName ? (
               <div className="muted" style={{ marginBottom: 8 }}>
                 <strong>{checklistPhaseName}</strong>

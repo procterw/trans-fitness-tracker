@@ -28,6 +28,7 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - [x] (2026-02-20 01:19Z) Renamed remaining checklist-template conversion helpers in `server.js` away from legacy naming (`*LegacyCurrentWeek*` -> `*ChecklistTemplateWeek*`) and updated callsites for clarity; validated with `npm run build` + `npm run test:harness`.
 - [x] (2026-02-20 01:24Z) Replaced import-shape legacy label usage with neutral constants in `importData.js` (`unsupported_format`), keeping import behavior unchanged; validated with `npm run build` + `npm run test:harness`.
 - [x] (2026-02-20 01:30Z) Added canonical `block_end` support for activity blocks in normalization/import paths and week API payloads (`trackingData.js`, `importData.js`, server block sync fallback), and cleaned remaining goal-helper legacy variable naming; validated with `npm run build` + `npm run test:harness`.
+- [x] (2026-02-20 02:04Z) Updated import/export contracts to user-facing simplified shape (`user_profile`, `training`, top-level `diet[]`), while keeping canonical storage internal; added `diet.on_track` normalization in import + storage + `/api/food/day` patch API; updated docs/template; validated with `npm run build` + `npm run test:harness`.
 - [x] (2026-02-19 22:11Z) Hard-reset local JSON tracking files to simplified on-disk shapes (`days`, `blocks/weeks`, `general/fitness/diet/agent`).
 - [ ] Validate end-to-end behavior and update docs (completed: repeated `npm run build`, syntax checks, `readTrackingData()` smoke checks after server/client updates, and `PROJECT.md` updates to canonical day-centric contracts; remaining: manual app flow validation).
 - [x] (2026-02-19 22:22Z) Fixed diet runtime contract mismatch by removing stale event props from `App.jsx` and binding `DietView` to `dashPayload.day` + `dashPayload.day_totals`; verified with `npm run build`.
@@ -105,6 +106,9 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 - Observation: Non-fitness routes (settings chat + assistant activity responses) still returned only `current_week`, forcing UI fallback even after canonical fitness endpoint migration.
   Evidence: `server.js` settings and ingest payloads lacked canonical `week` fields until the 23:59Z response update.
 
+- Observation: Import analyzer still classified top-level `user_profile` payloads as unsupported even though this is now the target hand-edited import/export format.
+  Evidence: `src/importData.js` had `safe.user_profile` inside unsupported-shape detection before the 02:04Z patch.
+
 ## Decision Log
 
 - Decision: Perform a hard reset of all stored tracking data and remove migration code paths.
@@ -171,6 +175,14 @@ The user-visible result is a cleaner system that is easy to read and edit by han
   Rationale: This reduces contract drift quickly without blocking remaining assistant/settings internals that still rely on legacy week paths.
   Date/Author: 2026-02-19 / Codex
 
+- Decision: Standardize import/export payloads on the human-readable top-level shape (`user_profile`, `training`, `diet`) while preserving canonical internal storage (`profile`, `activity`, `food`).
+  Rationale: The user explicitly selected this simpler file contract for manual imports/exports and no migration/backcompat constraints apply.
+  Date/Author: 2026-02-20 / Codex
+
+- Decision: Constrain `diet.on_track` to a small enum (`green`, `yellow`, `red`, `null`) in import and API patch paths.
+  Rationale: Keeps data clean and predictable for UI/assistant interpretation while still preserving a simple human-editable flag.
+  Date/Author: 2026-02-20 / Codex
+
 - Decision: Remove runtime `current_week` compatibility output/reads now that fitness/settings/client flows consume canonical week contracts.
   Rationale: This completes the active contract simplification and avoids reintroducing legacy shape dependencies in new features.
   Date/Author: 2026-02-20 / Codex
@@ -189,7 +201,9 @@ The user-visible result is a cleaner system that is easy to read and edit by han
 
 ## Outcomes & Retrospective
 
-Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, enforces canonical-only normalization/input extraction, and now exposes canonical activity-week helpers for current week/history/update operations. `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Fitness UI/API now consume canonical `week.workouts[]` payloads and `workout_index` updates instead of checklist-category keys. Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. Import analysis/apply targets canonical domains directly, and legacy unified import payloads are treated as unsupported. Runtime `current_week` compatibility has been removed from active server/assistant read paths, Postgres adapter persistence now uses canonical `profile/activity/food/rules` payloads directly in `user_rules`, and `supabase/schema.sql` is simplified to canonical user-scoped tables only. A destructive reset command exists for local JSON + Postgres dev data. Remaining work is broader cleanup around onboarding/workout prompt contracts.
+Implementation now includes canonical storage changes plus first-pass server/client contract shifts. `src/trackingData.js` persists simplified split-file shapes, enforces canonical-only normalization/input extraction, and now exposes canonical activity-week helpers for current week/history/update operations. `server.js` exposes canonical food-day endpoints and canonical settings profile fields, and active settings paths are canonical-only end to end (no profile-key aliases in UI/API/server/assistant settings handling). Fitness UI/API now consume canonical `week.workouts[]` payloads and `workout_index` updates instead of checklist-category keys. Diet rendering and active meal-response contracts consume day-centric fields directly (`day`, `day_totals`), and `/api/food/log` now returns canonical day rows consumed by the history table (`details`, `complete`). The settings path also syncs training-block edits into canonical `activity.blocks` and seeds a starter block on bootstrap. Import analysis/apply targets canonical domains directly, and legacy unified import payloads are treated as unsupported. Runtime `current_week` compatibility has been removed from active server/assistant read paths, Postgres adapter persistence now uses canonical `profile/activity/food/rules` payloads directly in `user_rules`, and `supabase/schema.sql` is simplified to canonical user-scoped tables only. Import/export payload contracts now intentionally use the human-readable top-level file shape (`user_profile`, `training`, `diet`), and `diet.on_track` now round-trips through import, storage normalization, and `/api/food/day`. A destructive reset command exists for local JSON + Postgres dev data. Remaining work is broader cleanup around onboarding/workout prompt contracts.
+
+Plan revision note (2026-02-20): Added a contract-alignment milestone entry and supporting decisions/discoveries to reflect the explicit user request to standardize import/export shape and add `diet.on_track` support across backend/API paths.
 
 ## Context and Orientation
 
