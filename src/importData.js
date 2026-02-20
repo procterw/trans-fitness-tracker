@@ -1,4 +1,8 @@
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SHAPE_CURRENT_EXPORT = "current_export";
+const SHAPE_CANONICAL = "canonical";
+const SHAPE_UNSUPPORTED_FORMAT = "unsupported_format";
+const SHAPE_UNKNOWN = "unknown";
 
 const PROTECTED_METADATA_KEYS = new Set([
   "data_files",
@@ -50,12 +54,12 @@ function toNumberOrNull(value) {
 function detectShape(raw) {
   const safe = asObject(raw);
   const exportData = asObject(asObject(safe.export).data);
-  if (Object.keys(exportData).length) return "current_export";
+  if (Object.keys(exportData).length) return SHAPE_CURRENT_EXPORT;
 
   const embeddedData = asObject(safe.data);
-  if (Object.keys(embeddedData).length) return "current_export";
+  if (Object.keys(embeddedData).length) return SHAPE_CURRENT_EXPORT;
 
-  if (safe.profile || safe.activity || safe.food || safe.rules || safe.training) return "canonical";
+  if (safe.profile || safe.activity || safe.food || safe.rules || safe.training) return SHAPE_CANONICAL;
 
   if (
     safe.food_log ||
@@ -66,15 +70,15 @@ function detectShape(raw) {
     safe.diet_profile ||
     safe.agent_profile
   ) {
-    return "legacy_unsupported";
+    return SHAPE_UNSUPPORTED_FORMAT;
   }
 
-  return "unknown";
+  return SHAPE_UNKNOWN;
 }
 
 function extractSource(raw, detectedShape) {
   const safe = asObject(raw);
-  if (detectedShape === "current_export") {
+  if (detectedShape === SHAPE_CURRENT_EXPORT) {
     const exportData = asObject(asObject(safe.export).data);
     if (Object.keys(exportData).length) return exportData;
     const embeddedData = asObject(safe.data);
@@ -124,6 +128,7 @@ function normalizeBlock(entry) {
   return {
     block_id: blockId,
     block_start: hasIsoDate(safe.block_start) ? safe.block_start : "",
+    block_end: hasIsoDate(safe.block_end) ? safe.block_end : "",
     block_name: normalizeOptionalText(safe.block_name || safe.name),
     block_details: normalizeOptionalText(safe.block_details || safe.description),
     workouts,
@@ -237,8 +242,8 @@ export function analyzeImportPayload(raw) {
   const detectedShape = detectShape(raw);
   const source = extractSource(raw, detectedShape);
 
-  if (detectedShape === "legacy_unsupported") {
-    warnings.push("Legacy import format is no longer supported. Import a current canonical export instead.");
+  if (detectedShape === SHAPE_UNSUPPORTED_FORMAT) {
+    warnings.push("Older import formats are no longer supported. Import a current canonical export instead.");
   }
 
   const profileRoot = asObject(source.profile);

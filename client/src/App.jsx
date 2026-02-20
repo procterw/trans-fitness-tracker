@@ -105,6 +105,8 @@ function normalizeFitnessWeek(value) {
     week_end: weekEnd,
     week_label: weekLabel,
     block_id: typeof safe.block_id === "string" ? safe.block_id : typeof safe.training_block_id === "string" ? safe.training_block_id : "",
+    block_start: typeof safe.block_start === "string" ? safe.block_start : "",
+    block_end: typeof safe.block_end === "string" ? safe.block_end : "",
     block_name:
       typeof safe.block_name === "string"
         ? safe.block_name
@@ -1426,9 +1428,7 @@ export default function App() {
                 </button>
               </div>
 
-              <p className="muted">
-                Upload a JSON export/legacy file or paste JSON text. Import replaces matching domains in your current data.
-              </p>
+              <p className="muted">Upload a canonical JSON export or paste JSON text. Import replaces matching domains in your current data.</p>
 
               <div className="importModalRow">
                 <label htmlFor="import_file_input">
@@ -1457,7 +1457,7 @@ export default function App() {
                   value={importPasteText}
                   disabled={importActionLoading}
                   onChange={(e) => setImportPasteText(e.target.value)}
-                  placeholder='Paste export JSON or legacy payload (for example: {"export":{"data":...}})'
+                  placeholder='Paste export JSON (for example: {"export":{"data":...}})'
                   rows={8}
                 />
                 <div className="importModalInlineActions">

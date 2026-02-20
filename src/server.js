@@ -149,15 +149,15 @@ function consumeImportSession({ token, userId }) {
 
 function applyGoalTextDerivation(profile, { now = new Date() } = {}) {
   const safeProfile = isPlainObject(profile) ? profile : {};
-  const legacyGoals = asObject(safeProfile.goals);
-  const goalsText = normalizeGoalsText(asObject(safeProfile.goals_text), { legacyGoals });
-  const derived = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals });
+  const priorGoals = asObject(safeProfile.goals);
+  const goalsText = normalizeGoalsText(asObject(safeProfile.goals_text), { legacyGoals: priorGoals });
+  const derived = deriveGoalsListsFromGoalsText({ goalsText, legacyGoals: priorGoals });
   const metadata = asObject(safeProfile.metadata);
   return {
     ...safeProfile,
     goals_text: goalsText,
     goals: {
-      ...legacyGoals,
+      ...priorGoals,
       diet_goals: derived.diet_goals,
       fitness_goals: derived.fitness_goals,
       health_goals: derived.health_goals,
@@ -540,10 +540,13 @@ function canonicalBlockFromStoredTrainingBlock(block, fallbackBlock = null) {
       ? safeBlock.created_at.slice(0, 10)
       : "";
   const blockStart = fallbackStart || createdAtDate || getSeattleDateString(new Date());
+  const fallbackEnd =
+    typeof fallbackBlock?.block_end === "string" && isIsoDateString(fallbackBlock.block_end) ? fallbackBlock.block_end : "";
 
   return {
     block_id: blockId,
     block_start: blockStart,
+    block_end: fallbackEnd,
     block_name: normalizeTrainingBlockName(safeBlock.name),
     block_details: normalizeTrainingBlockDescription(safeBlock.description),
     workouts,
@@ -626,12 +629,12 @@ function getWeekEndSundayFromStart(weekStart) {
   return start.toISOString().slice(0, 10);
 }
 
-function canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek = null) {
-  const safeLegacy = isPlainObject(legacyWeek) ? legacyWeek : {};
+function canonicalWeekFromChecklistTemplateWeek(templateWeek, fallbackWeek = null) {
+  const safeTemplateWeek = isPlainObject(templateWeek) ? templateWeek : {};
   const safeFallback = isPlainObject(fallbackWeek) ? fallbackWeek : {};
   const weekStartRaw =
-    typeof safeLegacy.week_start === "string" && safeLegacy.week_start.trim()
-      ? safeLegacy.week_start.trim()
+    typeof safeTemplateWeek.week_start === "string" && safeTemplateWeek.week_start.trim()
+      ? safeTemplateWeek.week_start.trim()
       : typeof safeFallback.week_start === "string"
         ? safeFallback.week_start
         : "";
@@ -649,8 +652,8 @@ function canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek = null) {
 
   const workouts = [];
   const seen = new Set();
-  for (const key of getFitnessCategoryKeys(safeLegacy)) {
-    const list = Array.isArray(safeLegacy[key]) ? safeLegacy[key] : [];
+  for (const key of getFitnessCategoryKeys(safeTemplateWeek)) {
+    const list = Array.isArray(safeTemplateWeek[key]) ? safeTemplateWeek[key] : [];
     for (const row of list) {
       const name = typeof row?.item === "string" ? row.item.trim() : typeof row?.name === "string" ? row.name.trim() : "";
       if (!name) continue;
@@ -683,10 +686,10 @@ function canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek = null) {
       })).filter((row) => row.name);
 
   const blockId =
-    typeof safeLegacy.training_block_id === "string" && safeLegacy.training_block_id.trim()
-      ? safeLegacy.training_block_id.trim()
-      : typeof safeLegacy.block_id === "string" && safeLegacy.block_id.trim()
-        ? safeLegacy.block_id.trim()
+    typeof safeTemplateWeek.training_block_id === "string" && safeTemplateWeek.training_block_id.trim()
+      ? safeTemplateWeek.training_block_id.trim()
+      : typeof safeTemplateWeek.block_id === "string" && safeTemplateWeek.block_id.trim()
+        ? safeTemplateWeek.block_id.trim()
         : typeof safeFallback.block_id === "string"
           ? safeFallback.block_id
           : "";
@@ -700,21 +703,21 @@ function canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek = null) {
     block_id: blockId,
     workouts: nextWorkouts,
     summary:
-      typeof safeLegacy.summary === "string"
-        ? safeLegacy.summary
+      typeof safeTemplateWeek.summary === "string"
+        ? safeTemplateWeek.summary
         : typeof safeFallback.summary === "string"
           ? safeFallback.summary
           : "",
   };
 }
 
-function upsertCanonicalWeekFromLegacyCurrentWeek(data, legacyWeek) {
+function upsertCanonicalWeekFromChecklistTemplateWeek(data, templateWeek) {
   if (!isPlainObject(data)) return null;
   if (!isPlainObject(data.activity)) data.activity = {};
   const existingWeeks = Array.isArray(data.activity.weeks) ? data.activity.weeks : [];
-  const weekStart = typeof legacyWeek?.week_start === "string" ? legacyWeek.week_start : "";
+  const weekStart = typeof templateWeek?.week_start === "string" ? templateWeek.week_start : "";
   const fallbackWeek = existingWeeks.find((row) => row?.week_start === weekStart) ?? null;
-  const canonicalWeek = canonicalWeekFromLegacyCurrentWeek(legacyWeek, fallbackWeek);
+  const canonicalWeek = canonicalWeekFromChecklistTemplateWeek(templateWeek, fallbackWeek);
   if (!canonicalWeek) return null;
 
   data.activity.weeks = [
@@ -911,7 +914,7 @@ function applyStarterSeed(data, { now = new Date(), currentWeek = null } = {}) {
       }
       metadata.checklist_template = template;
       metadata.last_updated = timestamp;
-      upsertCanonicalWeekFromLegacyCurrentWeek(data, remappedWeek);
+      upsertCanonicalWeekFromChecklistTemplateWeek(data, remappedWeek);
       checklistSeeded = true;
       changed = true;
     }
@@ -1193,7 +1196,7 @@ async function applySettingsChanges({ proposal }) {
       currentWeek.training_block_name !== nextWeek.training_block_name ||
       currentWeek.training_block_description !== nextWeek.training_block_description
     ) {
-      const storedWeek = upsertCanonicalWeekFromLegacyCurrentWeek(data, nextWeek);
+      const storedWeek = upsertCanonicalWeekFromChecklistTemplateWeek(data, nextWeek);
       if (storedWeek) currentWeek = nextWeek;
       if (!domains.includes(SETTINGS_CHECKLIST_FIELD)) domains.push(SETTINGS_CHECKLIST_FIELD);
       if (!changesApplied.includes("Updated training checklist template.")) {
@@ -1991,72 +1994,6 @@ app.post("/api/food/log", upload.single("image"), async (req, res) => {
   }
 });
 
-app.post("/api/food/photo", upload.single("image"), async (req, res) => {
-  try {
-    const file = req.file;
-    if (!file) return res.status(400).json({ ok: false, error: "Missing image file field: image" });
-    if (!file.mimetype?.startsWith("image/")) {
-      return res.status(400).json({ ok: false, error: `Unsupported mimetype: ${file.mimetype}` });
-    }
-
-    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
-    const descriptionText = typeof req.body?.description === "string" ? req.body.description : "";
-    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
-    const clientRequestId =
-      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
-        ? req.body.client_request_id.trim()
-        : null;
-
-    const payload = await logFoodFromInputs({ file, descriptionText, notes, date, eventId, clientRequestId });
-    res.json(payload);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const isInputError =
-      msg === "Provide either an image or a meal description." ||
-      msg === "Missing nutrients" ||
-      msg.startsWith("Invalid date:") ||
-      msg.startsWith("Food event not found:") ||
-      msg === "Invalid event id";
-    res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
-  }
-});
-
-app.post("/api/food/manual", async (req, res) => {
-  try {
-    const description =
-      typeof req.body?.description === "string" && req.body.description.trim() ? req.body.description.trim() : null;
-    if (!description) return res.status(400).json({ ok: false, error: "Missing field: description" });
-
-    const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
-    const notes = typeof req.body?.notes === "string" ? req.body.notes : "";
-    const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
-    const clientRequestId =
-      typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
-        ? req.body.client_request_id.trim()
-        : null;
-
-    const payload = await logFoodFromInputs({
-      file: null,
-      descriptionText: description,
-      notes,
-      date,
-      eventId,
-      clientRequestId,
-    });
-    res.json(payload);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const isInputError =
-      msg === "Provide either an image or a meal description." ||
-      msg === "Missing nutrients" ||
-      msg.startsWith("Invalid date:") ||
-      msg.startsWith("Food event not found:") ||
-      msg === "Invalid event id";
-    res.status(isInputError ? 400 : 500).json({ ok: false, error: msg });
-  }
-});
-
 app.get("/api/fitness/current", async (_req, res) => {
   try {
     const week = await getCurrentActivityWeek();
@@ -2076,8 +2013,8 @@ app.post("/api/fitness/current/item", async (req, res) => {
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
     await updateCurrentActivityWorkout({ index, completed: checked, details });
-    const legacyCurrent = await ensureCurrentWeek();
-    await refreshCurrentWeekSummaryForActivity(legacyCurrent);
+    const checklistWeek = await ensureCurrentWeek();
+    await refreshCurrentWeekSummaryForActivity(checklistWeek);
     const week = await getCurrentActivityWeek();
     res.json({ ok: true, week });
   } catch (err) {

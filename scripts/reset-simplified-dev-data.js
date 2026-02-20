@@ -108,13 +108,6 @@ async function resetPostgres() {
   });
 
   const tables = [
-    "food_events",
-    "food_log",
-    "fitness_current",
-    "fitness_weeks",
-    "diet_days",
-    "training_blocks",
-    "training_weeks",
     "user_profiles",
     "user_rules",
   ];

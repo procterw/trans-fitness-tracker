@@ -100,36 +100,6 @@ export async function confirmUserImport({ importToken, confirmText }) {
   });
 }
 
-export async function logFoodPhoto({
-  file,
-  date,
-  notes = "",
-  description = "",
-  eventId = "",
-  clientRequestId = "",
-}) {
-  const fd = new FormData();
-  fd.append("image", file);
-  if (date) fd.append("date", date);
-  fd.append("description", description ?? "");
-  fd.append("notes", notes ?? "");
-  if (eventId) fd.append("event_id", eventId);
-  if (clientRequestId) fd.append("client_request_id", clientRequestId);
-  return fetchJson("/api/food/photo", { method: "POST", body: fd });
-}
-
-export async function logFoodManual({ description, date, notes, eventId = "", clientRequestId = "" }) {
-  const body = { description, notes: notes ?? "" };
-  if (date) body.date = date;
-  if (eventId) body.event_id = eventId;
-  if (clientRequestId) body.client_request_id = clientRequestId;
-  return fetchJson("/api/food/manual", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 export async function logFood({
   file = null,
   description = "",

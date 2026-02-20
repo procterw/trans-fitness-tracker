@@ -98,13 +98,11 @@ This repo includes a minimal local web app that supports:
   - optional `date` and `notes`
   - Updates the matching day row in `tracking-food.json.days`
   - Returns the estimate, normalized meal event metadata, updated day totals, and updated day row
-- `POST /api/food/photo` → multipart upload (`image`) + optional `date`, `notes`, and `description` (legacy; still supported)
-- `POST /api/food/manual` → JSON body: `description` + optional `date` and `notes` (legacy; still supported)
 - `GET /api/food/day?date=YYYY-MM-DD` → day row + day totals for that date
 - `POST /api/food/day` → direct write/update of a day row (`date`, nutrients, `complete`, `details`)
 - `GET /api/food/log` → list of day rows (supports `limit`, `from`, `to`)
 - `GET /api/fitness/current` → rollover-aware canonical current week payload (`week`)
-  - `week` shape: `{ week_start, week_end, week_label, block_id, block_name, block_details, workouts[], summary }`
+  - `week` shape: `{ week_start, week_end, week_label, block_id, block_start, block_end, block_name, block_details, workouts[], summary }`
   - `workouts[]` rows: `{ name, description, category, optional, details, completed }`
 - `POST /api/fitness/current/item` → JSON body: `workout_index`, `checked`, `details`
   - Updates one workout row in the current week and refreshes weekly summary text.

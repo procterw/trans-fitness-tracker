@@ -173,6 +173,7 @@ function normalizeBlock(entry) {
   const blockId = normalizeText(safe.block_id || safe.id);
   if (!blockId) return null;
   const blockStart = isIsoDateString(safe.block_start) ? safe.block_start : getSeattleDateString();
+  const blockEnd = isIsoDateString(safe.block_end) ? safe.block_end : "";
   const workouts = [];
   const seen = new Set();
   for (const row of asArray(safe.workouts)) {
@@ -186,6 +187,7 @@ function normalizeBlock(entry) {
   return {
     block_id: blockId,
     block_start: blockStart,
+    block_end: blockEnd,
     block_name: normalizeOptionalText(safe.block_name || safe.name),
     block_details: normalizeOptionalText(safe.block_details || safe.description),
     workouts,
@@ -550,6 +552,8 @@ function canonicalWeekToView(week, block) {
     week_end: safeWeek.week_end,
     week_label: weekLabelFromStart(safeWeek.week_start),
     block_id: normalizeOptionalText(safeWeek.block_id),
+    block_start: normalizeOptionalText(safeBlock?.block_start),
+    block_end: normalizeOptionalText(safeBlock?.block_end),
     block_name: normalizeOptionalText(safeBlock?.block_name),
     block_details: normalizeOptionalText(safeBlock?.block_details),
     workouts,
