@@ -559,7 +559,7 @@ h2:focus {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 16px;
+  padding: 28px 16px;
   margin: 16px 0;
   box-shadow: var(--shadow);
 }
@@ -1694,6 +1694,10 @@ ul {
   font-size: 12px;
 }
 
+.sidebarChecklistCategoryGroup {
+  margin-top: 10px;
+}
+
 .settingsGoalChecklistSidebar .sidebarHeading {
   margin-top: 12px;
 }
@@ -1718,6 +1722,13 @@ ul {
   font-size: 11px;
   line-height: 1.25;
   color: var(--muted);
+}
+
+.sidebarChecklistDetails {
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+  margin-left: 12px;
 }
 
 .sidebarChecklistMark {
@@ -1874,11 +1885,45 @@ ul {
   background: transparent;
 }
 
-.fitnessHistory h3 {
+.fitnessHistory h2 {
   margin: 0;
   padding: 6px 0 8px;
   font-weight: 800;
   background: transparent;
+  max-width: 768px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.fitnessHistoryPhaseMeta {
+  font-size: 13px;
+}
+
+.fitnessHistoryPhaseSummary {
+  display: grid;
+  gap: 2px;
+  max-width: 768px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.fitnessHistoryPhaseTitleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fitnessHistoryPhaseTitle {
+  margin: 0;
+}
+
+.fitnessHistoryPhaseDescription {
+  font-size: 13px;
+  line-height: 1.25;
+  margin-bottom: 14px;
 }
 
 .fitnessHistoryBody {
@@ -2274,16 +2319,45 @@ ul {
   flex-direction: column;
 }
 
-.workoutsWeeklySummarySection {
-  order: 1;
+.workoutsNarrow {
+  max-width: 768px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.workoutsBlockMetaSection {
+  margin-top: 2px;
+}
+
+.workoutsBlockMetaName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.workoutsBlockMetaDescription {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--muted);
 }
 
 .workoutsChecklistSection {
-  order: 2;
+  order: 1;
+}
+
+.workoutsDataPanel {
+  border: 1px solid #ddd;
+  border-radius: 25px;
+  margin: 24px 0 0;
+  padding: 0 18px 18px;
+  background: var(--card);
+  box-shadow: 0 3px 10px color-mix(in srgb, black 4%, transparent);
 }
 
 .workoutsHistorySection {
-  order: 3;
+  order: 2;
 }
 
 .dietWeeklySummarySection {
@@ -2354,12 +2428,8 @@ ul {
     order: 1;
   }
 
-  .workoutsWeeklySummarySection {
-    order: 2;
-  }
-
   .workoutsHistorySection {
-    order: 3;
+    order: 2;
   }
 
   .dietRecentSection {

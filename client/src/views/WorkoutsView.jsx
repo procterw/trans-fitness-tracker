@@ -9,6 +9,22 @@ function workoutKey(name) {
     .toLowerCase();
 }
 
+function groupWorkoutsByCategory(workouts) {
+  const groups = [];
+  const byCategory = new Map();
+  for (const [index, workout] of (Array.isArray(workouts) ? workouts : []).entries()) {
+    const categoryRaw = typeof workout?.category === "string" ? workout.category.trim() : "";
+    const category = categoryRaw || "Uncategorized";
+    if (!byCategory.has(category)) {
+      const group = { category, items: [] };
+      byCategory.set(category, group);
+      groups.push(group);
+    }
+    byCategory.get(category).items.push({ workout, index });
+  }
+  return groups;
+}
+
 function collectWorkoutCatalog(weeks) {
   const byKey = new Map();
   for (const week of Array.isArray(weeks) ? weeks : []) {
@@ -123,17 +139,19 @@ function renderFitnessHistoryByPhase({ fitnessHistory }) {
 
   return (
     <div className="fitnessHistoryPhaseGroups">
-      {groups.map((group, idx) => (
-        <details key={group.id} open={idx === 0} className="fitnessHistoryPhaseGroup">
-          <summary className="fitnessHistoryPhaseSummary">
-            <strong>{group.name}</strong>
-            <span className="muted">
-              {group.description ? ` ${group.description} • ` : " "}
-              {group.weeks.length} week{group.weeks.length === 1 ? "" : "s"}
-            </span>
-          </summary>
-          {renderFitnessHistoryTableForWeeks({ weeks: group.weeks })}
-        </details>
+      {groups.map((group) => (
+        <section key={group.id} className="fitnessHistoryPhaseGroup">
+          <div className="fitnessHistoryPhaseSummary">
+            <div className="fitnessHistoryPhaseTitleRow">
+              <h3 className="fitnessHistoryPhaseTitle">{group.name}</h3>
+              <span className="fitnessHistoryPhaseMeta muted">
+                {group.weeks.length} week{group.weeks.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {group.description ? <div className="fitnessHistoryPhaseDescription muted">{group.description}</div> : null}
+          </div>
+          <div className="workoutsDataPanel">{renderFitnessHistoryTableForWeeks({ weeks: group.weeks })}</div>
+        </section>
       ))}
     </div>
   );
@@ -143,7 +161,6 @@ function WorkoutItemRow({ workout, index, fitnessLoading, onToggleFitness, onEdi
   const checkboxId = `fit_workout_${index}`;
   const name = typeof workout?.name === "string" ? workout.name : `Workout ${index + 1}`;
   const description = typeof workout?.description === "string" ? workout.description.trim() : "";
-  const category = typeof workout?.category === "string" ? workout.category.trim() : "";
   const details = typeof workout?.details === "string" ? workout.details : "";
   const completed = workout?.completed === true;
 
@@ -160,7 +177,6 @@ function WorkoutItemRow({ workout, index, fitnessLoading, onToggleFitness, onEdi
       <label htmlFor={checkboxId} className="fitnessChecklistLabel">
         <span className="fitnessChecklistLabelText">{name}</span>
         {description ? <span className="fitnessChecklistLabelDescription">{description}</span> : null}
-        {category ? <span className="fitnessChecklistLabelDescription">{category}</span> : null}
       </label>
       {completed ? (
         <AutoGrowTextarea
@@ -187,58 +203,77 @@ export default function WorkoutsView({
   onEditFitnessDetails,
 }) {
   const workouts = Array.isArray(fitnessWeek?.workouts) ? fitnessWeek.workouts : [];
+  const workoutGroups = groupWorkoutsByCategory(workouts);
+  const currentBlockName =
+    typeof fitnessWeek?.block_name === "string" && fitnessWeek.block_name.trim() ? fitnessWeek.block_name.trim() : "Current block";
+  const currentBlockDescription =
+    typeof fitnessWeek?.block_details === "string" && fitnessWeek.block_details.trim()
+      ? fitnessWeek.block_details.trim()
+      : typeof fitnessWeek?.training_block_description === "string" && fitnessWeek.training_block_description.trim()
+        ? fitnessWeek.training_block_description.trim()
+        : "";
 
   return (
     <div className="mainScroll workoutsView">
       <section className="card fitnessCard workoutsCard">
-        <h2>
-          Workouts this week
-          {fitnessWeek ? (
-            <span className="muted fitnessWeekLabel">
-              {fitnessWeek.week_label ? <code>{fitnessWeek.week_label}</code> : null}
-            </span>
-          ) : null}
-        </h2>
+        <div className="workoutsNarrow">
+          <h2>
+            Workouts this week
+            {fitnessWeek ? (
+              <span className="muted fitnessWeekLabel">
+                {fitnessWeek.week_label ? <code>{fitnessWeek.week_label}</code> : null}
+              </span>
+            ) : null}
+          </h2>
 
-        <section className="workoutsWeeklySummarySection">
-          <blockquote className="fitnessSummary">{fitnessWeek?.summary ? fitnessWeek.summary : "No summary yet."}</blockquote>
-        </section>
+          {fitnessWeek ? (
+            <section className="workoutsBlockMetaSection" aria-label="Current training block">
+              <h3 className="workoutsBlockMetaName">{currentBlockName}</h3>
+              {currentBlockDescription ? <p className="workoutsBlockMetaDescription">{currentBlockDescription}</p> : null}
+            </section>
+          ) : null}
+
+        </div>
 
         {fitnessWeek ? (
-          <>
-            <section className="workoutsChecklistSection">
-              {workouts.length ? (
-                <section className="fitnessCategory">
-                  <div className="fitnessCategoryHeader">
-                    <h3 className="fitnessCategoryTitle">Checklist</h3>
-                  </div>
-                  <div className="fitnessChecklist" aria-label="Workout checklist">
-                    {workouts.map((workout, index) => (
-                      <WorkoutItemRow
-                        key={workoutKey(workout?.name) || index}
-                        workout={workout}
-                        index={index}
-                        fitnessLoading={fitnessLoading}
-                        onToggleFitness={onToggleFitness}
-                        onEditFitnessDetails={onEditFitnessDetails}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <p className="muted">No workouts yet.</p>
-              )}
-            </section>
+          <section className="workoutsChecklistSection workoutsDataPanel">
+            {workouts.length ? (
+              <>
+                {workoutGroups.map((group) => (
+                  <section key={group.category} className="fitnessCategory">
+                    <div className="fitnessCategoryHeader">
+                      <h3 className="fitnessCategoryTitle">{group.category}</h3>
+                    </div>
+                    <div className="fitnessChecklist" aria-label={`${group.category} workout checklist`}>
+                      {group.items.map(({ workout, index }) => (
+                        <WorkoutItemRow
+                          key={`${group.category}_${workoutKey(workout?.name) || index}`}
+                          workout={workout}
+                          index={index}
+                          fitnessLoading={fitnessLoading}
+                          onToggleFitness={onToggleFitness}
+                          onEditFitnessDetails={onEditFitnessDetails}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </>
+            ) : (
+              <p className="muted">No workouts yet.</p>
+            )}
+          </section>
+        ) : null}
 
-            <section className="fitnessHistory workoutsHistorySection">
-              <h3>History</h3>
-              <div className="fitnessHistoryBody">
-                {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
-                {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
-                {!fitnessHistoryLoading ? renderFitnessHistoryByPhase({ fitnessHistory }) : null}
-              </div>
-            </section>
-          </>
+        {fitnessWeek ? (
+          <section className="fitnessHistory workoutsHistorySection">
+            <h2>History</h2>
+            <div className="fitnessHistoryBody">
+              {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
+              {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
+              {!fitnessHistoryLoading ? renderFitnessHistoryByPhase({ fitnessHistory }) : null}
+            </div>
+          </section>
         ) : null}
       </section>
     </div>
