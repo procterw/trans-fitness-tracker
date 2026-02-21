@@ -16,6 +16,7 @@ import {
   ingestAssistantStream,
   settingsChatStream,
   updateFitnessItem,
+  updateFitnessWeekContext,
 } from "./api.js";
 import { getFitnessCategories } from "./fitnessChecklist.js";
 import {
@@ -167,6 +168,44 @@ function checklistCategoriesFromFitnessWeek(week) {
   return Array.from(byCategory.values());
 }
 
+function checklistCategoriesFromTrainingBlock(block) {
+  const safeBlock = asObject(block);
+  const workouts = Array.isArray(safeBlock.workouts) ? safeBlock.workouts : [];
+  const byCategory = new Map();
+
+  const ensureGroup = (key, label) => {
+    if (!byCategory.has(key)) {
+      byCategory.set(key, {
+        key,
+        label,
+        items: [],
+      });
+    }
+    return byCategory.get(key);
+  };
+
+  for (const workout of workouts) {
+    const safeWorkout = asObject(workout);
+    const item = typeof safeWorkout.name === "string" ? safeWorkout.name.trim() : "";
+    if (!item) continue;
+    const label =
+      typeof safeWorkout.category === "string" && safeWorkout.category.trim()
+        ? safeWorkout.category.trim()
+        : "Workouts";
+    const key = categoryKeyFromLabel(label);
+    const group = ensureGroup(key, label);
+    group.items.push({
+      item,
+      description: typeof safeWorkout.description === "string" ? safeWorkout.description : "",
+      checked: false,
+      details: typeof safeWorkout.details === "string" ? safeWorkout.details : "",
+      optional: safeWorkout.optional === true,
+    });
+  }
+
+  return Array.from(byCategory.values());
+}
+
 function normalizeSettingsTrainingBlocks(value) {
   const safe = asObject(value);
   const rawBlocks = Array.isArray(safe.blocks) ? safe.blocks : [];
@@ -179,6 +218,29 @@ function normalizeSettingsTrainingBlocks(value) {
         id,
         name: typeof safeRow.name === "string" ? safeRow.name.trim() : "",
         description: typeof safeRow.description === "string" ? safeRow.description.trim() : "",
+        category_order: Array.isArray(safeRow.category_order)
+          ? safeRow.category_order.filter((key) => typeof key === "string" && key.trim())
+          : [],
+        category_labels: safeRow.category_labels && typeof safeRow.category_labels === "object" ? safeRow.category_labels : {},
+        workouts: Array.isArray(safeRow.workouts)
+          ? safeRow.workouts
+              .map((row) => {
+                const safeWorkout = asObject(row);
+                const name = typeof safeWorkout.name === "string" ? safeWorkout.name.trim() : "";
+                if (!name) return null;
+                return {
+                  name,
+                  description: typeof safeWorkout.description === "string" ? safeWorkout.description : "",
+                  category:
+                    typeof safeWorkout.category === "string" && safeWorkout.category.trim()
+                      ? safeWorkout.category.trim()
+                      : "Workouts",
+                  optional: safeWorkout.optional === true,
+                  details: "",
+                };
+              })
+              .filter(Boolean)
+          : [],
         block_start: typeof safeRow.block_start === "string" ? safeRow.block_start : "",
         block_end: typeof safeRow.block_end === "string" ? safeRow.block_end : "",
         updated_at: typeof safeRow.updated_at === "string" ? safeRow.updated_at : "",
@@ -192,13 +254,6 @@ function normalizeSettingsTrainingBlocks(value) {
     active_block_id: hasActive ? activeRaw : "",
     blocks,
   };
-}
-
-function pickDisplayWeekForBlock({ blockId, currentWeek, historyWeeks }) {
-  if (!blockId) return currentWeek || null;
-  if (currentWeek?.block_id === blockId) return currentWeek;
-  const match = (Array.isArray(historyWeeks) ? historyWeeks : []).find((week) => week?.block_id === blockId);
-  return match || null;
 }
 
 export default function App() {
@@ -1212,6 +1267,10 @@ export default function App() {
         setSettingsProfilesSaved(updatedProfiles);
         setSettingsProfilesDraft(updatedProfiles);
       }
+
+      if (responsePayload?.changes_applied?.length) {
+        await loadSettingsProfilesState();
+      }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1299,6 +1358,32 @@ export default function App() {
     });
   };
 
+  const saveFitnessWeekContext = ({ context }) => {
+    setFitnessError("");
+    setFitnessStatus("Saving…");
+    enqueueFitnessSave(async () => {
+      const json = await updateFitnessWeekContext(context);
+      setFitnessWeek(normalizeFitnessWeek(json?.week));
+      setFitnessStatus("Saved.");
+    }).catch((e) => {
+      setFitnessError(e instanceof Error ? e.message : String(e));
+      setFitnessStatus("");
+    });
+  };
+
+  const debouncedSaveFitnessWeekContext = useDebouncedKeyedCallback(saveFitnessWeekContext, 450);
+
+  const onEditWeekContext = (context) => {
+    const value = typeof context === "string" ? context : "";
+    setFitnessWeek((prev) => {
+      if (!prev) return prev;
+      const next = structuredClone(prev);
+      next.context = value;
+      debouncedSaveFitnessWeekContext("fitness-week-context", { context: value });
+      return next;
+    });
+  };
+
   const focusDashboardHeading = () => {
     const el = dashHeadingRef.current;
     if (!el) return;
@@ -1332,6 +1417,9 @@ export default function App() {
         id,
         name: typeof week?.block_name === "string" ? week.block_name : "",
         description: typeof week?.block_details === "string" ? week.block_details : "",
+        category_order: [],
+        category_labels: {},
+        workouts: [],
         block_start: typeof week?.block_start === "string" ? week.block_start : "",
         block_end: typeof week?.block_end === "string" ? week.block_end : "",
         updated_at: "",
@@ -1343,6 +1431,9 @@ export default function App() {
         id: currentBlockId,
         name: typeof fitnessWeek?.block_name === "string" ? fitnessWeek.block_name : "Current block",
         description: typeof fitnessWeek?.block_details === "string" ? fitnessWeek.block_details : "",
+        category_order: [],
+        category_labels: {},
+        workouts: [],
         block_start: typeof fitnessWeek?.block_start === "string" ? fitnessWeek.block_start : "",
         block_end: typeof fitnessWeek?.block_end === "string" ? fitnessWeek.block_end : "",
         updated_at: "",
@@ -1392,6 +1483,12 @@ export default function App() {
         label: `${title} (${phase})`,
         name: title,
         description: row.description,
+        workouts: row.workouts,
+        category_order: row.category_order || [],
+        category_labels: row.category_labels || {},
+        block_start: row.block_start,
+        block_end: row.block_end,
+        updated_at: row.updated_at,
       };
     });
   }, [settingsTrainingBlocks, fitnessWeek, fitnessHistory]);
@@ -1400,16 +1497,27 @@ export default function App() {
     settingsBlockOptions.find((row) => row.id === settingsSelectedBlockId) ||
     settingsBlockOptions.find((row) => row.id === (settingsTrainingBlocks.active_block_id || fitnessWeek?.block_id || "")) ||
     null;
-  const settingsDisplayWeek = pickDisplayWeekForBlock({
-    blockId: selectedBlockOption?.id || "",
-    currentWeek: fitnessWeek,
-    historyWeeks: fitnessHistory,
+  const selectedBlockWorkouts = Array.isArray(selectedBlockOption?.workouts) ? selectedBlockOption.workouts : [];
+  const settingsChecklistCategories = checklistCategoriesFromTrainingBlock({
+    ...selectedBlockOption,
+    workouts: selectedBlockWorkouts,
   });
-  const settingsChecklistCategories = checklistCategoriesFromFitnessWeek(settingsDisplayWeek);
-  const settingsChecklistWeekLabel = settingsDisplayWeek?.week_label || "";
-  const settingsChecklistPhaseName = selectedBlockOption?.name || settingsDisplayWeek?.block_name || fitnessWeek?.block_name || "";
-  const settingsChecklistPhaseDescription =
-    selectedBlockOption?.description || settingsDisplayWeek?.block_details || fitnessWeek?.block_details || "";
+  const settingsChecklistWeekLabel = "";
+  const settingsChecklistPhaseName =
+    selectedBlockOption?.name || fitnessWeek?.block_name || "";
+  const settingsChecklistPhaseDescription = selectedBlockOption?.description || fitnessWeek?.block_details || "";
+  const settingsSelectedBlockData = selectedBlockOption
+    ? {
+        ...selectedBlockOption,
+        workouts: selectedBlockWorkouts,
+        block_id: selectedBlockOption?.id || "",
+        week_start: "",
+        week_end: "",
+        ai_summary: "",
+        context: "",
+        week_label: "",
+      }
+    : null;
 
   const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
   const sidebarDayLineNames = sidebarDayDetailLines
@@ -1513,6 +1621,7 @@ export default function App() {
             checklistPhaseName={settingsChecklistPhaseName}
             checklistPhaseDescription={settingsChecklistPhaseDescription}
             blockOptions={settingsBlockOptions}
+            selectedBlockJson={settingsSelectedBlockData}
             selectedBlockId={selectedBlockOption?.id || ""}
             onSelectBlock={setSettingsSelectedBlockId}
           />
@@ -1564,6 +1673,7 @@ export default function App() {
                   onToggleFitness={onToggleFitness}
                   onEditFitnessDetails={onEditFitnessDetails}
                   onEditFitnessDate={onEditFitnessDate}
+                  onEditWeekContext={onEditWeekContext}
                 />
               ) : null}
 

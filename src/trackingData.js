@@ -468,6 +468,12 @@ function metadataTrainingBlocksFromCanonical(activity, metadata = {}) {
       id: block.block_id,
       name: block.block_name,
       description: block.block_details,
+      workouts: asArray(block.workouts).map((row) => ({
+        name: normalizeOptionalText(row?.name),
+        description: normalizeOptionalText(row?.description),
+        category: normalizeOptionalText(row?.category) || DEFAULT_CATEGORY_KEY,
+        optional: row?.optional === true,
+      })),
       block_start: block.block_start,
       block_end: block.block_end,
       category_order: template?.category_order ?? [DEFAULT_CATEGORY_KEY],
@@ -1144,6 +1150,30 @@ export async function updateCurrentWeekSummary(summary) {
   return canonicalWeekToLegacy(next, block);
 }
 
+export async function updateCurrentWeekContext(context) {
+  const text = normalizeOptionalText(context);
+
+  const canonical = await readCanonicalTrackingData();
+  const ensured = ensureCurrentWeekInCanonical(canonical);
+  const current = ensured.currentWeek;
+  if (!current) throw new Error("Missing current week");
+
+  const next = normalizeWeek({
+    ...current,
+    context: text,
+  });
+  ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
+  ensured.data.rules.metadata = {
+    ...asObject(ensured.data.rules.metadata),
+    last_updated: formatSeattleIso(new Date()),
+  };
+
+  await writeCanonicalTrackingData(ensured.data);
+
+  const block = ensured.data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
+  return canonicalWeekToLegacy(next, block);
+}
+
 export async function listFitnessWeeks({ limit = 12 } = {}) {
   const canonical = await readCanonicalTrackingData();
   const history = currentWeekHistory(canonical);
@@ -1241,9 +1271,16 @@ export function summarizeTrainingBlocks(data) {
       id: normalizeOptionalText(block.id),
       name: normalizeOptionalText(block.name),
       description: normalizeOptionalText(block.description),
+      category_order: asArray(block.category_order).filter((value) => typeof value === "string"),
+      category_labels: asObject(block.category_labels),
+      workouts: asArray(block.workouts).map((row) => ({
+        name: normalizeOptionalText(row?.name),
+        description: normalizeOptionalText(row?.description),
+        category: normalizeOptionalText(row?.category),
+        optional: row?.optional === true,
+      })),
       block_start: isIsoDateString(block.block_start) ? block.block_start : "",
       block_end: isIsoDateString(block.block_end) ? block.block_end : "",
-      category_order: asArray(block.category_order).filter((value) => typeof value === "string"),
       updated_at: typeof block.updated_at === "string" ? block.updated_at : "",
     })),
   };

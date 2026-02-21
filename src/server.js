@@ -19,7 +19,12 @@ import {
 } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
 import { formatChecklistCategoriesMarkdown, normalizeChecklistCategories } from "./checklistPolicy.js";
-import { getFitnessCategoryKeys, toFitnessCategoryLabel } from "./fitnessChecklist.js";
+import {
+  getFitnessCategoryKeys,
+  getFitnessCategoryLabel,
+  resolveFitnessCategoryKey,
+  toFitnessCategoryLabel,
+} from "./fitnessChecklist.js";
 import { deriveGoalsListsFromGoalsText, normalizeGoalsText, parseGoalsTextToList } from "./goalsText.js";
 import { analyzeImportPayload, applyImportPlan } from "./importData.js";
 import {
@@ -53,6 +58,7 @@ import {
   readTrackingData,
   summarizeTrainingBlocks,
   updateCurrentActivityWeekSummary,
+  updateCurrentWeekContext,
   updateCurrentActivityWorkout,
   updateCurrentWeekItems,
   formatSeattleIso,
@@ -467,9 +473,35 @@ function normalizeTrainingBlockName(value) {
   return value.trim();
 }
 
+function normalizeTrainingBlockId(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().replace(/^["'`]+|["'`]+$/g, "");
+  return trimmed || null;
+}
+
+function normalizeTrainingBlockMatchText(value) {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
 function normalizeTrainingBlockDescription(value) {
   if (typeof value !== "string") return "";
   return value.trim();
+}
+
+function normalizeTrainingBlockForComparison(block) {
+  const safe = isPlainObject(block) ? block : {};
+  return {
+    id: typeof safe.id === "string" ? safe.id : "",
+    name: typeof safe.name === "string" ? safe.name : "",
+    description: typeof safe.description === "string" ? safe.description : "",
+    block_start: typeof safe.block_start === "string" ? safe.block_start : "",
+    block_end: typeof safe.block_end === "string" ? safe.block_end : "",
+    category_order: Array.isArray(safe.category_order) ? safe.category_order : [],
+    category_labels: isPlainObject(safe.category_labels) ? safe.category_labels : {},
+    checklist: isPlainObject(safe.checklist) ? safe.checklist : {},
+    created_at: typeof safe.created_at === "string" ? safe.created_at : "",
+  };
 }
 
 function normalizeTrainingBlockApplyTiming(value) {
@@ -826,6 +858,128 @@ function extractTemplateFromStoredBlock(block) {
   return out;
 }
 
+function findChecklistItemIndexByToken(items, token) {
+  if (!Array.isArray(items)) return -1;
+  return items.findIndex((entry) => normalizeItemToken(entry?.item) === token);
+}
+
+function mergeChecklistTemplates(baseTemplate, requestedTemplate) {
+  const safeBase = isPlainObject(baseTemplate) ? baseTemplate : null;
+  const safeIncoming = isPlainObject(requestedTemplate) ? requestedTemplate : null;
+  if (!safeIncoming) return safeBase ? structuredClone(safeBase) : null;
+  if (!safeBase) return structuredClone(safeIncoming);
+
+  const merged = structuredClone(safeBase);
+  const baseCategoryOrder = Array.isArray(merged.category_order) ? merged.category_order : [];
+  const incomingCategoryOrder = Array.isArray(safeIncoming.category_order) ? safeIncoming.category_order : [];
+  merged.category_order = [...baseCategoryOrder];
+  if (!isPlainObject(merged.category_labels)) merged.category_labels = {};
+
+  const normalizedItemToCategory = new Map();
+  for (const key of merged.category_order) {
+    const items = Array.isArray(merged[key]) ? merged[key] : [];
+    merged[key] = items.filter((entry) => {
+      const itemText = typeof entry?.item === "string" ? entry.item.trim() : "";
+      if (!itemText) return false;
+      return true;
+    });
+    for (const item of merged[key]) {
+      const token = normalizeItemToken(item?.item);
+      if (!token) continue;
+      if (!normalizedItemToCategory.has(token)) normalizedItemToCategory.set(token, key);
+    }
+  }
+
+  const requestedCategoryLabels = isPlainObject(safeIncoming.category_labels) ? safeIncoming.category_labels : {};
+  for (const key of incomingCategoryOrder) {
+    if (!key) continue;
+    const items = Array.isArray(safeIncoming[key]) ? safeIncoming[key] : [];
+    const requestedLabel = typeof requestedCategoryLabels[key] === "string" ? requestedCategoryLabels[key].trim() : "";
+    if (requestedLabel) merged.category_labels[key] = requestedLabel;
+    if (!merged.category_order.includes(key)) merged.category_order.push(key);
+    if (!Array.isArray(merged[key])) merged[key] = [];
+
+    const seenIncoming = new Set();
+    for (const rawIncomingItem of items) {
+      const itemText = typeof rawIncomingItem?.item === "string" ? rawIncomingItem.item.trim() : "";
+      if (!itemText) continue;
+      const token = normalizeItemToken(itemText);
+      if (!token || seenIncoming.has(token)) continue;
+      seenIncoming.add(token);
+
+      const incomingDescription =
+        typeof rawIncomingItem?.description === "string" ? rawIncomingItem.description.trim() : "";
+      const existingCategory = normalizedItemToCategory.get(token);
+      const mergedItems = merged[key];
+      let fallbackDescription = "";
+
+      if (existingCategory && existingCategory !== key) {
+        const sourceItems = merged[existingCategory];
+        if (Array.isArray(sourceItems)) {
+          const indexInSource = findChecklistItemIndexByToken(sourceItems, token);
+          if (indexInSource >= 0) {
+            const movedItem = sourceItems[indexInSource];
+            if (typeof movedItem?.description === "string") {
+              fallbackDescription = movedItem.description;
+            }
+            sourceItems.splice(indexInSource, 1);
+          }
+        }
+      }
+
+      const targetIndex = findChecklistItemIndexByToken(mergedItems, token);
+      if (targetIndex >= 0) {
+        const existingItem = mergedItems[targetIndex];
+        const preservedDescription =
+          typeof incomingDescription === "string" && incomingDescription.length > 0
+            ? incomingDescription
+            : typeof fallbackDescription === "string" && fallbackDescription.length > 0
+              ? fallbackDescription
+            : typeof existingItem?.description === "string"
+              ? existingItem.description
+              : "";
+        if (preservedDescription.length > 0) {
+          mergedItems[targetIndex] = { item: itemText, description: preservedDescription };
+        } else {
+          mergedItems[targetIndex] = { item: itemText };
+        }
+      } else {
+        const preservedDescription =
+          typeof incomingDescription === "string" && incomingDescription.length > 0
+            ? incomingDescription
+            : typeof fallbackDescription === "string" && fallbackDescription.length > 0
+              ? fallbackDescription
+              : "";
+        mergedItems.push(preservedDescription.length > 0 ? { item: itemText, description: preservedDescription } : { item: itemText });
+      }
+      normalizedItemToCategory.set(token, key);
+    }
+  }
+
+  const compactOrder = [];
+  const seenCategory = new Set();
+  for (const key of merged.category_order) {
+    if (!key || seenCategory.has(key)) continue;
+    const items = Array.isArray(merged[key]) ? merged[key] : [];
+    if (!items.length) continue;
+    const filteredItems = items.filter((entry) => typeof entry?.item === "string" && entry.item.trim().length > 0);
+    merged[key] = filteredItems;
+    if (!filteredItems.length) continue;
+    compactOrder.push(key);
+    seenCategory.add(key);
+  }
+  merged.category_order = compactOrder;
+
+  const labelKeys = Object.keys(merged.category_labels || {});
+  for (const key of labelKeys) {
+    if (!seenCategory.has(key)) delete merged.category_labels[key];
+  }
+  if (!Object.keys(merged.category_labels).length) delete merged.category_labels;
+
+  if (!merged.category_order.length) return null;
+  return merged;
+}
+
 const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "agent"];
 const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
@@ -1052,7 +1206,20 @@ function isValidSettingsProposal(value) {
   const checklistCategoriesValue = trainingBlockValue.checklist_categories;
   if (checklistCategoriesValue === null || checklistCategoriesValue === undefined) return true;
   const normalizedChecklist = normalizeChecklistCategories(checklistCategoriesValue);
-  return !!normalizedChecklist;
+  if (normalizedChecklist) return true;
+
+  const workoutsValue = trainingBlockValue.workouts;
+  if (workoutsValue === null || workoutsValue === undefined) return false;
+  if (!Array.isArray(workoutsValue)) return false;
+  for (const workout of workoutsValue) {
+    if (!isPlainObject(workout)) return false;
+    if (workout.name !== undefined && typeof workout.name !== "string") return false;
+    if (workout.item !== undefined && typeof workout.item !== "string") return false;
+    if (workout.description !== undefined && typeof workout.description !== "string") return false;
+    if (workout.category !== undefined && typeof workout.category !== "string") return false;
+    if (workout.optional !== undefined && typeof workout.optional !== "boolean") return false;
+  }
+  return true;
 }
 
 function normalizeChecklistProposal(value) {
@@ -1060,7 +1227,168 @@ function normalizeChecklistProposal(value) {
   return normalized ? normalized : null;
 }
 
-function normalizeSettingsProposal(value) {
+function normalizeSettingsWorkoutsToChecklistCategories(value, currentWeek = null) {
+  const workouts = Array.isArray(value) ? value : [];
+  const safeWeek = isPlainObject(currentWeek) ? currentWeek : {};
+  const categoriesByKey = new Map();
+  const seenItemsByCategory = new Map();
+
+  for (const rawWorkout of workouts) {
+    const workout = isPlainObject(rawWorkout) ? rawWorkout : {};
+    const name =
+      typeof workout.name === "string"
+        ? workout.name.trim()
+        : typeof workout.item === "string"
+          ? workout.item.trim()
+          : "";
+    if (!name) continue;
+
+    const description = typeof workout.description === "string" ? workout.description.trim() : "";
+    const categoryInput = typeof workout.category === "string" ? workout.category.trim() : "";
+    const optional = workout.optional === true;
+
+    let categoryKey = "";
+    let categoryLabel = "";
+    if (categoryInput) {
+      const resolved = resolveFitnessCategoryKey(safeWeek, categoryInput);
+      if (resolved) {
+        categoryKey = resolved;
+        categoryLabel = getFitnessCategoryLabel(safeWeek, resolved);
+      } else {
+        categoryKey = categoryInput.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        categoryLabel = categoryInput;
+      }
+    } else {
+      const fallbackKeys = getFitnessCategoryKeys(safeWeek);
+      categoryKey = fallbackKeys.length ? fallbackKeys[0] : "cardio";
+      categoryLabel = getFitnessCategoryLabel(safeWeek, categoryKey);
+    }
+
+    if (!categoryKey) categoryKey = "other";
+    const mapKey = categoryKey.toLowerCase();
+    let category = categoriesByKey.get(mapKey);
+    if (!category) {
+      category = {
+        key: categoryKey,
+        label: categoryLabel || categoryKey,
+        items: [],
+      };
+      categoriesByKey.set(mapKey, category);
+      seenItemsByCategory.set(mapKey, new Set());
+    }
+
+    const baseName = optional && !/\boptional\b/i.test(name) ? `${name} (optional)` : name;
+    const itemText = description ? `${baseName} - ${description}` : baseName;
+    const itemToken = itemText.toLowerCase();
+    if (!itemText || seenItemsByCategory.get(mapKey).has(itemToken)) continue;
+    seenItemsByCategory.get(mapKey).add(itemToken);
+    category.items.push(itemText);
+  }
+
+  const categories = Array.from(categoriesByKey.values());
+  const normalized = normalizeChecklistCategories(categories);
+  return normalized ? normalized : null;
+}
+
+function findMatchingBracket(text, startIndex) {
+  if (typeof text !== "string") return -1;
+  if (text[startIndex] !== "[") return -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (char === "\\") {
+        escape = true;
+        continue;
+      }
+      if (char === "\"") inString = false;
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "[") {
+      depth += 1;
+      continue;
+    }
+    if (char === "]") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function extractWorkoutsArrayFromMessage(message) {
+  const text = typeof message === "string" ? message : "";
+  if (!text) return null;
+
+  const workoutsKeyMatch = /["']?workouts["']?\s*:\s*\[/i.exec(text);
+  if (workoutsKeyMatch) {
+    const arrayStart = text.indexOf("[", workoutsKeyMatch.index);
+    if (arrayStart >= 0) {
+      const arrayEnd = findMatchingBracket(text, arrayStart);
+      if (arrayEnd > arrayStart) {
+        const arrayText = text.slice(arrayStart, arrayEnd + 1);
+        try {
+          const parsed = JSON.parse(arrayText);
+          if (Array.isArray(parsed)) return parsed;
+        } catch {
+          // Fall through to other parse attempts.
+        }
+      }
+    }
+  }
+
+  const codeBlockMatch = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+  if (codeBlockMatch && typeof codeBlockMatch[1] === "string") {
+    const block = codeBlockMatch[1].trim();
+    if (!block) return null;
+    try {
+      const parsed = JSON.parse(block);
+      if (Array.isArray(parsed)) return parsed;
+      if (isPlainObject(parsed) && Array.isArray(parsed.workouts)) return parsed.workouts;
+    } catch {
+      // Ignore and return null below.
+    }
+  }
+
+  let cursor = 0;
+  while (cursor < text.length) {
+    const arrayStart = text.indexOf("[", cursor);
+    if (arrayStart < 0) break;
+    const arrayEnd = findMatchingBracket(text, arrayStart);
+    if (arrayEnd > arrayStart) {
+      const arrayText = text.slice(arrayStart, arrayEnd + 1);
+      try {
+        const parsed = JSON.parse(arrayText);
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch {
+        // Keep scanning for a later JSON array candidate.
+      }
+    }
+    cursor = arrayStart + 1;
+  }
+
+  return null;
+}
+
+function shouldApplyImmediateFromMessage(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return null;
+  if (/\b(this week|now|immediate|today)\b/.test(text)) return "immediate";
+  if (/\b(next week|starting next week)\b/.test(text)) return "next_week";
+  return null;
+}
+
+function normalizeSettingsProposal(value, currentWeek = null) {
   const raw = isPlainObject(value) ? value : {};
   const out = {
     [SETTINGS_CHECKLIST_FIELD]: null,
@@ -1073,6 +1401,8 @@ function normalizeSettingsProposal(value) {
   out[SETTINGS_CHECKLIST_FIELD] = normalizeChecklistProposal(raw[SETTINGS_CHECKLIST_FIELD]);
   const rawTrainingBlock = isPlainObject(raw[SETTINGS_TRAINING_BLOCK_FIELD]) ? raw[SETTINGS_TRAINING_BLOCK_FIELD] : null;
   if (rawTrainingBlock) {
+    const checklistFromChanges = normalizeChecklistProposal(rawTrainingBlock.checklist_categories);
+    const checklistFromWorkouts = normalizeSettingsWorkoutsToChecklistCategories(rawTrainingBlock.workouts, currentWeek);
     const normalizedBlock = {
       id: typeof rawTrainingBlock.id === "string" && rawTrainingBlock.id.trim() ? rawTrainingBlock.id.trim() : null,
       name: typeof rawTrainingBlock.name === "string" ? normalizeTrainingBlockName(rawTrainingBlock.name) : null,
@@ -1081,7 +1411,7 @@ function normalizeSettingsProposal(value) {
           ? normalizeTrainingBlockDescription(rawTrainingBlock.description)
           : null,
       apply_timing: normalizeTrainingBlockApplyTiming(rawTrainingBlock.apply_timing),
-      checklist_categories: normalizeChecklistProposal(rawTrainingBlock.checklist_categories),
+      checklist_categories: checklistFromChanges ?? checklistFromWorkouts,
     };
     const hasBlockFields = Object.values(normalizedBlock).some((entry) => {
       if (Array.isArray(entry)) return entry.length > 0;
@@ -1118,8 +1448,8 @@ function appendSettingsHistoryEvent(data, { domains }) {
 
 async function applySettingsChanges({ proposal }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
-  const normalized = normalizeSettingsProposal(proposal);
   const ensuredCurrentWeek = await ensureCurrentWeek();
+  const normalized = normalizeSettingsProposal(proposal, ensuredCurrentWeek);
   const data = await readTrackingData();
   const changesApplied = [];
   const domains = [];
@@ -1158,23 +1488,34 @@ async function applySettingsChanges({ proposal }) {
   let trainingBlockChanged = false;
 
   if (requestedBlockPatch || requestedBlockTemplate) {
-    const requestedId = typeof requestedBlockPatch?.id === "string" && requestedBlockPatch.id.trim() ? requestedBlockPatch.id.trim() : null;
+    const requestedId = normalizeTrainingBlockId(requestedBlockPatch?.id);
+    const requestedName = normalizeTrainingBlockMatchText(requestedBlockPatch?.name);
+    const requestedDescription = normalizeTrainingBlockMatchText(requestedBlockPatch?.description);
+    const activeIndex = blocks.findIndex((block) => block.id === activeBlockId);
     let selectedIndex = -1;
     if (requestedId) {
       selectedIndex = blocks.findIndex((block) => block.id === requestedId);
+      if (selectedIndex < 0 && requestedName) {
+        selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.name) === requestedName);
+      }
+      if (selectedIndex < 0 && requestedDescription) {
+        selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.description) === requestedDescription);
+      }
       if (selectedIndex < 0) throw new Error(`Unknown training block id: ${requestedId}`);
-    } else if (
-      requestedBlockPatch &&
-      !requestedBlockTemplate &&
-      (normalizeTrainingBlockName(requestedBlockPatch.name) || normalizeTrainingBlockDescription(requestedBlockPatch.description))
-    ) {
-      selectedIndex = blocks.findIndex((block) => block.id === activeBlockId);
+    } else if (requestedName) {
+      selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.name) === requestedName);
+    } else if (requestedDescription) {
+      selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.description) === requestedDescription);
+    }
+
+    if (selectedIndex < 0) {
+      selectedIndex = activeIndex;
     }
 
     if (selectedIndex >= 0) {
       const existing = blocks[selectedIndex];
       const baseTemplate = extractTemplateFromStoredBlock(existing);
-      const finalTemplate = requestedBlockTemplate ?? baseTemplate;
+      const finalTemplate = requestedBlockTemplate ? mergeChecklistTemplates(baseTemplate, requestedBlockTemplate) : baseTemplate;
       const updatedBlock = buildTrainingBlockFromTemplate({
         template: finalTemplate,
         blockId: existing.id,
@@ -1184,8 +1525,8 @@ async function applySettingsChanges({ proposal }) {
         blocks,
       });
       if (!updatedBlock) throw new Error("Training block is missing checklist categories.");
-      const existingJson = JSON.stringify(existing);
-      const updatedJson = JSON.stringify(updatedBlock);
+      const existingJson = JSON.stringify(normalizeTrainingBlockForComparison(existing));
+      const updatedJson = JSON.stringify(normalizeTrainingBlockForComparison(updatedBlock));
       if (existingJson !== updatedJson) {
         blocks[selectedIndex] = updatedBlock;
         trainingBlockChanged = true;
@@ -1555,6 +1896,7 @@ app.post("/api/settings/chat", async (req, res) => {
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const currentWeek = await ensureCurrentWeek();
 
     const result = stream
       ? await streamSettingsAssistant({
@@ -1564,7 +1906,23 @@ app.post("/api/settings/chat", async (req, res) => {
         })
       : await askSettingsAssistant({ message, messages });
 
-    const changes = normalizeSettingsProposal(result?.changes ?? {});
+    const changes = normalizeSettingsProposal(result?.changes ?? {}, currentWeek);
+    const messageWorkouts = extractWorkoutsArrayFromMessage(message);
+    if (Array.isArray(messageWorkouts) && messageWorkouts.length) {
+      const fromMessage = normalizeSettingsWorkoutsToChecklistCategories(messageWorkouts, currentWeek);
+      if (fromMessage && fromMessage.length) {
+        const existingTrainingBlock = isPlainObject(changes.training_block) ? changes.training_block : {};
+        const inferredTiming = shouldApplyImmediateFromMessage(message);
+        changes.training_block = {
+          ...existingTrainingBlock,
+          checklist_categories: fromMessage,
+          apply_timing:
+            normalizeTrainingBlockApplyTiming(existingTrainingBlock.apply_timing) ||
+            inferredTiming ||
+            null,
+        };
+      }
+    }
     const hasProposal = hasPendingSettingsChanges(changes);
     const applied = hasProposal
       ? await applySettingsChanges({ proposal: changes })
@@ -2128,6 +2486,18 @@ app.post("/api/fitness/current/summary", async (req, res) => {
     res.json({ ok: true, week });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.post("/api/fitness/current/context", async (req, res) => {
+  try {
+    const context = typeof req.body?.context === "string" ? req.body.context : "";
+    const week = await updateCurrentWeekContext(context);
+    res.json({ ok: true, week });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isInputError = message.startsWith("Invalid context");
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 

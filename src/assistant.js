@@ -2,7 +2,12 @@ import { z } from "zod";
 import { zodTextFormat } from "openai/helpers/zod";
 
 import { normalizeChecklistCategories } from "./checklistPolicy.js";
-import { getFitnessCategories, getFitnessCategoryLabel, getFitnessCategoryKeys } from "./fitnessChecklist.js";
+import {
+  getFitnessCategories,
+  getFitnessCategoryLabel,
+  getFitnessCategoryKeys,
+  resolveFitnessCategoryKey,
+} from "./fitnessChecklist.js";
 import { normalizeGoalsText } from "./goalsText.js";
 import { getOpenAIClient } from "./openaiClient.js";
 import {
@@ -454,12 +459,21 @@ const SettingsChecklistCategorySchema = z.object({
   items: z.array(z.string().min(1)),
 });
 
+const SettingsWorkoutSchema = z.object({
+  name: z.string().nullable(),
+  item: z.string().nullable(),
+  description: z.string().nullable(),
+  category: z.string().nullable(),
+  optional: z.boolean().nullable(),
+});
+
 const SettingsTrainingBlockSchema = z.object({
   id: z.string().nullable(),
   name: z.string().nullable(),
   description: z.string().nullable(),
   apply_timing: z.enum(["immediate", "next_week"]).nullable(),
   checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
+  workouts: z.array(SettingsWorkoutSchema).nullable().optional(),
 });
 
 const SettingsChangesSchema = z.object({
@@ -728,12 +742,78 @@ function normalizeSettingsProfileChange(value) {
   return value.replace(/\r\n/g, "\n");
 }
 
+function normalizeText(value) {
+  if (typeof value !== "string") return "";
+  return value.trim();
+}
+
 function normalizeSettingsChecklistProposal(value) {
   const raw = normalizeChecklistCategories(value);
   return raw ? raw : null;
 }
 
-function normalizeSettingsTrainingBlockChange(value) {
+function normalizeSettingsWorkoutsToChecklistCategories(value, currentWeek = null) {
+  const workouts = Array.isArray(value) ? value : [];
+  const safeWeek = asObject(currentWeek);
+  const categoryByKey = new Map();
+  const seenItemsByCategory = new Map();
+
+  for (const rawWorkout of workouts) {
+    const safeWorkout = asObject(rawWorkout);
+    const name = normalizeText(safeWorkout.name || safeWorkout.item);
+    if (!name) continue;
+
+    const description = normalizeText(safeWorkout.description);
+    const categoryInput = normalizeText(safeWorkout.category);
+    const optional = safeWorkout.optional === true;
+
+    let categoryKey = "";
+    let categoryLabel = "";
+    if (categoryInput) {
+      const resolvedCategory = resolveFitnessCategoryKey(safeWeek, categoryInput);
+      if (resolvedCategory) {
+        categoryKey = resolvedCategory;
+        categoryLabel = getFitnessCategoryLabel(safeWeek, resolvedCategory);
+      } else {
+        categoryKey = categoryInput.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+        categoryLabel = categoryInput;
+      }
+    } else {
+      const inferredCategory =
+        inferChecklistCategoryFromText(`${name} ${description}`.trim() || name, safeWeek) || "cardio";
+      categoryKey = inferredCategory;
+      categoryLabel = getFitnessCategoryLabel(safeWeek, inferredCategory);
+    }
+
+    if (!categoryKey) categoryKey = "other";
+    const key = normalizeForLookup(categoryKey);
+    if (!key) continue;
+
+    let category = categoryByKey.get(key);
+    if (!category) {
+      category = {
+        key: categoryKey,
+        label: categoryLabel || categoryKey,
+        items: [],
+      };
+      categoryByKey.set(key, category);
+      seenItemsByCategory.set(key, new Set());
+    }
+
+    const baseName = optional && !/\boptional\b/i.test(name) ? `${name} (optional)` : name;
+    const itemText = description ? `${baseName} - ${description}` : baseName;
+    const itemToken = normalizeForLookup(itemText);
+    if (!itemToken || seenItemsByCategory.get(key).has(itemToken)) continue;
+    seenItemsByCategory.get(key).add(itemToken);
+    category.items.push(itemText);
+  }
+
+  const categories = Array.from(categoryByKey.values());
+  const normalized = normalizeChecklistCategories(categories);
+  return normalized ? normalized : null;
+}
+
+function normalizeSettingsTrainingBlockChange(value, currentWeek = null) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
   if (!raw) return null;
   const out = {
@@ -741,8 +821,12 @@ function normalizeSettingsTrainingBlockChange(value) {
     name: typeof raw.name === "string" ? raw.name.trim() : null,
     description: typeof raw.description === "string" ? raw.description.trim() : null,
     apply_timing: raw.apply_timing === "immediate" || raw.apply_timing === "next_week" ? raw.apply_timing : null,
-    checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
+    checklist_categories: null,
   };
+  const checklistFromChanges = normalizeSettingsChecklistProposal(raw.checklist_categories);
+  const checklistFromWorkouts = normalizeSettingsWorkoutsToChecklistCategories(raw.workouts, currentWeek);
+  out.checklist_categories = checklistFromChanges ?? checklistFromWorkouts ?? null;
+
   const hasValue = Object.values(out).some((entry) => {
     if (Array.isArray(entry)) return entry.length > 0;
     if (typeof entry === "string") return entry.length > 0;
@@ -762,7 +846,7 @@ function normalizeSettingsAssistantOutput(
     diet: normalizeSettingsProfileChange(parsed?.changes?.diet),
     agent: normalizeSettingsProfileChange(parsed?.changes?.agent),
     checklist_categories: normalizeSettingsChecklistProposal(parsed?.changes?.checklist_categories),
-    training_block: normalizeSettingsTrainingBlockChange(parsed?.changes?.training_block),
+    training_block: normalizeSettingsTrainingBlockChange(parsed?.changes?.training_block, currentWeek),
   };
 
   const hasChanges = Boolean(
@@ -1085,7 +1169,7 @@ function buildEmptySettingsChanges() {
   };
 }
 
-function coerceSettingsChanges(value) {
+function coerceSettingsChanges(value, { currentWeek = null } = {}) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     general: normalizeSettingsProfileChange(raw.general),
@@ -1093,7 +1177,7 @@ function coerceSettingsChanges(value) {
     diet: normalizeSettingsProfileChange(raw.diet),
     agent: normalizeSettingsProfileChange(raw.agent),
     checklist_categories: normalizeSettingsChecklistProposal(raw.checklist_categories),
-    training_block: normalizeSettingsTrainingBlockChange(raw.training_block),
+    training_block: normalizeSettingsTrainingBlockChange(raw.training_block, currentWeek),
   };
 }
 
@@ -1106,7 +1190,7 @@ function buildSettingsAssistantFallback(text, { message = "", currentWeek = null
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const assistantMessage = cleanRichText(parsed.assistant_message ?? "");
         const followupQuestion = cleanText(parsed.followup_question ?? "") || null;
-        const changes = coerceSettingsChanges(parsed.changes);
+        const changes = coerceSettingsChanges(parsed.changes, { currentWeek });
         const hasChanges = Boolean(
           changes.general ||
             changes.fitness ||

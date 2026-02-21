@@ -23,10 +23,72 @@ export default function SettingsView({
   checklistPhaseName = "",
   checklistPhaseDescription = "",
   blockOptions = [],
+  selectedBlockJson = null,
   selectedBlockId = "",
   onSelectBlock = () => {},
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
+  const groupedChecklistCategories = (() => {
+    const rows = Array.isArray(checklistCategories) ? checklistCategories : [];
+    const byKey = new Map();
+
+    const ensureGroup = (key, label) => {
+      if (!byKey.has(key)) {
+        byKey.set(key, { key, label, items: [] });
+      }
+      return byKey.get(key);
+    };
+
+    let receivedGrouped = false;
+    for (const row of rows) {
+      const hasItems = Array.isArray(row?.items);
+      if (hasItems) {
+        receivedGrouped = true;
+        const key = typeof row?.key === "string" && row.key.trim() ? row.key.trim() : "workouts";
+        const label = typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "Workouts";
+        const group = ensureGroup(key, label);
+        const items = row.items;
+        for (const item of items) {
+          const itemLabel = typeof item?.item === "string" ? item.item : "";
+          if (!itemLabel) continue;
+          group.items.push({
+            item: itemLabel,
+            description: typeof item?.description === "string" ? item.description : "",
+            checked: item?.checked === true,
+            category: typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "",
+          });
+        }
+      } else if (row && typeof row === "object") {
+        const itemLabel = typeof row?.item === "string" ? row.item : "";
+        if (!itemLabel) continue;
+        const categoryLabel =
+          typeof row?.category === "string" && row.category.trim() ? row.category.trim() : "Workouts";
+        const key = categoryLabel.toLowerCase().trim();
+        const group = ensureGroup(key, categoryLabel);
+        group.items.push({
+          item: itemLabel,
+          description: typeof row?.description === "string" ? row.description : "",
+          checked: row?.checked === true,
+          category: categoryLabel,
+        });
+      }
+    }
+
+    if (!rows.length) return [];
+    if (!receivedGrouped) {
+      return Array.from(byKey.values());
+    }
+
+    const grouped = rows
+      .map((row) => {
+        const key = typeof row?.key === "string" && row.key.trim() ? row.key.trim() : "workouts";
+        const label = typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "Category";
+        const items = Array.isArray(row?.items) ? row.items : [];
+        return { key, label, items };
+      })
+      .filter((row) => row.items.length);
+    return grouped.length ? grouped : Array.from(byKey.values());
+  })();
 
   return (
     <section className="chatPanel">
@@ -35,21 +97,6 @@ export default function SettingsView({
           <aside className="settingsProfilesPanel" aria-label="Settings profiles">
             <div className="settingsProfilesHeader sidebarSectionHeader">
               <h2 className="sidebarHeading">Settings profiles</h2>
-              <p className="settingsProfilesMeta sidebarDate">
-                {settingsProfilesSaving || settingsProfilesDirty ? (
-                  <span className="settingsSaveStatus">
-                    <span className="settingsSaveSpinner" aria-hidden="true" />
-                    <span className="settingsSaveLabel">Saving…</span>
-                  </span>
-                ) : (
-                  <span className="settingsSaveStatus settingsSaveStatusSaved">
-                    <span className="settingsSaveCheck" aria-hidden="true">
-                      ✓
-                    </span>
-                    <span className="settingsSaveLabel">Saved</span>
-                  </span>
-                )}
-              </p>
             </div>
             <div className="settingsProfilesFields">
               <label className="settingsProfilesField" htmlFor="general_text">
@@ -125,14 +172,12 @@ export default function SettingsView({
                 {checklistPhaseDescription ? ` — ${checklistPhaseDescription}` : ""}
               </div>
             ) : null}
-
             <div className="settingsChecklistBody">
-              {Array.isArray(checklistCategories) && checklistCategories.length ? (
+              {Array.isArray(groupedChecklistCategories) && groupedChecklistCategories.length ? (
                 <div className="sidebarChecklist">
-                  {checklistCategories.map((category) => {
+                  {groupedChecklistCategories.map((category) => {
                     const key = typeof category?.key === "string" ? category.key : "";
-                    const label =
-                      typeof category?.label === "string" && category.label.trim() ? category.label.trim() : key || "Category";
+                    const label = typeof category?.label === "string" && category.label.trim() ? category.label.trim() : key || "Category";
                     const items = Array.isArray(category?.items) ? category.items : [];
 
                     return (
@@ -143,12 +188,12 @@ export default function SettingsView({
                             items.map((it, idx) => {
                               const itemLabel = typeof it?.item === "string" ? it.item : "";
                               const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
-                              const checked = it?.checked === true;
+                                const checked = it?.checked === true;
 
                               return (
-                                <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : "todo"}`}>
+                                <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : ""}`}>
                                   <span
-                                    className={`sidebarChecklistMark ${checked ? "checked" : "unchecked"}`}
+                                    className={checked ? "sidebarChecklistMark checked" : ""}
                                     aria-hidden="true"
                                   >
                                     {checked ? "✓" : ""}

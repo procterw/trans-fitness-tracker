@@ -303,6 +303,15 @@ export async function updateFitnessItem({ workoutIndex, checked, details, date =
   });
 }
 
+export async function updateFitnessWeekContext(context = "") {
+  const body = { context: typeof context === "string" ? context : "" };
+  return fetchJson("/api/fitness/current/context", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function updateFitnessSummary(summary) {
   return fetchJson("/api/fitness/current/summary", {
     method: "POST",

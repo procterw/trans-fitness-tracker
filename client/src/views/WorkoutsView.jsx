@@ -236,6 +236,7 @@ export default function WorkoutsView({
   onToggleFitness,
   onEditFitnessDetails,
   onEditFitnessDate,
+  onEditWeekContext,
 }) {
   const workouts = Array.isArray(fitnessWeek?.workouts) ? fitnessWeek.workouts : [];
   const workoutGroups = groupWorkoutsByCategory(workouts);
@@ -247,6 +248,8 @@ export default function WorkoutsView({
       : typeof fitnessWeek?.training_block_description === "string" && fitnessWeek.training_block_description.trim()
         ? fitnessWeek.training_block_description.trim()
         : "";
+  const currentWeekContext = typeof fitnessWeek?.context === "string" ? fitnessWeek.context : "";
+  const currentWeekSummary = typeof fitnessWeek?.ai_summary === "string" ? fitnessWeek.ai_summary : "";
 
   return (
     <div className="mainScroll workoutsView">
@@ -260,12 +263,32 @@ export default function WorkoutsView({
               </span>
             ) : null}
           </h2>
-
           {fitnessWeek ? (
-            <section className="workoutsBlockMetaSection" aria-label="Current training block">
-              <h3 className="workoutsBlockMetaName">{currentBlockName}</h3>
-              {currentBlockDescription ? <p className="workoutsBlockMetaDescription">{currentBlockDescription}</p> : null}
-            </section>
+            <div className="workoutsBlockHeaderRow">
+              <section className="workoutsBlockMetaSection" aria-label="Current training block">
+                <h3 className="workoutsBlockMetaName">{currentBlockName}</h3>
+                {currentBlockDescription ? <p className="workoutsBlockMetaDescription">{currentBlockDescription}</p> : null}
+              </section>
+              <section className="workoutsWeekContextSection" aria-label="Weekly training notes">
+                <label htmlFor="fitnessWeekContext" className="workoutsWeekContextLabel">
+                  Training week notes
+                </label>
+                <AutoGrowTextarea
+                  id="fitnessWeekContext"
+                  rows={3}
+                  className="workoutsWeekContextTextarea"
+                  value={currentWeekContext}
+                  disabled={fitnessLoading}
+                  placeholder="Add notes about this week of training…"
+                  onChange={(e) => onEditWeekContext?.(e.target.value ?? "")}
+                  aria-label="Training week notes"
+                />
+              </section>
+              <section className="workoutsWeekSummarySection" aria-label="Weekly AI summary">
+              <h3 className="workoutsBlockMetaName">Summary</h3>
+                {currentWeekSummary ? <p className="workoutsBlockMetaDescription">{currentWeekSummary}</p> : <p className="workoutsBlockMetaDescription muted">No summary yet.</p>}
+              </section>
+            </div>
           ) : null}
         </div>
 
