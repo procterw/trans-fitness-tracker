@@ -764,14 +764,44 @@ async function writeCanonicalTrackingData(canonical) {
   await writeSplitCanonical(safe);
 }
 
-function appendDayDetails(previous, nextEntry, nowIso) {
-  const prior = normalizeOptionalText(previous);
-  const entry = normalizeText(nextEntry);
-  if (!entry) return prior;
-  const token = nowIso.slice(11, 16);
-  const line = `- ${token} ${entry}`;
-  if (!prior) return line;
-  return `${prior}\n${line}`;
+function buildDayFitSummary(dayTotals) {
+  const calories = toNumberOrNull(dayTotals?.calories);
+  const carbs = toNumberOrNull(dayTotals?.carbs_g);
+  const fat = toNumberOrNull(dayTotals?.fat_g);
+  const protein = toNumberOrNull(dayTotals?.protein_g);
+  const fiber = toNumberOrNull(dayTotals?.fiber_g);
+
+  let energySentence = "Energy status is still incomplete due to partial logging.";
+  if (calories !== null && calories < 2000) {
+    energySentence = "Just below target so far; higher activity days may need one more meal for energy sufficiency.";
+  } else if (calories !== null && calories < 2900) {
+    energySentence = "Solid surplus with clear calorie sufficiency for activity and steady progress.";
+  } else if (calories !== null) {
+    energySentence = "Large surplus day with high energy availability.";
+  }
+
+  let macroSentence = "Mixed carb/fat intake pattern across the day.";
+  if ((carbs ?? 0) >= 220 && (carbs ?? 0) >= (fat ?? 0) * 1.4) {
+    macroSentence = "Carb-forward fueling pattern, consistent with endurance-oriented activity support.";
+  } else if ((fat ?? 0) >= 95 && (fat ?? 0) >= (carbs ?? 0) * 0.7) {
+    macroSentence = "Fat-forward, calorie-dense intake pattern.";
+  }
+
+  let proteinSentence = "Protein total is incomplete.";
+  if (protein !== null && protein <= 95) {
+    proteinSentence = `Protein at ${Math.round(protein)}g stayed moderate and generally aligned with slow atrophy goals.`;
+  } else if (protein !== null && protein <= 120) {
+    proteinSentence = `Protein at ${Math.round(protein)}g was slightly elevated but diffuse and fat-paired, still broadly compatible with goals.`;
+  } else if (protein !== null) {
+    proteinSentence = `Protein at ${Math.round(protein)}g was elevated, but spread across meals and fat-paired, which softens muscle-retention signaling.`;
+  }
+
+  const fiberSentence = fiber !== null && fiber < 15 ? "Fiber ran low relative to intake quality." : "";
+  return [energySentence, macroSentence, proteinSentence, fiberSentence].filter(Boolean).join(" ");
+}
+
+function buildFoodDaySummaryLine({ dayTotals }) {
+  return normalizeText(buildDayFitSummary(dayTotals));
 }
 
 function upsertDietDay(days, nextDay) {
@@ -865,8 +895,7 @@ export async function addFoodEvent({
     canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const merged = mergeNutrientsIntoDay(existing, nutrients);
 
-  const detailsInput = [normalizeText(description), normalizeText(input_text), normalizeText(notes)].filter(Boolean).join(" | ");
-  merged.ai_summary = appendDayDetails(existing.ai_summary, detailsInput, loggedAt);
+  merged.ai_summary = buildFoodDaySummaryLine({ dayTotals: merged });
 
   canonical.food.days = upsertDietDay(canonical.food.days, merged);
   canonical.rules.metadata = {
@@ -923,10 +952,7 @@ export async function updateFoodEvent({
   const existing =
     canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const replaced = replaceDayTotals(existing, nutrients);
-  const detailsInput = ["updated", normalizeText(description), normalizeText(input_text), normalizeText(notes)]
-    .filter(Boolean)
-    .join(" | ");
-  replaced.ai_summary = appendDayDetails(existing.ai_summary, detailsInput, loggedAt);
+  replaced.ai_summary = buildFoodDaySummaryLine({ dayTotals: replaced });
 
   canonical.food.days = upsertDietDay(canonical.food.days, replaced);
   canonical.rules.metadata = {
