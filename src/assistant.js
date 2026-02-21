@@ -208,19 +208,23 @@ const DEFAULT_SETTINGS_ASSISTANT_INSTRUCTIONS = [
   "You are a settings assistant for a health and fitness tracker.",
   "You are not a person. Do not roleplay as one.",
   "The user can update four settings profile texts: general, fitness, diet, and agent.",
-  "The user can also manage training phases/blocks.",
-  "For phase changes, use changes.training_block with optional id, name, description, checklist_categories, and apply_timing (immediate or next_week).",
-  "Use checklist_categories at the top level only for backward compatibility; prefer changes.training_block.",
+  "The user can also manage training blocks using deterministic CRUD operations.",
+  "Prefer changes.training_block.operation with one of: update_block, create_block, switch_block, replace_workouts, add_workouts, remove_workouts.",
+  "Use checklist_categories at the top level only for backward compatibility; prefer operation-driven changes.training_block fields.",
+  "Use selected_block_id from context as the default target for requests like 'this block'.",
   "Always return JSON matching the schema.",
   "If the request is unclear, keep changes as null and ask one concise follow-up question.",
   "For profile updates, return full replacement text only for fields that should change.",
   "Only modify fields the user requested; leave all others unchanged.",
   "Never remove existing settings unless the user explicitly asks to remove or replace them.",
-  "When a checklist is requested, provide checklist_categories with full category and item details under changes.training_block.",
-  "For checklist edits that are clearly actionable (for example adding or removing a concrete workout session), infer the best category when it is obvious.",
-  "Only ask a category clarification when the activity is ambiguous and could plausibly belong to multiple categories.",
+  "For create_block and replace_workouts, include complete workout definitions when provided by the user.",
+  "For add_workouts, set workouts_add. For remove_workouts, set workouts_remove with name and optional ordinal.",
+  "If user intent is add/append/insert/include additional workouts, use add_workouts and do not use replace_workouts.",
+  "Use replace_workouts only when the user clearly asks to replace or rewrite the full block workout list.",
+  "For switch_block, set the target block id/name and no workout mutation fields.",
+  "When user provides block start/end dates, set block_start/block_end as YYYY-MM-DD when possible.",
+  "If user asks for a specific week start and date is not Monday, still provide the requested date; server-side logic handles correction and confirmation.",
   "When the user specifies 'now' or 'this week', set apply_timing=immediate. When they specify next week or later, set apply_timing=next_week.",
-  "For a pure phase switch without edits, set changes.training_block.id to the target block id.",
   "Do not return diet_philosophy_patch or fitness_philosophy_patch.",
   "Use plain text for each profile field. Preserve meaningful formatting and line breaks.",
   "Keep assistant_message professional, concise, practical, and non-judgmental.",
@@ -467,13 +471,26 @@ const SettingsWorkoutSchema = z.object({
   optional: z.boolean().nullable(),
 });
 
+const SettingsWorkoutRemoveSchema = z.object({
+  name: z.string().nullable(),
+  ordinal: z.number().int().positive().nullable().optional(),
+});
+
 const SettingsTrainingBlockSchema = z.object({
+  operation: z
+    .enum(["update_block", "create_block", "switch_block", "replace_workouts", "add_workouts", "remove_workouts"])
+    .nullable()
+    .optional(),
   id: z.string().nullable(),
   name: z.string().nullable(),
   description: z.string().nullable(),
+  block_start: z.string().nullable().optional(),
+  block_end: z.string().nullable().optional(),
   apply_timing: z.enum(["immediate", "next_week"]).nullable(),
   checklist_categories: z.array(SettingsChecklistCategorySchema).nullable(),
   workouts: z.array(SettingsWorkoutSchema).nullable().optional(),
+  workouts_add: z.array(SettingsWorkoutSchema).nullable().optional(),
+  workouts_remove: z.array(SettingsWorkoutRemoveSchema).nullable().optional(),
 });
 
 const SettingsChangesSchema = z.object({
@@ -553,6 +570,23 @@ function buildTrainingBlocksSnapshot(tracking) {
       id: typeof block?.id === "string" ? block.id : "",
       name: typeof block?.name === "string" ? block.name : "",
       description: typeof block?.description === "string" ? block.description : "",
+      block_start: typeof block?.block_start === "string" ? block.block_start : "",
+      block_end: typeof block?.block_end === "string" ? block.block_end : "",
+      workouts: Array.isArray(block?.workouts)
+        ? block.workouts
+            .map((row) => {
+              const safe = asObject(row);
+              const name = normalizeText(safe.name || safe.item);
+              if (!name) return null;
+              return {
+                name,
+                description: normalizeText(safe.description),
+                category: normalizeText(safe.category),
+                optional: safe.optional === true,
+              };
+            })
+            .filter(Boolean)
+        : [],
       checklist_categories: buildChecklistTemplateSnapshot({
         category_order: Array.isArray(block?.category_order) ? block.category_order : [],
         category_labels: block?.category_labels ?? {},
@@ -816,12 +850,52 @@ function normalizeSettingsWorkoutsToChecklistCategories(value, currentWeek = nul
 function normalizeSettingsTrainingBlockChange(value, currentWeek = null) {
   const raw = value && typeof value === "object" && !Array.isArray(value) ? value : null;
   if (!raw) return null;
+  const normalizeSettingsWorkoutChange = (workout) => {
+    const safeWorkout = asObject(workout);
+    const name = normalizeText(safeWorkout.name || safeWorkout.item);
+    if (!name) return null;
+    return {
+      name,
+      description: normalizeText(safeWorkout.description),
+      category: normalizeText(safeWorkout.category) || "Workouts",
+      optional: safeWorkout.optional === true,
+    };
+  };
+
+  const normalizeSettingsWorkoutRemove = (workout) => {
+    const safeWorkout = asObject(workout);
+    const name = normalizeText(safeWorkout.name || safeWorkout.item);
+    if (!name) return null;
+    return {
+      name,
+      ordinal: Number.isInteger(safeWorkout.ordinal) && safeWorkout.ordinal > 0 ? safeWorkout.ordinal : null,
+    };
+  };
+
   const out = {
+    operation:
+      raw.operation === "update_block" ||
+      raw.operation === "create_block" ||
+      raw.operation === "switch_block" ||
+      raw.operation === "replace_workouts" ||
+      raw.operation === "add_workouts" ||
+      raw.operation === "remove_workouts"
+        ? raw.operation
+        : null,
     id: typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : null,
     name: typeof raw.name === "string" ? raw.name.trim() : null,
     description: typeof raw.description === "string" ? raw.description.trim() : null,
+    block_start: typeof raw.block_start === "string" ? raw.block_start.trim() : null,
+    block_end: typeof raw.block_end === "string" ? raw.block_end.trim() : null,
     apply_timing: raw.apply_timing === "immediate" || raw.apply_timing === "next_week" ? raw.apply_timing : null,
     checklist_categories: null,
+    workouts: Array.isArray(raw.workouts) ? raw.workouts.map((row) => normalizeSettingsWorkoutChange(row)).filter(Boolean) : null,
+    workouts_add: Array.isArray(raw.workouts_add)
+      ? raw.workouts_add.map((row) => normalizeSettingsWorkoutChange(row)).filter(Boolean)
+      : null,
+    workouts_remove: Array.isArray(raw.workouts_remove)
+      ? raw.workouts_remove.map((row) => normalizeSettingsWorkoutRemove(row)).filter(Boolean)
+      : null,
   };
   const checklistFromChanges = normalizeSettingsChecklistProposal(raw.checklist_categories);
   const checklistFromWorkouts = normalizeSettingsWorkoutsToChecklistCategories(raw.workouts, currentWeek);
@@ -1700,18 +1774,26 @@ export async function streamOnboardingDietGoals({
   };
 }
 
-export async function askSettingsAssistant({ message, messages = [] }) {
+export async function askSettingsAssistant({ message, messages = [], selectedBlockId = "" }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
   const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
+  const trainingBlocks = buildTrainingBlocksSnapshot(tracking);
+  const selectedBlock =
+    selectedBlockId && Array.isArray(trainingBlocks?.blocks)
+      ? trainingBlocks.blocks.find((block) => block.id === selectedBlockId) || null
+      : null;
+
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
     week: currentWeek ?? {},
-    training_blocks: buildTrainingBlocksSnapshot(tracking),
+    selected_block_id: typeof selectedBlockId === "string" ? selectedBlockId : "",
+    selected_block: selectedBlock,
+    training_blocks: trainingBlocks,
   };
 
   const system = buildSystemInstructions({
@@ -1751,18 +1833,26 @@ export async function askSettingsAssistant({ message, messages = [] }) {
   });
 }
 
-export async function streamSettingsAssistant({ message, messages = [] }) {
+export async function streamSettingsAssistant({ message, messages = [], selectedBlockId = "" }) {
   const client = getOpenAIClient();
   const model = getAssistantModel();
 
   const currentWeek = await ensureCurrentWeek();
   const tracking = await readTrackingData();
 
+  const trainingBlocks = buildTrainingBlocksSnapshot(tracking);
+  const selectedBlock =
+    selectedBlockId && Array.isArray(trainingBlocks?.blocks)
+      ? trainingBlocks.blocks.find((block) => block.id === selectedBlockId) || null
+      : null;
+
   const context = {
     timezone: "America/Los_Angeles",
     ...pickSettingsProfiles(tracking),
     week: currentWeek ?? {},
-    training_blocks: buildTrainingBlocksSnapshot(tracking),
+    selected_block_id: typeof selectedBlockId === "string" ? selectedBlockId : "",
+    selected_block: selectedBlock,
+    training_blocks: trainingBlocks,
   };
 
   const system = buildSystemInstructions({

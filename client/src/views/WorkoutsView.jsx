@@ -270,7 +270,7 @@ export default function WorkoutsView({
                 {currentBlockDescription ? <p className="workoutsBlockMetaDescription">{currentBlockDescription}</p> : null}
               </section>
               <section className="workoutsWeekContextSection" aria-label="Weekly training notes">
-                <label htmlFor="fitnessWeekContext" className="workoutsWeekContextLabel">
+                <label htmlFor="fitnessWeekContext" className="workoutsWeekContextLabel workoutsBlockMetaName">
                   Training week notes
                 </label>
                 <AutoGrowTextarea
@@ -290,7 +290,6 @@ export default function WorkoutsView({
               </section>
             </div>
           ) : null}
-        </div>
 
         {fitnessWeek ? (
           <section className="workoutsChecklistSection workoutsDataPanel">
@@ -304,13 +303,13 @@ export default function WorkoutsView({
                     <div className="fitnessChecklist" aria-label={`${group.category} workout checklist`}>
                       {group.items.map(({ workout, index }) => (
                         <WorkoutItemRow
-                          key={`${group.category}_${workoutKey(workout?.name) || index}`}
-                          workout={workout}
-                          index={index}
-                          fitnessLoading={fitnessLoading}
-                          onToggleFitness={onToggleFitness}
-                          onEditFitnessDetails={onEditFitnessDetails}
-                          onEditFitnessDate={onEditFitnessDate}
+                        key={`${group.category}_${workoutKey(workout?.name) || index}`}
+                        workout={workout}
+                        index={index}
+                        fitnessLoading={fitnessLoading}
+                        onToggleFitness={onToggleFitness}
+                        onEditFitnessDetails={onEditFitnessDetails}
+                        onEditFitnessDate={onEditFitnessDate}
                         />
                       ))}
                     </div>
@@ -325,7 +324,7 @@ export default function WorkoutsView({
 
         {fitnessWeek ? (
           <section className="fitnessHistory workoutsHistorySection">
-            <h2>History</h2>
+            <h2>Training block history</h2>
             <div className="fitnessHistoryBody">
               {fitnessHistoryError ? <p className="error">{fitnessHistoryError}</p> : null}
               {fitnessHistoryLoading ? <p className="muted">Loading…</p> : null}
@@ -333,6 +332,7 @@ export default function WorkoutsView({
             </div>
           </section>
         ) : null}
+        </div>
       </section>
     </div>
   );

@@ -92,6 +92,7 @@ async function main() {
     getCurrentActivityWeek,
     getDailyTotalsForDate,
     readTrackingData,
+    summarizeTrainingBlocks,
     updateCurrentActivityWorkout,
     updateFoodEvent,
     writeTrackingData,
@@ -252,6 +253,239 @@ async function main() {
   const uniqueDates = new Set(dayDates);
   assert.equal(uniqueDates.size, dayDates.length);
   results.push("D01 no duplicate day rows across flow");
+
+  // Settings block CRUD deterministic checks via direct apply engine.
+  const serverModule = await import("../src/server.js");
+  const applySettingsChanges = serverModule.applySettingsChanges;
+  assert.equal(typeof applySettingsChanges, "function");
+
+  const initialBlocksState = summarizeTrainingBlocks(await readTrackingData());
+  const selectedBlockId = initialBlocksState?.blocks?.[0]?.id || "";
+  assert.ok(selectedBlockId, "expected at least one training block for settings tests");
+
+  const addOptionalProposal = {
+    training_block: {
+      operation: "add_workouts",
+      workouts_add: [
+        {
+          name: "Easy gym session",
+          description: "",
+          category: "Strength",
+          optional: true,
+        },
+      ],
+    },
+  };
+  const addOptionalRes = await applySettingsChanges({ proposal: addOptionalProposal, selectedBlockId });
+  assert.ok(Array.isArray(addOptionalRes.changesApplied) && addOptionalRes.changesApplied.length > 0);
+  const stateAfterAdd = summarizeTrainingBlocks(await readTrackingData());
+  const blockAfterAdd = (stateAfterAdd?.blocks || []).find((block) => block?.id === selectedBlockId) || null;
+  const easyGym = (blockAfterAdd?.workouts || []).find((workout) => String(workout?.name || "").toLowerCase() === "easy gym session");
+  assert.ok(easyGym, "expected easy gym session in selected block");
+  assert.equal(easyGym.optional, true);
+  results.push("S01 add optional workout to selected block");
+
+  // Simulate a lossy legacy block.workouts payload and ensure add_workouts preserves
+  // richer checklist-derived metadata for existing workouts.
+  const lossyData = await readTrackingData();
+  const rules = lossyData?.rules && typeof lossyData.rules === "object" ? lossyData.rules : {};
+  const metadata =
+    rules?.metadata && typeof rules.metadata === "object"
+      ? rules.metadata
+      : lossyData?.metadata && typeof lossyData.metadata === "object"
+        ? lossyData.metadata
+        : {};
+  const trainingBlocks =
+    metadata?.training_blocks && typeof metadata.training_blocks === "object"
+      ? metadata.training_blocks
+      : { active_block_id: "", blocks: [] };
+  const rawBlocks = Array.isArray(trainingBlocks.blocks) ? trainingBlocks.blocks : [];
+  const lossyBlocks = rawBlocks.map((block) => {
+    if (block?.id !== selectedBlockId) return block;
+    const workouts = Array.isArray(block?.workouts) ? block.workouts : [];
+    return {
+      ...block,
+      workouts: workouts
+        .map((workout) => {
+          const name = typeof workout?.name === "string" ? workout.name : "";
+          if (!name) return null;
+          return { name, optional: workout?.optional === true };
+        })
+        .filter(Boolean),
+    };
+  });
+  const nextMetadata = {
+    ...metadata,
+    training_blocks: {
+      ...trainingBlocks,
+      blocks: lossyBlocks,
+    },
+  };
+  lossyData.rules = {
+    ...rules,
+    metadata: nextMetadata,
+  };
+  lossyData.metadata = nextMetadata;
+  await writeTrackingData(lossyData);
+
+  const preserveMetadataProposal = {
+    training_block: {
+      operation: "add_workouts",
+      workouts_add: [
+        {
+          name: "Tempo run",
+          description: "30 min moderate",
+          category: "Cardio",
+          optional: false,
+        },
+      ],
+    },
+  };
+  const preserveMetadataRes = await applySettingsChanges({ proposal: preserveMetadataProposal, selectedBlockId });
+  assert.ok(Array.isArray(preserveMetadataRes.changesApplied) && preserveMetadataRes.changesApplied.length > 0);
+  const stateAfterPreserve = summarizeTrainingBlocks(await readTrackingData());
+  const blockAfterPreserve = (stateAfterPreserve?.blocks || []).find((block) => block?.id === selectedBlockId) || null;
+  const runAfterPreserve = (blockAfterPreserve?.workouts || []).find(
+    (workout) => String(workout?.name || "").toLowerCase() === "run",
+  );
+  assert.equal(runAfterPreserve?.description || "", "Easy run");
+  assert.equal(String(runAfterPreserve?.category || "").toLowerCase(), "cardio");
+  results.push("S01b add_workouts preserves existing workout description/category");
+
+  // Simulate LLM mistake: replace_workouts with name-only rows. Existing matched
+  // workouts should retain prior description/category/optional metadata.
+  const replaceNameOnlyProposal = {
+    training_block: {
+      operation: "replace_workouts",
+      workouts: [
+        { name: "Run" },
+        { name: "Easy gym session" },
+        { name: "Tempo run" },
+        { name: "Hill sprints", description: "8 x 30s hard", category: "Cardio", optional: false },
+      ],
+    },
+  };
+  const replaceNameOnlyRes = await applySettingsChanges({ proposal: replaceNameOnlyProposal, selectedBlockId });
+  assert.ok(Array.isArray(replaceNameOnlyRes.changesApplied) && replaceNameOnlyRes.changesApplied.length > 0);
+  const stateAfterReplaceNameOnly = summarizeTrainingBlocks(await readTrackingData());
+  const blockAfterReplaceNameOnly =
+    (stateAfterReplaceNameOnly?.blocks || []).find((block) => block?.id === selectedBlockId) || null;
+  const runAfterReplaceNameOnly = (blockAfterReplaceNameOnly?.workouts || []).find(
+    (workout) => String(workout?.name || "").toLowerCase() === "run",
+  );
+  assert.equal(runAfterReplaceNameOnly?.description || "", "Easy run");
+  assert.equal(String(runAfterReplaceNameOnly?.category || "").toLowerCase(), "cardio");
+  results.push("S01c replace_workouts hydrates missing metadata from existing definitions");
+
+  const blockBeforeAddInvariant = blockAfterReplaceNameOnly;
+  const existingDefinitionsBeforeAdd = new Map(
+    (blockBeforeAddInvariant?.workouts || []).map((workout) => [
+      String(workout?.name || "").toLowerCase(),
+      {
+        description: String(workout?.description || ""),
+        category: String(workout?.category || ""),
+        optional: workout?.optional === true,
+      },
+    ]),
+  );
+  const strictAddProposal = {
+    training_block: {
+      operation: "add_workouts",
+      workouts_add: [
+        {
+          name: "Light social gym workout",
+          description: "Low-intensity gym session with friends",
+          category: "Strength",
+          optional: true,
+        },
+      ],
+    },
+  };
+  const strictAddRes = await applySettingsChanges({ proposal: strictAddProposal, selectedBlockId });
+  assert.ok(Array.isArray(strictAddRes.changesApplied) && strictAddRes.changesApplied.length > 0);
+  const stateAfterStrictAdd = summarizeTrainingBlocks(await readTrackingData());
+  const blockAfterStrictAdd = (stateAfterStrictAdd?.blocks || []).find((block) => block?.id === selectedBlockId) || null;
+  const existingDefinitionsAfterAdd = new Map(
+    (blockAfterStrictAdd?.workouts || []).map((workout) => [
+      String(workout?.name || "").toLowerCase(),
+      {
+        description: String(workout?.description || ""),
+        category: String(workout?.category || ""),
+        optional: workout?.optional === true,
+      },
+    ]),
+  );
+  for (const [name, before] of existingDefinitionsBeforeAdd.entries()) {
+    const after = existingDefinitionsAfterAdd.get(name);
+    assert.deepEqual(after, before, `existing workout metadata changed for ${name}`);
+  }
+  const socialWorkout = (blockAfterStrictAdd?.workouts || []).find(
+    (workout) => String(workout?.name || "").toLowerCase() === "light social gym workout",
+  );
+  assert.ok(socialWorkout, "expected strict add workout to exist");
+  results.push("S01d add_workouts does not mutate existing workout definitions");
+
+  const removeWithHistoryProposal = {
+    training_block: {
+      operation: "remove_workouts",
+      workouts_remove: [{ name: "Run" }],
+    },
+  };
+  const removeWithHistoryRes = await applySettingsChanges({ proposal: removeWithHistoryProposal, selectedBlockId });
+  assert.equal(removeWithHistoryRes.requiresConfirmation, true, "expected history delete to require confirmation");
+  assert.ok(
+    typeof removeWithHistoryRes.confirmationPhrase === "string" &&
+      removeWithHistoryRes.confirmationPhrase.startsWith("CONFIRM "),
+  );
+  assert.ok(removeWithHistoryRes.proposal && typeof removeWithHistoryRes.proposal === "object");
+
+  const removeConfirmRes = await applySettingsChanges({
+    proposal: removeWithHistoryRes.proposal,
+    selectedBlockId,
+    confirmationPhrase: removeWithHistoryRes.confirmationPhrase,
+  });
+  assert.ok(Array.isArray(removeConfirmRes.changesApplied) && removeConfirmRes.changesApplied.length > 0);
+  const stateAfterRemove = summarizeTrainingBlocks(await readTrackingData());
+  const blockAfterRemove = (stateAfterRemove?.blocks || []).find((block) => block?.id === selectedBlockId) || null;
+  const runAfterRemove = (blockAfterRemove?.workouts || []).find((workout) => String(workout?.name || "").toLowerCase() === "run");
+  assert.equal(Boolean(runAfterRemove), false);
+  results.push("S02 remove with history requires confirm phrase");
+
+  const createNonMondayProposal = {
+    training_block: {
+      operation: "create_block",
+      name: "Harness March Block",
+      description: "Date correction test",
+      block_start: "2026-03-03",
+      apply_timing: "next_week",
+      workouts_add: [
+        {
+          name: "Short run",
+          description: "20 min easy",
+          category: "Cardio",
+          optional: false,
+        },
+      ],
+    },
+  };
+  const createNeedsConfirm = await applySettingsChanges({ proposal: createNonMondayProposal, selectedBlockId });
+  assert.equal(createNeedsConfirm.requiresConfirmation, true, "expected non-Monday create to require confirmation");
+  assert.equal(createNeedsConfirm.proposal?.training_block?.block_start, "2026-03-02");
+
+  const createConfirmed = await applySettingsChanges({
+    proposal: createNeedsConfirm.proposal,
+    selectedBlockId,
+    confirmationPhrase: createNeedsConfirm.confirmationPhrase,
+  });
+  assert.ok(Array.isArray(createConfirmed.changesApplied) && createConfirmed.changesApplied.length > 0);
+  const stateAfterCreate = summarizeTrainingBlocks(await readTrackingData());
+  const allBlocksAfterCreate = Array.isArray(stateAfterCreate?.blocks) ? stateAfterCreate.blocks : [];
+  const createdBlock = allBlocksAfterCreate.find((block) => block?.name === "Harness March Block") || null;
+  assert.ok(createdBlock, "expected created March block");
+  assert.equal(createdBlock.block_start, "2026-03-02");
+  const predecessor = allBlocksAfterCreate.find((block) => block?.id === selectedBlockId) || null;
+  assert.equal(predecessor?.block_end, "2026-03-01");
+  results.push("S03 create block with Monday correction + predecessor auto-close");
 
   console.log("Deterministic harness passed:");
   for (const entry of results) console.log(`- ${entry}`);

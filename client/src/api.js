@@ -200,8 +200,9 @@ export async function* ingestAssistantStream({
   }
 }
 
-export async function* settingsChatStream({ message = "", messages = [] }) {
+export async function* settingsChatStream({ message = "", messages = [], selectedBlockId = "" }) {
   const body = { message, messages, stream: true };
+  if (selectedBlockId) body.selected_block_id = selectedBlockId;
 
   const res = await fetch(
     "/api/settings/chat",
@@ -221,11 +222,13 @@ export async function* settingsChatStream({ message = "", messages = [] }) {
   }
 }
 
-export async function settingsChat({ message = "", messages = [] }) {
+export async function settingsChat({ message = "", messages = [], selectedBlockId = "" }) {
+  const body = { message, messages };
+  if (selectedBlockId) body.selected_block_id = selectedBlockId;
   return fetchJson("/api/settings/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, messages }),
+    body: JSON.stringify(body),
   });
 }
 
@@ -259,13 +262,14 @@ export async function saveSettingsProfiles({
   });
 }
 
-export async function confirmSettingsChanges({ proposal }) {
+export async function confirmSettingsChanges({ proposal, confirmationPhrase = "", selectedBlockId = "" }) {
+  const body = { proposal };
+  if (confirmationPhrase) body.confirmation_phrase = confirmationPhrase;
+  if (selectedBlockId) body.selected_block_id = selectedBlockId;
   return fetchJson("/api/settings/confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      proposal,
-    }),
+    body: JSON.stringify(body),
   });
 }
 

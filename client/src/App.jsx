@@ -15,6 +15,7 @@ import {
   settingsBootstrap,
   ingestAssistantStream,
   settingsChatStream,
+  confirmSettingsChanges,
   updateFitnessItem,
   updateFitnessWeekContext,
 } from "./api.js";
@@ -288,6 +289,8 @@ export default function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsProfilesSaving, setSettingsProfilesSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+  const [settingsPendingProposal, setSettingsPendingProposal] = useState(null);
+  const [settingsPendingConfirmationPhrase, setSettingsPendingConfirmationPhrase] = useState("");
   const settingsMessageIdRef = useRef(0);
   const settingsProfilesSaveSeqRef = useRef(0);
   const [settingsBootstrapChecking, setSettingsBootstrapChecking] = useState(false);
@@ -1136,6 +1139,12 @@ export default function App() {
       setSettingsError("Type a settings request.");
       return;
     }
+    const isConfirmationReply =
+      typeof settingsPendingConfirmationPhrase === "string" &&
+      settingsPendingConfirmationPhrase.length > 0 &&
+      messageText === settingsPendingConfirmationPhrase &&
+      settingsPendingProposal &&
+      typeof settingsPendingProposal === "object";
 
     setSettingsLoading(true);
     const previous = settingsMessages;
@@ -1195,6 +1204,26 @@ export default function App() {
         });
       }
 
+      const requiresConfirmation = json?.requires_confirmation === true;
+      const confirmationPhrase =
+        typeof json?.confirmation_phrase === "string" ? json.confirmation_phrase.trim() : "";
+      if (requiresConfirmation && json?.proposal && confirmationPhrase) {
+        setSettingsPendingProposal(json.proposal);
+        setSettingsPendingConfirmationPhrase(confirmationPhrase);
+        if (!followupText) {
+          settingsMessageIdRef.current += 1;
+          assistantMessages.push({
+            id: settingsMessageIdRef.current,
+            role: "assistant",
+            content: `Reply with ${confirmationPhrase} to confirm.`,
+            format: "plain",
+          });
+        }
+      } else if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
+        setSettingsPendingProposal(null);
+        setSettingsPendingConfirmationPhrase("");
+      }
+
       if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
         settingsMessageIdRef.current += 1;
         const versionLabel =
@@ -1220,39 +1249,51 @@ export default function App() {
     try {
       let streamingMessageId = null;
       let responsePayload = null;
-      let streamedText = "";
-      const streamIterator = settingsChatStream({ message: messageText, messages: previous });
+      if (isConfirmationReply) {
+        responsePayload = await confirmSettingsChanges({
+          proposal: settingsPendingProposal,
+          confirmationPhrase: messageText,
+          selectedBlockId: settingsSelectedBlockId || "",
+        });
+      } else {
+        let streamedText = "";
+        const streamIterator = settingsChatStream({
+          message: messageText,
+          messages: previous,
+          selectedBlockId: settingsSelectedBlockId || "",
+        });
 
-      for await (const event of streamIterator) {
-        if (event?.type === "error") {
-          throw new Error(event.error || "Streaming request failed.");
-        }
-        if (event?.type === "chunk") {
-          const delta = typeof event.delta === "string" ? event.delta : "";
-          if (!delta) continue;
-          streamedText += delta;
-          if (!streamingMessageId) {
-            settingsMessageIdRef.current += 1;
-            streamingMessageId = settingsMessageIdRef.current;
-            setSettingsMessages((prev) => [
-              ...prev,
-              {
-                id: streamingMessageId,
-                role: "assistant",
-                content: "",
-                format: "markdown",
-              },
-            ]);
+        for await (const event of streamIterator) {
+          if (event?.type === "error") {
+            throw new Error(event.error || "Streaming request failed.");
           }
-          const nextContent = streamedText;
-          setSettingsMessages((prev) =>
-            prev.map((message) =>
-              message.id === streamingMessageId ? { ...message, content: nextContent } : message,
-            ),
-          );
-        }
-        if (event?.type === "done") {
-          responsePayload = event.payload ?? null;
+          if (event?.type === "chunk") {
+            const delta = typeof event.delta === "string" ? event.delta : "";
+            if (!delta) continue;
+            streamedText += delta;
+            if (!streamingMessageId) {
+              settingsMessageIdRef.current += 1;
+              streamingMessageId = settingsMessageIdRef.current;
+              setSettingsMessages((prev) => [
+                ...prev,
+                {
+                  id: streamingMessageId,
+                  role: "assistant",
+                  content: "",
+                  format: "markdown",
+                },
+              ]);
+            }
+            const nextContent = streamedText;
+            setSettingsMessages((prev) =>
+              prev.map((message) =>
+                message.id === streamingMessageId ? { ...message, content: nextContent } : message,
+              ),
+            );
+          }
+          if (event?.type === "done") {
+            responsePayload = event.payload ?? null;
+          }
         }
       }
 

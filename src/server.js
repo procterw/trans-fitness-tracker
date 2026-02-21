@@ -5,7 +5,7 @@ import multer from "multer";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   askAssistant,
@@ -463,6 +463,50 @@ function templateToChecklistCategories(template) {
     .filter(Boolean);
 }
 
+function normalizeTrainingWorkoutsList(value) {
+  const workouts = Array.isArray(value) ? value : [];
+  const out = [];
+  const seen = new Set();
+  for (const rawWorkout of workouts) {
+    const normalized = normalizeStoredWorkoutDefinition(rawWorkout, "Workouts");
+    if (!normalized) continue;
+    const token = normalized.name.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(normalized);
+  }
+  return out;
+}
+
+function workoutsToTemplate(workouts) {
+  const normalizedWorkouts = normalizeTrainingWorkoutsList(workouts);
+  if (!normalizedWorkouts.length) return null;
+  const byKey = new Map();
+  const categoryOrder = [];
+  const categoryLabels = {};
+
+  for (const workout of normalizedWorkouts) {
+    const label = typeof workout.category === "string" && workout.category.trim() ? workout.category.trim() : "Workouts";
+    const key = normalizeChecklistCategoryKey(label);
+    if (!byKey.has(key)) {
+      byKey.set(key, []);
+      categoryOrder.push(key);
+      categoryLabels[key] = label;
+    }
+    const itemText = workout.optional === true ? `${workout.name} (optional)` : workout.name;
+    byKey.get(key).push(workout.description ? { item: itemText, description: workout.description } : { item: itemText });
+  }
+
+  const template = {
+    category_order: categoryOrder,
+    category_labels: categoryLabels,
+  };
+  for (const key of categoryOrder) {
+    template[key] = byKey.get(key);
+  }
+  return template;
+}
+
 function checklistCategoriesToTemplate(categories, currentWeek = {}) {
   const remappedWeek = applyChecklistCategories(currentWeek, categories);
   return extractChecklistTemplate(remappedWeek);
@@ -489,6 +533,143 @@ function normalizeTrainingBlockDescription(value) {
   return value.trim();
 }
 
+function normalizeWorkoutName(value) {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function splitOptionalSuffixFromWorkoutName(value) {
+  const raw = normalizeWorkoutName(value);
+  if (!raw) return { name: "", optional: false };
+  const match = /^(.*)\s*\((?:optional)\)\s*$/i.exec(raw);
+  if (!match) return { name: raw, optional: false };
+  const base = normalizeWorkoutName(match[1]);
+  return { name: base || raw, optional: true };
+}
+
+function normalizeStoredWorkoutDefinition(workout, fallbackCategory = "General") {
+  const safeWorkout = isPlainObject(workout) ? workout : {};
+  const split = splitOptionalSuffixFromWorkoutName(safeWorkout.name || safeWorkout.item);
+  if (!split.name) return null;
+  const description = typeof safeWorkout.description === "string" ? safeWorkout.description.trim() : "";
+  const category =
+    typeof safeWorkout.category === "string" && safeWorkout.category.trim()
+      ? safeWorkout.category.trim()
+      : fallbackCategory;
+  const optional = safeWorkout.optional === true || split.optional;
+  return {
+    name: split.name,
+    description,
+    category,
+    optional,
+  };
+}
+
+function workoutsFromStoredChecklist(block) {
+  const safeBlock = isPlainObject(block) ? block : {};
+  const checklist = isPlainObject(safeBlock.checklist) ? safeBlock.checklist : {};
+  const rawOrder = Array.isArray(safeBlock.category_order) ? safeBlock.category_order : [];
+  const categoryOrder = rawOrder.filter((value) => typeof value === "string" && value.trim());
+  const categoryLabels = isPlainObject(safeBlock.category_labels) ? safeBlock.category_labels : {};
+  const keys = categoryOrder.length ? categoryOrder : Object.keys(checklist);
+  const workouts = [];
+  const seen = new Set();
+
+  for (const key of keys) {
+    const list = Array.isArray(checklist[key]) ? checklist[key] : [];
+    const fallbackCategory =
+      typeof categoryLabels[key] === "string" && categoryLabels[key].trim()
+        ? categoryLabels[key].trim()
+        : toFitnessCategoryLabel(key);
+    for (const entry of list) {
+      const normalized = normalizeStoredWorkoutDefinition(entry, fallbackCategory || "General");
+      if (!normalized) continue;
+      const token = normalized.name.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      workouts.push(normalized);
+    }
+  }
+
+  return workouts;
+}
+
+function isGenericWorkoutCategory(value) {
+  if (typeof value !== "string") return true;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return true;
+  return normalized === "general" || normalized === "workouts" || normalized === "other";
+}
+
+function mergeStoredBlockWorkouts({ workoutsFromRaw = [], workoutsFromChecklist = [] } = {}) {
+  const raw = normalizeTrainingWorkoutsList(workoutsFromRaw);
+  const checklist = normalizeTrainingWorkoutsList(workoutsFromChecklist);
+  if (!raw.length) return checklist;
+  if (!checklist.length) return raw;
+
+  const rawByName = new Map(raw.map((workout) => [workout.name.toLowerCase(), workout]));
+  const merged = [];
+  const seen = new Set();
+
+  for (const checklistWorkout of checklist) {
+    const token = checklistWorkout.name.toLowerCase();
+    const rawWorkout = rawByName.get(token) ?? null;
+    const rawCategory = typeof rawWorkout?.category === "string" ? rawWorkout.category.trim() : "";
+    const checklistCategory =
+      typeof checklistWorkout?.category === "string" ? checklistWorkout.category.trim() : "";
+    const mergedCategory =
+      rawCategory && (!isGenericWorkoutCategory(rawCategory) || !checklistCategory)
+        ? rawCategory
+        : checklistCategory || rawCategory || "Workouts";
+    const rawDescription = typeof rawWorkout?.description === "string" ? rawWorkout.description.trim() : "";
+    const checklistDescription =
+      typeof checklistWorkout?.description === "string" ? checklistWorkout.description.trim() : "";
+
+    merged.push({
+      name: checklistWorkout.name,
+      description: rawDescription || checklistDescription,
+      category: mergedCategory,
+      optional: rawWorkout?.optional === true || checklistWorkout.optional === true,
+    });
+    seen.add(token);
+  }
+
+  for (const rawWorkout of raw) {
+    const token = rawWorkout.name.toLowerCase();
+    if (seen.has(token)) continue;
+    merged.push(rawWorkout);
+  }
+
+  return merged;
+}
+
+function hydrateWorkoutsWithExistingDefinitions({ candidateWorkouts = [], existingWorkouts = [] } = {}) {
+  const incoming = normalizeTrainingWorkoutsList(candidateWorkouts);
+  if (!incoming.length) return incoming;
+  const existing = normalizeTrainingWorkoutsList(existingWorkouts);
+  if (!existing.length) return incoming;
+
+  const existingByName = new Map(existing.map((workout) => [workout.name.toLowerCase(), workout]));
+  return incoming.map((workout) => {
+    const prior = existingByName.get(workout.name.toLowerCase()) ?? null;
+    if (!prior) return workout;
+
+    const incomingDescription = typeof workout.description === "string" ? workout.description.trim() : "";
+    const incomingCategory = typeof workout.category === "string" ? workout.category.trim() : "";
+    const priorCategory = typeof prior.category === "string" ? prior.category.trim() : "";
+    const category = incomingCategory && !isGenericWorkoutCategory(incomingCategory)
+      ? incomingCategory
+      : priorCategory || incomingCategory || "Workouts";
+
+    return {
+      name: workout.name,
+      description: incomingDescription || prior.description || "",
+      category,
+      optional: workout.optional === true || prior.optional === true,
+    };
+  });
+}
+
 function normalizeTrainingBlockForComparison(block) {
   const safe = isPlainObject(block) ? block : {};
   return {
@@ -500,6 +681,11 @@ function normalizeTrainingBlockForComparison(block) {
     category_order: Array.isArray(safe.category_order) ? safe.category_order : [],
     category_labels: isPlainObject(safe.category_labels) ? safe.category_labels : {},
     checklist: isPlainObject(safe.checklist) ? safe.checklist : {},
+    workouts: Array.isArray(safe.workouts)
+      ? safe.workouts
+          .map((workout) => normalizeStoredWorkoutDefinition(workout))
+          .filter(Boolean)
+      : [],
     created_at: typeof safe.created_at === "string" ? safe.created_at : "",
   };
 }
@@ -562,16 +748,25 @@ function normalizeStoredTrainingBlocks(metadata) {
       const id = typeof block?.id === "string" && block.id.trim() ? block.id.trim() : null;
       const categoryOrder = Array.isArray(block?.category_order) ? block.category_order.filter((v) => typeof v === "string") : [];
       const checklist = isPlainObject(block?.checklist) ? block.checklist : {};
-      if (!id || !categoryOrder.length) return null;
+      const workoutsFromChecklist = workoutsFromStoredChecklist(block);
+      const workoutsFromRaw = Array.isArray(block?.workouts)
+        ? block.workouts.map((row) => normalizeStoredWorkoutDefinition(row)).filter(Boolean)
+        : [];
+      const workouts = mergeStoredBlockWorkouts({
+        workoutsFromRaw,
+        workoutsFromChecklist,
+      });
+      if (!id || (!categoryOrder.length && !workouts.length)) return null;
       return {
         id,
         name: normalizeTrainingBlockName(block?.name),
         description: normalizeTrainingBlockDescription(block?.description),
         block_start: typeof block?.block_start === "string" && isIsoDateString(block.block_start) ? block.block_start : "",
         block_end: typeof block?.block_end === "string" && isIsoDateString(block.block_end) ? block.block_end : "",
-        category_order: categoryOrder,
+        category_order: categoryOrder.length ? categoryOrder : ["workouts"],
         category_labels: isPlainObject(block?.category_labels) ? block.category_labels : {},
         checklist,
+        workouts,
         created_at: typeof block?.created_at === "string" ? block.created_at : formatSeattleIso(new Date()),
         updated_at: typeof block?.updated_at === "string" ? block.updated_at : formatSeattleIso(new Date()),
       };
@@ -586,36 +781,20 @@ function canonicalBlockFromStoredTrainingBlock(block, fallbackBlock = null) {
   const blockId = typeof safeBlock.id === "string" && safeBlock.id.trim() ? safeBlock.id.trim() : "";
   if (!blockId) return null;
 
-  const checklist = isPlainObject(safeBlock.checklist) ? safeBlock.checklist : {};
-  const rawOrder = Array.isArray(safeBlock.category_order) ? safeBlock.category_order : [];
-  const categoryOrder = rawOrder.filter((value) => typeof value === "string" && value.trim());
-  const categoryLabels = isPlainObject(safeBlock.category_labels) ? safeBlock.category_labels : {};
-  const keys = categoryOrder.length ? categoryOrder : Object.keys(checklist);
-
-  const workouts = [];
-  const seen = new Set();
-  for (const key of keys) {
-    const list = Array.isArray(checklist[key]) ? checklist[key] : [];
-    const fallbackCategory = typeof key === "string" ? key : "";
-    const categoryLabel =
-      typeof categoryLabels[key] === "string" && categoryLabels[key].trim()
-        ? categoryLabels[key].trim()
-        : toFitnessCategoryLabel(fallbackCategory);
-
-    for (const entry of list) {
-      const name = typeof entry?.item === "string" ? entry.item.trim() : typeof entry?.name === "string" ? entry.name.trim() : "";
-      if (!name) continue;
-      const token = name.toLowerCase();
-      if (seen.has(token)) continue;
-      seen.add(token);
-      workouts.push({
-        name,
-        description: typeof entry?.description === "string" ? entry.description.trim() : "",
-        category: categoryLabel || "General",
-        optional: false,
-      });
-    }
-  }
+  const workoutsFromStored = Array.isArray(safeBlock.workouts)
+    ? safeBlock.workouts.map((row) => normalizeStoredWorkoutDefinition(row)).filter(Boolean)
+    : [];
+  const workoutsFromChecklist = workoutsFromStoredChecklist(safeBlock);
+  const mergedWorkouts = mergeStoredBlockWorkouts({
+    workoutsFromRaw: workoutsFromStored,
+    workoutsFromChecklist,
+  });
+  const workouts =
+    mergedWorkouts.length
+      ? mergedWorkouts
+      : Array.isArray(fallbackBlock?.workouts)
+        ? fallbackBlock.workouts.map((row) => normalizeStoredWorkoutDefinition(row)).filter(Boolean)
+        : [];
 
   const fallbackStart =
     typeof fallbackBlock?.block_start === "string" && isIsoDateString(fallbackBlock.block_start) ? fallbackBlock.block_start : "";
@@ -637,7 +816,12 @@ function canonicalBlockFromStoredTrainingBlock(block, fallbackBlock = null) {
     block_end: explicitEnd || fallbackEnd,
     block_name: normalizeTrainingBlockName(safeBlock.name),
     block_details: normalizeTrainingBlockDescription(safeBlock.description),
-    workouts,
+    workouts: workouts.map((workout) => ({
+      name: workout.name,
+      description: workout.description,
+      category: workout.category,
+      optional: workout.optional === true,
+    })),
   };
 }
 
@@ -688,6 +872,30 @@ function buildTrainingBlockFromTemplate({
     normalizeTrainingBlockDescription(description) ||
     normalizeTrainingBlockDescription(existing?.description) ||
     buildSmartTrainingBlockDescription(safeTemplate);
+  const existingWorkouts = getStoredBlockWorkouts(existing);
+  const existingByName = new Map(existingWorkouts.map((row) => [row.name.toLowerCase(), row]));
+  const templateCategories = templateToChecklistCategories(safeTemplate);
+  const workouts = [];
+  const seen = new Set();
+  for (const category of templateCategories) {
+    const categoryLabel = typeof category?.label === "string" && category.label.trim() ? category.label.trim() : "Workouts";
+    const items = Array.isArray(category?.items) ? category.items : [];
+    for (const item of items) {
+      const parsed = splitChecklistItemAndDescription(item);
+      const split = splitOptionalSuffixFromWorkoutName(parsed.item);
+      if (!split.name) continue;
+      const token = split.name.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      const prior = existingByName.get(token);
+      workouts.push({
+        name: split.name,
+        description: parsed.description || (prior?.description ?? ""),
+        category: prior?.category || categoryLabel,
+        optional: prior?.optional === true || split.optional,
+      });
+    }
+  }
   return {
     id,
     name: resolvedName,
@@ -703,6 +911,7 @@ function buildTrainingBlockFromTemplate({
     category_order: safeTemplate.category_order,
     category_labels: isPlainObject(safeTemplate.category_labels) ? safeTemplate.category_labels : {},
     checklist: templateToChecklistObject(safeTemplate),
+    workouts,
     created_at: createdAt,
     updated_at: now,
   };
@@ -832,7 +1041,10 @@ function extractTemplateFromStoredBlock(block) {
   const safeBlock = isPlainObject(block) ? block : {};
   const categoryOrder = Array.isArray(safeBlock.category_order) ? safeBlock.category_order : [];
   const checklist = isPlainObject(safeBlock.checklist) ? safeBlock.checklist : {};
-  if (!categoryOrder.length) return null;
+  if (!categoryOrder.length) {
+    const workoutsTemplate = workoutsToTemplate(getStoredBlockWorkouts(safeBlock));
+    return workoutsTemplate ? structuredClone(workoutsTemplate) : null;
+  }
   const out = {
     category_order: [],
     category_labels: {},
@@ -853,7 +1065,10 @@ function extractTemplateFromStoredBlock(block) {
     const label = typeof safeBlock?.category_labels?.[key] === "string" ? safeBlock.category_labels[key].trim() : "";
     if (label) out.category_labels[key] = label;
   }
-  if (!out.category_order.length) return null;
+  if (!out.category_order.length) {
+    const workoutsTemplate = workoutsToTemplate(getStoredBlockWorkouts(safeBlock));
+    return workoutsTemplate ? structuredClone(workoutsTemplate) : null;
+  }
   if (!Object.keys(out.category_labels).length) delete out.category_labels;
   return out;
 }
@@ -984,7 +1199,21 @@ const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "agent"];
 const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
 const SETTINGS_TRAINING_BLOCK_FIELD = "training_block";
-const SETTINGS_PROPOSAL_FIELDS = [...SETTINGS_PROFILE_INPUT_FIELDS, SETTINGS_CHECKLIST_FIELD, SETTINGS_TRAINING_BLOCK_FIELD];
+const SETTINGS_CONFIRMATION_FIELD = "confirmation_phrase";
+const TRAINING_BLOCK_OPERATIONS = new Set([
+  "update_block",
+  "create_block",
+  "switch_block",
+  "replace_workouts",
+  "add_workouts",
+  "remove_workouts",
+]);
+const SETTINGS_PROPOSAL_FIELDS = [
+  ...SETTINGS_PROFILE_INPUT_FIELDS,
+  SETTINGS_CHECKLIST_FIELD,
+  SETTINGS_TRAINING_BLOCK_FIELD,
+  SETTINGS_CONFIRMATION_FIELD,
+];
 const SETTINGS_PROFILE_LABELS = {
   general: "general profile",
   fitness: "fitness profile",
@@ -1176,6 +1405,10 @@ function isValidSettingsProposal(value) {
   for (const key of Object.keys(value)) {
     if (!SETTINGS_PROPOSAL_FIELDS.includes(key)) return false;
   }
+  const confirmationPhrase = value[SETTINGS_CONFIRMATION_FIELD];
+  if (!(confirmationPhrase === null || confirmationPhrase === undefined || typeof confirmationPhrase === "string")) {
+    return false;
+  }
   for (const field of SETTINGS_PROFILE_INPUT_FIELDS) {
     const fieldValue = value[field];
     if (fieldValue !== null && fieldValue !== undefined && typeof fieldValue !== "string") return false;
@@ -1194,6 +1427,18 @@ function isValidSettingsProposal(value) {
   if (nameValue !== null && nameValue !== undefined && typeof nameValue !== "string") return false;
   const descriptionValue = trainingBlockValue.description;
   if (descriptionValue !== null && descriptionValue !== undefined && typeof descriptionValue !== "string") return false;
+  const operationValue = trainingBlockValue.operation;
+  if (
+    operationValue !== null &&
+    operationValue !== undefined &&
+    (typeof operationValue !== "string" || !TRAINING_BLOCK_OPERATIONS.has(operationValue))
+  ) {
+    return false;
+  }
+  const blockStartValue = trainingBlockValue.block_start;
+  if (blockStartValue !== null && blockStartValue !== undefined && typeof blockStartValue !== "string") return false;
+  const blockEndValue = trainingBlockValue.block_end;
+  if (blockEndValue !== null && blockEndValue !== undefined && typeof blockEndValue !== "string") return false;
   const applyTimingValue = trainingBlockValue.apply_timing;
   if (
     applyTimingValue !== null &&
@@ -1204,20 +1449,37 @@ function isValidSettingsProposal(value) {
     return false;
   }
   const checklistCategoriesValue = trainingBlockValue.checklist_categories;
-  if (checklistCategoriesValue === null || checklistCategoriesValue === undefined) return true;
-  const normalizedChecklist = normalizeChecklistCategories(checklistCategoriesValue);
-  if (normalizedChecklist) return true;
+  if (!(checklistCategoriesValue === null || checklistCategoriesValue === undefined)) {
+    const normalizedChecklist = normalizeChecklistCategories(checklistCategoriesValue);
+    if (!normalizedChecklist) return false;
+  }
 
-  const workoutsValue = trainingBlockValue.workouts;
-  if (workoutsValue === null || workoutsValue === undefined) return false;
-  if (!Array.isArray(workoutsValue)) return false;
-  for (const workout of workoutsValue) {
-    if (!isPlainObject(workout)) return false;
-    if (workout.name !== undefined && typeof workout.name !== "string") return false;
-    if (workout.item !== undefined && typeof workout.item !== "string") return false;
-    if (workout.description !== undefined && typeof workout.description !== "string") return false;
-    if (workout.category !== undefined && typeof workout.category !== "string") return false;
-    if (workout.optional !== undefined && typeof workout.optional !== "boolean") return false;
+  const validateWorkoutArray = (workoutsValue) => {
+    if (workoutsValue === null || workoutsValue === undefined) return true;
+    if (!Array.isArray(workoutsValue)) return false;
+    for (const workout of workoutsValue) {
+      if (!isPlainObject(workout)) return false;
+      if (workout.name !== undefined && typeof workout.name !== "string") return false;
+      if (workout.item !== undefined && typeof workout.item !== "string") return false;
+      if (workout.description !== undefined && typeof workout.description !== "string") return false;
+      if (workout.category !== undefined && typeof workout.category !== "string") return false;
+      if (workout.optional !== undefined && typeof workout.optional !== "boolean") return false;
+    }
+    return true;
+  };
+
+  if (!validateWorkoutArray(trainingBlockValue.workouts)) return false;
+  if (!validateWorkoutArray(trainingBlockValue.workouts_add)) return false;
+
+  const workoutsRemoveValue = trainingBlockValue.workouts_remove;
+  if (!(workoutsRemoveValue === null || workoutsRemoveValue === undefined)) {
+    if (!Array.isArray(workoutsRemoveValue)) return false;
+    for (const workout of workoutsRemoveValue) {
+      if (!isPlainObject(workout)) return false;
+      if (workout.name !== undefined && typeof workout.name !== "string") return false;
+      if (workout.item !== undefined && typeof workout.item !== "string") return false;
+      if (workout.ordinal !== undefined && workout.ordinal !== null && !Number.isInteger(workout.ordinal)) return false;
+    }
   }
   return true;
 }
@@ -1288,6 +1550,94 @@ function normalizeSettingsWorkoutsToChecklistCategories(value, currentWeek = nul
   const categories = Array.from(categoriesByKey.values());
   const normalized = normalizeChecklistCategories(categories);
   return normalized ? normalized : null;
+}
+
+function normalizeSettingsWorkoutDefinitions(value, currentWeek = null) {
+  const workouts = Array.isArray(value) ? value : [];
+  const safeWeek = isPlainObject(currentWeek) ? currentWeek : {};
+  const out = [];
+  const seen = new Set();
+  for (const rawWorkout of workouts) {
+    const workout = isPlainObject(rawWorkout) ? rawWorkout : {};
+    const split = splitOptionalSuffixFromWorkoutName(workout.name || workout.item);
+    const name = split.name;
+    if (!name) continue;
+    const token = name.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    const description = typeof workout.description === "string" ? workout.description.trim() : "";
+    const categoryInput = typeof workout.category === "string" ? workout.category.trim() : "";
+    const resolvedCategoryKey = categoryInput ? resolveFitnessCategoryKey(safeWeek, categoryInput) : null;
+    const categoryLabel = resolvedCategoryKey
+      ? getFitnessCategoryLabel(safeWeek, resolvedCategoryKey)
+      : categoryInput || "Workouts";
+    out.push({
+      name,
+      description,
+      category: categoryLabel || "Workouts",
+      optional: workout.optional === true || split.optional,
+    });
+  }
+  return out;
+}
+
+function normalizeSettingsWorkoutRemovals(value) {
+  const workouts = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const rawWorkout of workouts) {
+    const workout = isPlainObject(rawWorkout) ? rawWorkout : {};
+    const nameRaw =
+      typeof workout.name === "string"
+        ? workout.name
+        : typeof workout.item === "string"
+          ? workout.item
+          : "";
+    const name = normalizeWorkoutName(nameRaw);
+    if (!name) continue;
+    out.push({
+      name,
+      ordinal: Number.isInteger(workout.ordinal) && workout.ordinal > 0 ? workout.ordinal : null,
+    });
+  }
+  return out;
+}
+
+function normalizeTrainingBlockOperation(value) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/[-\s]+/g, "_");
+  return TRAINING_BLOCK_OPERATIONS.has(normalized) ? normalized : null;
+}
+
+function checklistCategoriesToWorkoutDefinitions(categories, currentWeek = null) {
+  const normalizedCategories = normalizeChecklistCategories(categories);
+  if (!normalizedCategories) return [];
+  const safeWeek = isPlainObject(currentWeek) ? currentWeek : {};
+  const workouts = [];
+  const seen = new Set();
+  for (const category of normalizedCategories) {
+    const categoryLabel =
+      typeof category?.label === "string" && category.label.trim()
+        ? category.label.trim()
+        : toFitnessCategoryLabel(category?.key);
+    const items = Array.isArray(category?.items) ? category.items : [];
+    for (const rawItem of items) {
+      const parsed = splitChecklistItemAndDescription(typeof rawItem === "string" ? rawItem : rawItem?.item);
+      const split = splitOptionalSuffixFromWorkoutName(parsed.item);
+      if (!split.name) continue;
+      const token = split.name.toLowerCase();
+      if (seen.has(token)) continue;
+      seen.add(token);
+      const resolvedCategoryKey = resolveFitnessCategoryKey(safeWeek, categoryLabel);
+      const resolvedLabel = resolvedCategoryKey ? getFitnessCategoryLabel(safeWeek, resolvedCategoryKey) : categoryLabel;
+      workouts.push({
+        name: split.name,
+        description: parsed.description || "",
+        category: resolvedLabel || categoryLabel || "Workouts",
+        optional: split.optional,
+      });
+    }
+  }
+  return workouts;
 }
 
 function findMatchingBracket(text, startIndex) {
@@ -1388,9 +1738,34 @@ function shouldApplyImmediateFromMessage(message) {
   return null;
 }
 
+function messageImpliesAddWorkouts(message) {
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return false;
+  const addIntent = /\b(add|append|include|insert|another|additional|plus)\b/.test(text);
+  if (!addIntent) return false;
+  const replaceIntent = /\b(replace|rewrite|reset|overhaul|from scratch|entire list|whole list)\b/.test(text);
+  return !replaceIntent;
+}
+
+function preserveExistingWorkoutsForAddOperation({ existingWorkouts = [], nextWorkouts = [] } = {}) {
+  const prior = normalizeTrainingWorkoutsList(existingWorkouts);
+  const candidate = normalizeTrainingWorkoutsList(nextWorkouts);
+  const priorTokens = new Set(prior.map((workout) => workout.name.toLowerCase()));
+  const additions = [];
+  const seen = new Set();
+  for (const workout of candidate) {
+    const token = workout.name.toLowerCase();
+    if (priorTokens.has(token) || seen.has(token)) continue;
+    seen.add(token);
+    additions.push(workout);
+  }
+  return [...prior, ...additions];
+}
+
 function normalizeSettingsProposal(value, currentWeek = null) {
   const raw = isPlainObject(value) ? value : {};
   const out = {
+    [SETTINGS_CONFIRMATION_FIELD]: null,
     [SETTINGS_CHECKLIST_FIELD]: null,
     general: null,
     fitness: null,
@@ -1398,21 +1773,54 @@ function normalizeSettingsProposal(value, currentWeek = null) {
     agent: null,
     training_block: null,
   };
+  out[SETTINGS_CONFIRMATION_FIELD] =
+    typeof raw[SETTINGS_CONFIRMATION_FIELD] === "string" && raw[SETTINGS_CONFIRMATION_FIELD].trim()
+      ? raw[SETTINGS_CONFIRMATION_FIELD].trim()
+      : null;
   out[SETTINGS_CHECKLIST_FIELD] = normalizeChecklistProposal(raw[SETTINGS_CHECKLIST_FIELD]);
   const rawTrainingBlock = isPlainObject(raw[SETTINGS_TRAINING_BLOCK_FIELD]) ? raw[SETTINGS_TRAINING_BLOCK_FIELD] : null;
   if (rawTrainingBlock) {
     const checklistFromChanges = normalizeChecklistProposal(rawTrainingBlock.checklist_categories);
     const checklistFromWorkouts = normalizeSettingsWorkoutsToChecklistCategories(rawTrainingBlock.workouts, currentWeek);
+    const normalizedWorkouts = normalizeSettingsWorkoutDefinitions(rawTrainingBlock.workouts, currentWeek);
+    const normalizedWorkoutsAdd = normalizeSettingsWorkoutDefinitions(rawTrainingBlock.workouts_add, currentWeek);
+    const normalizedWorkoutsRemove = normalizeSettingsWorkoutRemovals(rawTrainingBlock.workouts_remove);
+    const operation = normalizeTrainingBlockOperation(rawTrainingBlock.operation);
     const normalizedBlock = {
+      operation,
       id: typeof rawTrainingBlock.id === "string" && rawTrainingBlock.id.trim() ? rawTrainingBlock.id.trim() : null,
       name: typeof rawTrainingBlock.name === "string" ? normalizeTrainingBlockName(rawTrainingBlock.name) : null,
       description:
         typeof rawTrainingBlock.description === "string"
           ? normalizeTrainingBlockDescription(rawTrainingBlock.description)
           : null,
+      block_start: typeof rawTrainingBlock.block_start === "string" && rawTrainingBlock.block_start.trim()
+        ? rawTrainingBlock.block_start.trim()
+        : null,
+      block_end: typeof rawTrainingBlock.block_end === "string" && rawTrainingBlock.block_end.trim()
+        ? rawTrainingBlock.block_end.trim()
+        : null,
       apply_timing: normalizeTrainingBlockApplyTiming(rawTrainingBlock.apply_timing),
       checklist_categories: checklistFromChanges ?? checklistFromWorkouts,
+      workouts: normalizedWorkouts.length ? normalizedWorkouts : null,
+      workouts_add: normalizedWorkoutsAdd.length ? normalizedWorkoutsAdd : null,
+      workouts_remove: normalizedWorkoutsRemove.length ? normalizedWorkoutsRemove : null,
     };
+
+    if (!normalizedBlock.operation) {
+      if (Array.isArray(normalizedBlock.workouts_remove) && normalizedBlock.workouts_remove.length) {
+        normalizedBlock.operation = "remove_workouts";
+      } else if (Array.isArray(normalizedBlock.workouts_add) && normalizedBlock.workouts_add.length) {
+        normalizedBlock.operation = "add_workouts";
+      } else if (Array.isArray(normalizedBlock.workouts) && normalizedBlock.workouts.length) {
+        normalizedBlock.operation = "replace_workouts";
+      } else if (normalizedBlock.id && !normalizedBlock.name && !normalizedBlock.description && !normalizedBlock.checklist_categories) {
+        normalizedBlock.operation = "switch_block";
+      } else {
+        normalizedBlock.operation = "update_block";
+      }
+    }
+
     const hasBlockFields = Object.values(normalizedBlock).some((entry) => {
       if (Array.isArray(entry)) return entry.length > 0;
       if (typeof entry === "string") return entry.length > 0;
@@ -1446,15 +1854,217 @@ function appendSettingsHistoryEvent(data, { domains }) {
   return { settingsVersion: nextVersion, effectiveFrom };
 }
 
-async function applySettingsChanges({ proposal }) {
+function generateSettingsConfirmationPhrase() {
+  return `CONFIRM ${crypto.randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+function parseUserDateInput(value, { fallbackYear = null } = {}) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isIsoDateString(trimmed)) return trimmed;
+
+  const slash = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(trimmed);
+  if (!slash) return null;
+  const month = Number(slash[1]);
+  const day = Number(slash[2]);
+  let year = slash[3] ? Number(slash[3]) : Number.isInteger(fallbackYear) ? fallbackYear : NaN;
+  if (!Number.isFinite(year)) return null;
+  if (year < 100) year += 2000;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  const iso = candidate.toISOString().slice(0, 10);
+  const [iy, im, id] = iso.split("-").map((part) => Number(part));
+  if (iy !== year || im !== month || id !== day) return null;
+  return iso;
+}
+
+function getUtcWeekday(dateStr) {
+  if (!isIsoDateString(dateStr)) return null;
+  const [year, month, day] = dateStr.split("-").map((part) => Number(part));
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+function mondayOfWeek(dateStr) {
+  if (!isIsoDateString(dateStr)) return null;
+  const [year, month, day] = dateStr.split("-").map((part) => Number(part));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const weekday = date.getUTCDay();
+  const daysSinceMonday = (weekday + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+function dayBeforeIso(dateStr) {
+  if (!isIsoDateString(dateStr)) return null;
+  const [year, month, day] = dateStr.split("-").map((part) => Number(part));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function addDaysIso(dateStr, amount) {
+  if (!isIsoDateString(dateStr) || !Number.isInteger(amount)) return null;
+  const [year, month, day] = dateStr.split("-").map((part) => Number(part));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function buildTrainingBlockFromWorkouts({
+  workouts,
+  blockId = null,
+  name = "",
+  description = "",
+  existing = null,
+  blocks = [],
+  blockStart = null,
+  blockEnd = null,
+}) {
+  const normalizedWorkouts = normalizeTrainingWorkoutsList(workouts);
+  const template = workoutsToTemplate(normalizedWorkouts);
+  if (!template) return null;
+  const built = buildTrainingBlockFromTemplate({
+    template,
+    blockId,
+    name,
+    description,
+    existing,
+    blocks,
+  });
+  if (!built) return null;
+  if (typeof blockStart === "string" && isIsoDateString(blockStart)) built.block_start = blockStart;
+  if (typeof blockEnd === "string" && isIsoDateString(blockEnd)) built.block_end = blockEnd;
+  if (blockEnd === "") built.block_end = "";
+  built.workouts = normalizedWorkouts;
+  return built;
+}
+
+function getStoredBlockWorkouts(block) {
+  const safeBlock = isPlainObject(block) ? block : {};
+  const workoutsFromRaw = Array.isArray(safeBlock.workouts) ? safeBlock.workouts : [];
+  const workoutsFromChecklist = workoutsFromStoredChecklist(safeBlock);
+  return mergeStoredBlockWorkouts({
+    workoutsFromRaw,
+    workoutsFromChecklist,
+  });
+}
+
+function findWorkoutIndexesForRemoval(workouts, removal) {
+  const list = Array.isArray(workouts) ? workouts : [];
+  const query = normalizeWorkoutName(removal?.name || "").toLowerCase();
+  if (!query) return [];
+  const exact = [];
+  const partial = [];
+  for (const [index, workout] of list.entries()) {
+    const name = normalizeWorkoutName(workout?.name).toLowerCase();
+    if (!name) continue;
+    if (name === query) exact.push(index);
+    else if (name.includes(query)) partial.push(index);
+  }
+  const matches = exact.length ? exact : partial;
+  if (!matches.length) return [];
+  if (Number.isInteger(removal?.ordinal) && removal.ordinal > 0) {
+    const pick = matches[removal.ordinal - 1];
+    return Number.isInteger(pick) ? [pick] : [];
+  }
+  return matches;
+}
+
+function workoutsNeedDeleteConfirmation({ data, blockId, workoutNames }) {
+  if (!isPlainObject(data)) return false;
+  const targetBlockId = typeof blockId === "string" ? blockId.trim() : "";
+  if (!targetBlockId) return false;
+  const names = new Set(
+    (Array.isArray(workoutNames) ? workoutNames : [])
+      .map((name) => normalizeWorkoutName(name).toLowerCase())
+      .filter(Boolean),
+  );
+  if (!names.size) return false;
+  const weeks = Array.isArray(data?.activity?.weeks) ? data.activity.weeks : [];
+  for (const week of weeks) {
+    if (normalizeTrainingBlockId(week?.block_id) !== targetBlockId) continue;
+    const workouts = Array.isArray(week?.workouts) ? week.workouts : [];
+    for (const workout of workouts) {
+      const name = normalizeWorkoutName(workout?.name).toLowerCase();
+      if (!name || !names.has(name)) continue;
+      if (workout?.completed === true) return true;
+      if (typeof workout?.details === "string" && workout.details.trim()) return true;
+      if (typeof workout?.date === "string" && workout.date.trim()) return true;
+    }
+  }
+  return false;
+}
+
+function enforceBlockDateConstraints(blocks, { newBlockId = null, newBlockStart = null } = {}) {
+  const list = Array.isArray(blocks) ? blocks : [];
+  if (!list.length) return list;
+
+  if (newBlockId && isIsoDateString(newBlockStart)) {
+    let predecessor = null;
+    for (const block of list) {
+      if (!block || block.id === newBlockId) continue;
+      const start = typeof block.block_start === "string" ? block.block_start : "";
+      if (!isIsoDateString(start) || start >= newBlockStart) continue;
+      if (!predecessor || start > predecessor.block_start) predecessor = block;
+    }
+    if (predecessor) {
+      const closeAt = dayBeforeIso(newBlockStart);
+      if (closeAt && (!predecessor.block_end || predecessor.block_end >= newBlockStart)) {
+        predecessor.block_end = closeAt;
+      }
+    }
+  }
+
+  const sorted = [...list].sort((a, b) => String(a?.block_start || "").localeCompare(String(b?.block_start || "")));
+  for (const block of sorted) {
+    if (!isIsoDateString(block?.block_start)) {
+      throw new Error("Invalid training block configuration: every block must have a valid block_start.");
+    }
+    if (block?.block_end && !isIsoDateString(block.block_end)) {
+      throw new Error("Invalid training block configuration: block_end must be YYYY-MM-DD.");
+    }
+    if (block?.block_end && block.block_end < block.block_start) {
+      throw new Error("Invalid training block configuration: block_end cannot be before block_start.");
+    }
+  }
+
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const current = sorted[i];
+    const next = sorted[i + 1];
+    const currentEnd = current?.block_end ? current.block_end : "9999-12-31";
+    if (currentEnd >= next.block_start) {
+      throw new Error("Invalid training block configuration: block date ranges overlap.");
+    }
+  }
+  return list;
+}
+
+async function applySettingsChanges({ proposal, selectedBlockId = "", confirmationPhrase = "" }) {
   if (!isValidSettingsProposal(proposal)) throw new Error("Invalid settings proposal payload.");
   const ensuredCurrentWeek = await ensureCurrentWeek();
-  const normalized = normalizeSettingsProposal(proposal, ensuredCurrentWeek);
+  let normalized = normalizeSettingsProposal(proposal, ensuredCurrentWeek);
   const data = await readTrackingData();
   const changesApplied = [];
   const domains = [];
   const profile = ensureTrackingProfile(data);
   const currentProfiles = getSettingsProfiles(data);
+  const providedConfirmationPhrase = typeof confirmationPhrase === "string" ? confirmationPhrase.trim() : "";
+
+  const responseBase = {
+    changesApplied,
+    updated: null,
+    week: isPlainObject(ensuredCurrentWeek) ? ensuredCurrentWeek : {},
+    settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
+      ? getTrackingMetadata(data).settings_version
+      : null,
+    effectiveFrom: null,
+    followupQuestion: null,
+    requiresTimingChoice: false,
+    requiresConfirmation: false,
+    confirmationPhrase: null,
+    proposal: null,
+  };
 
   for (const field of SETTINGS_PROFILE_FIELDS) {
     const nextValue = normalized[field];
@@ -1471,59 +2081,349 @@ async function applySettingsChanges({ proposal }) {
   const blocks = [...trainingBlocksState.blocks];
   let activeBlockId = trainingBlocksState.active_block_id;
   if (!activeBlockId && blocks.length) activeBlockId = blocks[blocks.length - 1].id;
+  const activeIndex = blocks.findIndex((block) => block.id === activeBlockId);
+
+  const selectedUiBlockId = normalizeTrainingBlockId(selectedBlockId);
+  const selectedUiIndex = selectedUiBlockId ? blocks.findIndex((block) => block.id === selectedUiBlockId) : -1;
+  const fallbackIndex = selectedUiIndex >= 0 ? selectedUiIndex : activeIndex >= 0 ? activeIndex : blocks.length ? blocks.length - 1 : -1;
 
   let currentWeek = (isPlainObject(ensuredCurrentWeek) ? ensuredCurrentWeek : null) || {};
   const requestedTemplate = normalized[SETTINGS_CHECKLIST_FIELD];
-  const requestedBlockPatch = isPlainObject(normalized.training_block) ? normalized.training_block : null;
-  const requestedBlockCategories = requestedBlockPatch?.checklist_categories ?? requestedTemplate ?? null;
-  const requestedBlockTemplate =
-    Array.isArray(requestedBlockCategories) && requestedBlockCategories.length
-      ? checklistCategoriesToTemplate(requestedBlockCategories, currentWeek)
-      : null;
-  const requestedTiming = normalizeTrainingBlockApplyTiming(requestedBlockPatch?.apply_timing);
+  let requestedBlockPatch = isPlainObject(normalized.training_block) ? { ...normalized.training_block } : null;
+  if (!requestedBlockPatch && Array.isArray(requestedTemplate) && requestedTemplate.length) {
+    requestedBlockPatch = {
+      operation: "replace_workouts",
+      id: null,
+      name: null,
+      description: null,
+      block_start: null,
+      block_end: null,
+      apply_timing: null,
+      checklist_categories: requestedTemplate,
+      workouts: checklistCategoriesToWorkoutDefinitions(requestedTemplate, currentWeek),
+      workouts_add: null,
+      workouts_remove: null,
+    };
+  }
 
   let targetBlockId = activeBlockId;
   let targetBlockTemplate = null;
   let phaseShiftRequested = false;
   let trainingBlockChanged = false;
 
-  if (requestedBlockPatch || requestedBlockTemplate) {
-    const requestedId = normalizeTrainingBlockId(requestedBlockPatch?.id);
-    const requestedName = normalizeTrainingBlockMatchText(requestedBlockPatch?.name);
-    const requestedDescription = normalizeTrainingBlockMatchText(requestedBlockPatch?.description);
-    const activeIndex = blocks.findIndex((block) => block.id === activeBlockId);
+  if (requestedBlockPatch) {
+    const currentYear = Number(getSeattleDateString(new Date()).slice(0, 4));
+    const requestedStartRaw = requestedBlockPatch.block_start;
+    const requestedEndRaw = requestedBlockPatch.block_end;
+    const parsedStart =
+      typeof requestedStartRaw === "string" && requestedStartRaw.trim()
+        ? parseUserDateInput(requestedStartRaw, { fallbackYear: currentYear })
+        : null;
+    const parsedEnd =
+      typeof requestedEndRaw === "string" && requestedEndRaw.trim()
+        ? parseUserDateInput(requestedEndRaw, { fallbackYear: currentYear })
+        : null;
+
+    if (requestedStartRaw && !parsedStart) {
+      return {
+        ...responseBase,
+        followupQuestion: `I could not parse block_start \"${requestedStartRaw}\". Use YYYY-MM-DD or M/D.`,
+      };
+    }
+    if (requestedEndRaw && !parsedEnd) {
+      return {
+        ...responseBase,
+        followupQuestion: `I could not parse block_end \"${requestedEndRaw}\". Use YYYY-MM-DD or M/D.`,
+      };
+    }
+    if (parsedStart && parsedEnd && parsedEnd < parsedStart) {
+      return {
+        ...responseBase,
+        followupQuestion: "block_end cannot be before block_start. Provide a valid date range.",
+      };
+    }
+
+    if (parsedStart && getUtcWeekday(parsedStart) !== 1) {
+      const corrected = mondayOfWeek(parsedStart);
+      const expectedConfirmation =
+        typeof normalized[SETTINGS_CONFIRMATION_FIELD] === "string" && normalized[SETTINGS_CONFIRMATION_FIELD]
+          ? normalized[SETTINGS_CONFIRMATION_FIELD]
+          : generateSettingsConfirmationPhrase();
+      if (providedConfirmationPhrase !== expectedConfirmation) {
+        const correctedProposal = structuredClone(normalized);
+        if (!isPlainObject(correctedProposal.training_block)) correctedProposal.training_block = {};
+        correctedProposal.training_block.block_start = corrected;
+        correctedProposal[SETTINGS_CONFIRMATION_FIELD] = expectedConfirmation;
+        return {
+          ...responseBase,
+          followupQuestion: `I corrected block_start to Monday (${corrected}). Reply with ${expectedConfirmation} to confirm.`,
+          requiresConfirmation: true,
+          confirmationPhrase: expectedConfirmation,
+          proposal: correctedProposal,
+        };
+      }
+      requestedBlockPatch.block_start = corrected;
+    } else if (parsedStart) {
+      requestedBlockPatch.block_start = parsedStart;
+    }
+    if (parsedEnd) requestedBlockPatch.block_end = parsedEnd;
+
+    const requestedOperation = normalizeTrainingBlockOperation(requestedBlockPatch.operation) || "update_block";
+    const requestedId = normalizeTrainingBlockId(requestedBlockPatch.id);
+    const requestedName = normalizeTrainingBlockMatchText(requestedBlockPatch.name);
+    const requestedDescription = normalizeTrainingBlockMatchText(requestedBlockPatch.description);
+    const hasExplicitReference = Boolean(requestedId || requestedName || requestedDescription);
+
     let selectedIndex = -1;
-    if (requestedId) {
-      selectedIndex = blocks.findIndex((block) => block.id === requestedId);
+    if (requestedOperation !== "create_block") {
+      if (requestedId) {
+        selectedIndex = blocks.findIndex((block) => block.id === requestedId);
+      }
       if (selectedIndex < 0 && requestedName) {
         selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.name) === requestedName);
       }
       if (selectedIndex < 0 && requestedDescription) {
-        selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.description) === requestedDescription);
+        selectedIndex = blocks.findIndex(
+          (block) => normalizeTrainingBlockMatchText(block?.description) === requestedDescription,
+        );
       }
-      if (selectedIndex < 0) throw new Error(`Unknown training block id: ${requestedId}`);
-    } else if (requestedName) {
-      selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.name) === requestedName);
-    } else if (requestedDescription) {
-      selectedIndex = blocks.findIndex((block) => normalizeTrainingBlockMatchText(block?.description) === requestedDescription);
+      if (hasExplicitReference && selectedIndex < 0) {
+        return {
+          ...responseBase,
+          followupQuestion: "I could not find that training block. Share the exact block id or choose the block in Settings first.",
+        };
+      }
+      if (selectedIndex < 0) {
+        selectedIndex = fallbackIndex;
+      }
+    } else {
+      selectedIndex = fallbackIndex;
     }
 
-    if (selectedIndex < 0) {
-      selectedIndex = activeIndex;
-    }
+    const templateWorkouts = Array.isArray(requestedBlockPatch.checklist_categories)
+      ? checklistCategoriesToWorkoutDefinitions(requestedBlockPatch.checklist_categories, currentWeek)
+      : [];
+    const replaceWorkouts = normalizeTrainingWorkoutsList(
+      Array.isArray(requestedBlockPatch.workouts) && requestedBlockPatch.workouts.length
+        ? requestedBlockPatch.workouts
+        : templateWorkouts,
+    );
+    const addWorkouts = normalizeTrainingWorkoutsList(requestedBlockPatch.workouts_add);
+    const removeRequests = normalizeSettingsWorkoutRemovals(requestedBlockPatch.workouts_remove);
 
-    if (selectedIndex >= 0) {
-      const existing = blocks[selectedIndex];
-      const baseTemplate = extractTemplateFromStoredBlock(existing);
-      const finalTemplate = requestedBlockTemplate ? mergeChecklistTemplates(baseTemplate, requestedBlockTemplate) : baseTemplate;
-      const updatedBlock = buildTrainingBlockFromTemplate({
-        template: finalTemplate,
-        blockId: existing.id,
-        name: requestedBlockPatch?.name,
-        description: requestedBlockPatch?.description,
-        existing,
+    if (requestedOperation === "switch_block") {
+      if (selectedIndex < 0) {
+        return {
+          ...responseBase,
+          followupQuestion: "I need a valid target block to switch. Provide the block id or name.",
+        };
+      }
+      targetBlockId = blocks[selectedIndex].id;
+      phaseShiftRequested = targetBlockId !== activeBlockId;
+    } else if (requestedOperation === "create_block") {
+      if (requestedId && blocks.some((block) => block.id === requestedId)) {
+        return {
+          ...responseBase,
+          followupQuestion: `A block with id ${requestedId} already exists. Use update_block or choose a new id.`,
+        };
+      }
+      const baselineIndex = selectedIndex >= 0 ? selectedIndex : fallbackIndex;
+      let nextWorkouts = baselineIndex >= 0 ? getStoredBlockWorkouts(blocks[baselineIndex]) : [];
+      if (replaceWorkouts.length) nextWorkouts = replaceWorkouts;
+      if (addWorkouts.length) {
+        const existing = new Set(nextWorkouts.map((row) => row.name.toLowerCase()));
+        for (const workout of addWorkouts) {
+          const token = workout.name.toLowerCase();
+          if (existing.has(token)) continue;
+          existing.add(token);
+          nextWorkouts.push(workout);
+        }
+      }
+      if (removeRequests.length && nextWorkouts.length) {
+        const removeIndexes = new Set();
+        for (const removal of removeRequests) {
+          const indexes = findWorkoutIndexesForRemoval(nextWorkouts, removal);
+          for (const index of indexes) removeIndexes.add(index);
+        }
+        nextWorkouts = nextWorkouts.filter((_row, index) => !removeIndexes.has(index));
+      }
+      if (!nextWorkouts.length) {
+        return {
+          ...responseBase,
+          followupQuestion: "A new block needs at least one workout. Add workouts before creating the block.",
+        };
+      }
+
+      const todayIso = getSeattleDateString(new Date());
+      const mondayThisWeek = mondayOfWeek(todayIso) || todayIso;
+      const defaultStart = addDaysIso(mondayThisWeek, 7) || todayIso;
+      const blockStart = typeof requestedBlockPatch.block_start === "string" && requestedBlockPatch.block_start
+        ? requestedBlockPatch.block_start
+        : defaultStart;
+      const blockEnd =
+        typeof requestedBlockPatch.block_end === "string" && requestedBlockPatch.block_end !== null
+          ? requestedBlockPatch.block_end
+          : "";
+      const newBlock = buildTrainingBlockFromWorkouts({
+        workouts: nextWorkouts,
+        blockId: requestedBlockPatch.id,
+        name: requestedBlockPatch.name,
+        description: requestedBlockPatch.description,
         blocks,
+        blockStart,
+        blockEnd,
       });
+      if (!newBlock) {
+        return {
+          ...responseBase,
+          followupQuestion: "I could not create that block because the workout list is empty.",
+        };
+      }
+      blocks.push(newBlock);
+      enforceBlockDateConstraints(blocks, { newBlockId: newBlock.id, newBlockStart: newBlock.block_start });
+      trainingBlockChanged = true;
+      targetBlockId = newBlock.id;
+      targetBlockTemplate = extractTemplateFromStoredBlock(newBlock);
+      phaseShiftRequested = targetBlockId !== activeBlockId;
+    } else {
+      if (selectedIndex < 0) {
+        return {
+          ...responseBase,
+          followupQuestion: "No block is selected. Pick a block in Settings or provide a target block id.",
+        };
+      }
+      const existing = blocks[selectedIndex];
+      const baseExistingWorkouts = getStoredBlockWorkouts(existing);
+      let nextWorkouts = baseExistingWorkouts;
+      if (requestedOperation === "replace_workouts") {
+        if (!replaceWorkouts.length) {
+          return {
+            ...responseBase,
+            followupQuestion: "I need at least one workout to replace this block.",
+          };
+        }
+        nextWorkouts = hydrateWorkoutsWithExistingDefinitions({
+          candidateWorkouts: replaceWorkouts,
+          existingWorkouts: nextWorkouts,
+        });
+      }
+      if (requestedOperation === "add_workouts" && addWorkouts.length) {
+        const existingNames = new Set(nextWorkouts.map((row) => row.name.toLowerCase()));
+        for (const workout of addWorkouts) {
+          const token = workout.name.toLowerCase();
+          if (existingNames.has(token)) continue;
+          existingNames.add(token);
+          nextWorkouts.push(workout);
+        }
+        nextWorkouts = preserveExistingWorkoutsForAddOperation({
+          existingWorkouts: baseExistingWorkouts,
+          nextWorkouts,
+        });
+      }
+
+      if (requestedOperation === "remove_workouts" || removeRequests.length) {
+        if (!removeRequests.length) {
+          return {
+            ...responseBase,
+            followupQuestion: "Tell me which workout(s) to remove.",
+          };
+        }
+        const removalIndexes = new Set();
+        const ambiguous = [];
+        for (const removal of removeRequests) {
+          const indexes = findWorkoutIndexesForRemoval(nextWorkouts, removal);
+          if (!indexes.length) continue;
+          if (indexes.length > 1 && !Number.isInteger(removal.ordinal)) {
+            ambiguous.push(removal.name);
+            continue;
+          }
+          for (const index of indexes) removalIndexes.add(index);
+        }
+        if (ambiguous.length) {
+          return {
+            ...responseBase,
+            followupQuestion: `I found multiple matches for ${ambiguous.join(", ")}. Specify first/second/etc.`,
+          };
+        }
+        const workoutsToRemove = nextWorkouts.filter((_row, index) => removalIndexes.has(index)).map((row) => row.name);
+        if (workoutsNeedDeleteConfirmation({ data, blockId: existing.id, workoutNames: workoutsToRemove })) {
+          const expectedConfirmation =
+            typeof normalized[SETTINGS_CONFIRMATION_FIELD] === "string" && normalized[SETTINGS_CONFIRMATION_FIELD]
+              ? normalized[SETTINGS_CONFIRMATION_FIELD]
+              : generateSettingsConfirmationPhrase();
+          if (providedConfirmationPhrase !== expectedConfirmation) {
+            const confirmProposal = structuredClone(normalized);
+            confirmProposal[SETTINGS_CONFIRMATION_FIELD] = expectedConfirmation;
+            return {
+              ...responseBase,
+              followupQuestion: `Removing that workout affects logged history. Reply with ${expectedConfirmation} to confirm.`,
+              requiresConfirmation: true,
+              confirmationPhrase: expectedConfirmation,
+              proposal: confirmProposal,
+            };
+          }
+        }
+        nextWorkouts = nextWorkouts.filter((_row, index) => !removalIndexes.has(index));
+      }
+
+      let updatedBlock = null;
+      if (requestedOperation === "add_workouts") {
+        const existingTemplate = extractTemplateFromStoredBlock(existing) ?? workoutsToTemplate(baseExistingWorkouts);
+        const additions = nextWorkouts.filter(
+          (workout) => !baseExistingWorkouts.some((existingWorkout) => existingWorkout.name.toLowerCase() === workout.name.toLowerCase()),
+        );
+        const additionsTemplate = workoutsToTemplate(additions);
+        const mergedTemplate = mergeChecklistTemplates(existingTemplate, additionsTemplate) ?? existingTemplate;
+        updatedBlock = {
+          ...existing,
+          name:
+            typeof requestedBlockPatch.name === "string" && requestedBlockPatch.name
+              ? normalizeTrainingBlockName(requestedBlockPatch.name)
+              : existing.name,
+          description:
+            typeof requestedBlockPatch.description === "string"
+              ? normalizeTrainingBlockDescription(requestedBlockPatch.description)
+              : existing.description,
+          block_start:
+            typeof requestedBlockPatch.block_start === "string" && requestedBlockPatch.block_start
+              ? requestedBlockPatch.block_start
+              : existing.block_start,
+          block_end:
+            typeof requestedBlockPatch.block_end === "string"
+              ? requestedBlockPatch.block_end
+              : existing.block_end,
+          category_order: Array.isArray(mergedTemplate?.category_order)
+            ? mergedTemplate.category_order
+            : Array.isArray(existing.category_order)
+              ? existing.category_order
+              : [],
+          category_labels: isPlainObject(mergedTemplate?.category_labels)
+            ? mergedTemplate.category_labels
+            : isPlainObject(existing.category_labels)
+              ? existing.category_labels
+              : {},
+          checklist: mergedTemplate ? templateToChecklistObject(mergedTemplate) : existing.checklist,
+          workouts: nextWorkouts,
+          updated_at: formatSeattleIso(new Date()),
+        };
+      } else {
+        updatedBlock = buildTrainingBlockFromWorkouts({
+          workouts: nextWorkouts,
+          blockId: existing.id,
+          name: requestedBlockPatch.name,
+          description: requestedBlockPatch.description,
+          existing,
+          blocks,
+          blockStart:
+            typeof requestedBlockPatch.block_start === "string" && requestedBlockPatch.block_start
+              ? requestedBlockPatch.block_start
+              : existing.block_start,
+          blockEnd:
+            typeof requestedBlockPatch.block_end === "string"
+              ? requestedBlockPatch.block_end
+              : existing.block_end,
+        });
+      }
       if (!updatedBlock) throw new Error("Training block is missing checklist categories.");
       const existingJson = JSON.stringify(normalizeTrainingBlockForComparison(existing));
       const updatedJson = JSON.stringify(normalizeTrainingBlockForComparison(updatedBlock));
@@ -1532,122 +2432,90 @@ async function applySettingsChanges({ proposal }) {
         trainingBlockChanged = true;
       }
       targetBlockId = existing.id;
-      targetBlockTemplate = finalTemplate;
-      if (targetBlockId !== activeBlockId) phaseShiftRequested = true;
-    } else if (requestedBlockTemplate) {
-      const newBlock = buildTrainingBlockFromTemplate({
-        template: requestedBlockTemplate,
-        blockId: requestedBlockPatch?.id,
-        name: requestedBlockPatch?.name,
-        description: requestedBlockPatch?.description,
-        blocks,
+      targetBlockTemplate = extractTemplateFromStoredBlock(updatedBlock);
+      phaseShiftRequested = targetBlockId !== activeBlockId;
+      enforceBlockDateConstraints(blocks, {
+        newBlockId: existing.id,
+        newBlockStart: updatedBlock.block_start,
       });
-      if (!newBlock) throw new Error("Training block checklist is required.");
-      blocks.push(newBlock);
-      trainingBlockChanged = true;
-      targetBlockId = newBlock.id;
-      targetBlockTemplate = requestedBlockTemplate;
-      if (targetBlockId !== activeBlockId) phaseShiftRequested = true;
     }
-  }
 
-  const activeBlock = blocks.find((block) => block.id === targetBlockId) ?? null;
-  const activeTemplate = targetBlockTemplate ?? extractTemplateFromStoredBlock(activeBlock);
-  const currentHasProgress = hasCurrentWeekProgress(currentWeek);
+    const requestedTiming = normalizeTrainingBlockApplyTiming(requestedBlockPatch?.apply_timing);
+    const currentHasProgress = hasCurrentWeekProgress(currentWeek);
+    if (phaseShiftRequested && !requestedTiming && currentHasProgress) {
+      return {
+        ...responseBase,
+        followupQuestion: "I can apply this phase switch now or start it next Monday. Do you want `immediate` or `next_week`?",
+        requiresTimingChoice: true,
+        proposal: normalized,
+      };
+    }
 
-  if (phaseShiftRequested && !requestedTiming && currentHasProgress) {
-    const followupQuestion =
-      "I can apply this phase switch now or start it next Monday. Do you want `immediate` or `next_week`?";
-    return {
-      changesApplied,
-      updated: null,
-      week: currentWeek,
-      settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
-        ? getTrackingMetadata(data).settings_version
-        : null,
-      effectiveFrom: null,
-      followupQuestion,
-      requiresTimingChoice: true,
-    };
-  }
-
-  if (trainingBlockChanged || phaseShiftRequested) {
-    const openEndedIds = findOpenEndedTrainingBlockIds(blocks);
-    if (openEndedIds.length > 1) {
-      throw new Error(
-        `Invalid training block configuration: only one open-ended block is allowed (found ${openEndedIds.length}).`,
+    const activeBlock = blocks.find((block) => block.id === targetBlockId) ?? null;
+    const activeTemplate = targetBlockTemplate ?? extractTemplateFromStoredBlock(activeBlock);
+    if (trainingBlockChanged || phaseShiftRequested) {
+      activeBlockId = targetBlockId;
+      metadata.training_blocks = {
+        active_block_id: activeBlockId,
+        blocks,
+      };
+      syncCanonicalActivityBlocksFromStoredBlocks(data, blocks);
+      if (activeTemplate) metadata.checklist_template = activeTemplate;
+      else delete metadata.checklist_template;
+      domains.push(SETTINGS_TRAINING_BLOCK_FIELD);
+      changesApplied.push(
+        phaseShiftRequested
+          ? requestedTiming === "next_week"
+            ? "Scheduled training block change for next week."
+            : "Switched training block."
+          : "Updated training block.",
       );
     }
-    activeBlockId = targetBlockId;
-    metadata.training_blocks = {
-      active_block_id: activeBlockId,
-      blocks,
-    };
-    syncCanonicalActivityBlocksFromStoredBlocks(data, blocks);
-    if (activeTemplate) metadata.checklist_template = activeTemplate;
-    else delete metadata.checklist_template;
-    domains.push(SETTINGS_TRAINING_BLOCK_FIELD);
-    changesApplied.push(
-      phaseShiftRequested
-        ? requestedTiming === "next_week"
-          ? "Scheduled training block change for next week."
-          : "Switched training block."
-        : "Updated training block.",
-    );
-  }
 
-  const shouldApplyImmediateShift = phaseShiftRequested && requestedTiming !== "next_week";
-  const shouldApplyCurrentWeekTemplate = shouldApplyImmediateShift || (activeBlockId && !phaseShiftRequested && requestedBlockTemplate);
-  if (shouldApplyCurrentWeekTemplate && activeTemplate) {
-    const nextWeek = buildWeekFromTemplate(currentWeek, activeTemplate);
-    nextWeek.training_block_id = activeBlockId;
-    nextWeek.training_block_name = normalizeTrainingBlockName(activeBlock?.name);
-    nextWeek.training_block_description = normalizeTrainingBlockDescription(activeBlock?.description);
-    const existingTemplate = extractChecklistTemplate(currentWeek);
-    const nextTemplate = extractChecklistTemplate(nextWeek);
-    if (
-      JSON.stringify(existingTemplate ?? null) !== JSON.stringify(nextTemplate ?? null) ||
-      currentWeek.training_block_id !== nextWeek.training_block_id ||
-      currentWeek.training_block_name !== nextWeek.training_block_name ||
-      currentWeek.training_block_description !== nextWeek.training_block_description
-    ) {
-      const storedWeek = upsertCanonicalWeekFromChecklistTemplateWeek(data, nextWeek);
-      if (storedWeek) currentWeek = nextWeek;
-      if (!domains.includes(SETTINGS_CHECKLIST_FIELD)) domains.push(SETTINGS_CHECKLIST_FIELD);
-      if (!changesApplied.includes("Updated training checklist template.")) {
-        changesApplied.push("Updated training checklist template.");
+    const shouldApplyImmediateShift = phaseShiftRequested && requestedTiming !== "next_week";
+    const shouldApplyCurrentWeekTemplate =
+      shouldApplyImmediateShift ||
+      (activeBlockId && !phaseShiftRequested && (requestedOperation === "replace_workouts" || requestedOperation === "add_workouts" || requestedOperation === "remove_workouts"));
+    if (shouldApplyCurrentWeekTemplate && activeTemplate) {
+      const nextWeek = buildWeekFromTemplate(currentWeek, activeTemplate);
+      nextWeek.training_block_id = activeBlockId;
+      nextWeek.training_block_name = normalizeTrainingBlockName(activeBlock?.name);
+      nextWeek.training_block_description = normalizeTrainingBlockDescription(activeBlock?.description);
+      const existingTemplate = extractChecklistTemplate(currentWeek);
+      const nextTemplate = extractChecklistTemplate(nextWeek);
+      if (
+        JSON.stringify(existingTemplate ?? null) !== JSON.stringify(nextTemplate ?? null) ||
+        currentWeek.training_block_id !== nextWeek.training_block_id ||
+        currentWeek.training_block_name !== nextWeek.training_block_name ||
+        currentWeek.training_block_description !== nextWeek.training_block_description
+      ) {
+        const storedWeek = upsertCanonicalWeekFromChecklistTemplateWeek(data, nextWeek);
+        if (storedWeek) currentWeek = nextWeek;
+        if (!domains.includes(SETTINGS_CHECKLIST_FIELD)) domains.push(SETTINGS_CHECKLIST_FIELD);
+        if (!changesApplied.includes("Updated training checklist template.")) {
+          changesApplied.push("Updated training checklist template.");
+        }
       }
     }
   }
-  setTrackingMetadata(data, metadata);
 
-  if (changesApplied.length) {
-    const versionMeta = appendSettingsHistoryEvent(data, { domains });
-    await writeTrackingData(data);
-    const refreshedCurrentWeek = await ensureCurrentWeek();
-    return {
-      changesApplied,
-      updated: {
-        ...getSettingsProfiles(data),
-      },
-      week: isPlainObject(refreshedCurrentWeek) ? refreshedCurrentWeek : currentWeek,
-      settingsVersion: versionMeta.settingsVersion,
-      effectiveFrom: versionMeta.effectiveFrom,
-      followupQuestion: null,
-      requiresTimingChoice: false,
-    };
+  setTrackingMetadata(data, metadata);
+  if (!changesApplied.length) {
+    return responseBase;
   }
 
+  const versionMeta = appendSettingsHistoryEvent(data, { domains });
+  await writeTrackingData(data);
+  const refreshedCurrentWeek = await ensureCurrentWeek();
   return {
+    ...responseBase,
     changesApplied,
-    updated: null,
-    week: currentWeek,
-    settingsVersion: Number.isInteger(getTrackingMetadata(data)?.settings_version)
-      ? getTrackingMetadata(data).settings_version
-      : null,
-    effectiveFrom: null,
-    followupQuestion: null,
-    requiresTimingChoice: false,
+    updated: {
+      ...getSettingsProfiles(data),
+    },
+    week: isPlainObject(refreshedCurrentWeek) ? refreshedCurrentWeek : currentWeek,
+    settingsVersion: versionMeta.settingsVersion,
+    effectiveFrom: versionMeta.effectiveFrom,
   };
 }
 
@@ -1896,26 +2764,63 @@ app.post("/api/settings/chat", async (req, res) => {
     const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
     if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const selectedBlockId =
+      typeof req.body?.selected_block_id === "string" && req.body.selected_block_id.trim()
+        ? req.body.selected_block_id.trim()
+        : "";
     const currentWeek = await ensureCurrentWeek();
 
     const result = stream
       ? await streamSettingsAssistant({
           message,
           messages,
+          selectedBlockId,
           onText: (delta) => sendStreamingAssistantChunk(res, delta),
         })
-      : await askSettingsAssistant({ message, messages });
+      : await askSettingsAssistant({ message, messages, selectedBlockId });
 
     const changes = normalizeSettingsProposal(result?.changes ?? {}, currentWeek);
+    if (isPlainObject(changes.training_block)) {
+      const currentOperation = normalizeTrainingBlockOperation(changes.training_block.operation);
+      if (currentOperation === "replace_workouts" && messageImpliesAddWorkouts(message)) {
+        const inferredAdditions = normalizeTrainingWorkoutsList(
+          Array.isArray(changes.training_block.workouts_add) && changes.training_block.workouts_add.length
+            ? changes.training_block.workouts_add
+            : changes.training_block.workouts,
+        );
+        if (inferredAdditions.length) {
+          changes.training_block = {
+            ...changes.training_block,
+            operation: "add_workouts",
+            workouts: null,
+            workouts_add: inferredAdditions,
+            checklist_categories: null,
+          };
+        }
+      }
+    }
     const messageWorkouts = extractWorkoutsArrayFromMessage(message);
-    if (Array.isArray(messageWorkouts) && messageWorkouts.length) {
+    const hasExplicitStructuredTrainingBlock = isPlainObject(changes.training_block) && (
+      Array.isArray(changes.training_block.workouts) ||
+      Array.isArray(changes.training_block.workouts_add) ||
+      Array.isArray(changes.training_block.workouts_remove) ||
+      Array.isArray(changes.training_block.checklist_categories)
+    );
+    if (Array.isArray(messageWorkouts) && messageWorkouts.length && !hasExplicitStructuredTrainingBlock) {
       const fromMessage = normalizeSettingsWorkoutsToChecklistCategories(messageWorkouts, currentWeek);
       if (fromMessage && fromMessage.length) {
         const existingTrainingBlock = isPlainObject(changes.training_block) ? changes.training_block : {};
         const inferredTiming = shouldApplyImmediateFromMessage(message);
+        const inferredFromMessageWorkouts = normalizeSettingsWorkoutDefinitions(messageWorkouts, currentWeek);
+        const inferredAdd = messageImpliesAddWorkouts(message);
         changes.training_block = {
           ...existingTrainingBlock,
-          checklist_categories: fromMessage,
+          operation:
+            normalizeTrainingBlockOperation(existingTrainingBlock.operation) ||
+            (inferredAdd ? "add_workouts" : "replace_workouts"),
+          checklist_categories: inferredAdd ? null : fromMessage,
+          workouts: inferredAdd ? null : inferredFromMessageWorkouts,
+          workouts_add: inferredAdd ? inferredFromMessageWorkouts : existingTrainingBlock.workouts_add ?? null,
           apply_timing:
             normalizeTrainingBlockApplyTiming(existingTrainingBlock.apply_timing) ||
             inferredTiming ||
@@ -1925,7 +2830,7 @@ app.post("/api/settings/chat", async (req, res) => {
     }
     const hasProposal = hasPendingSettingsChanges(changes);
     const applied = hasProposal
-      ? await applySettingsChanges({ proposal: changes })
+      ? await applySettingsChanges({ proposal: changes, selectedBlockId })
       : {
           changesApplied: [],
           updated: null,
@@ -1934,6 +2839,9 @@ app.post("/api/settings/chat", async (req, res) => {
           effectiveFrom: null,
           followupQuestion: null,
           requiresTimingChoice: false,
+          requiresConfirmation: false,
+          confirmationPhrase: null,
+          proposal: null,
         };
     const assistantMessage = typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "";
     const canonicalWeek = await getCurrentActivityWeek();
@@ -1942,9 +2850,10 @@ app.post("/api/settings/chat", async (req, res) => {
       ok: true,
       assistant_message: assistantMessage,
       followup_question: applied.followupQuestion ?? result.followup_question ?? null,
-      requires_confirmation: false,
+      requires_confirmation: applied.requiresConfirmation === true,
       proposal_id: null,
-      proposal: applied.requiresTimingChoice ? changes : null,
+      proposal: applied.proposal ?? (applied.requiresTimingChoice ? changes : null),
+      confirmation_phrase: applied.confirmationPhrase ?? null,
       changes_applied: applied.changesApplied,
       updated: applied.updated,
       settings_version: applied.settingsVersion,
@@ -1973,10 +2882,27 @@ app.post("/api/settings/chat", async (req, res) => {
 app.post("/api/settings/confirm", async (req, res) => {
   try {
     const proposal = req.body?.proposal;
+    const selectedBlockId =
+      typeof req.body?.selected_block_id === "string" && req.body.selected_block_id.trim()
+        ? req.body.selected_block_id.trim()
+        : "";
+    const confirmationPhrase =
+      typeof req.body?.confirmation_phrase === "string" && req.body.confirmation_phrase.trim()
+        ? req.body.confirmation_phrase.trim()
+        : "";
     if (!isValidSettingsProposal(proposal) || !hasPendingSettingsChanges(proposal)) {
       return res.status(400).json({ ok: false, error: "Missing or invalid proposal." });
     }
-    const applied = await applySettingsChanges({ proposal });
+    const applied = await applySettingsChanges({ proposal, selectedBlockId, confirmationPhrase });
+    if (applied.requiresConfirmation) {
+      return res.status(400).json({
+        ok: false,
+        error: applied.followupQuestion || "Confirmation phrase required.",
+        requires_confirmation: true,
+        proposal: applied.proposal,
+        confirmation_phrase: applied.confirmationPhrase,
+      });
+    }
     if (applied.requiresTimingChoice) {
       return res.status(400).json({ ok: false, error: applied.followupQuestion || "Missing phase apply timing." });
     }
@@ -2555,8 +3481,18 @@ async function start() {
   });
 }
 
-start().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error(err);
-  process.exit(1);
-});
+const isMainModule = (() => {
+  const entry = process.argv[1] ? path.resolve(process.argv[1]) : "";
+  if (!entry) return false;
+  return pathToFileURL(entry).href === import.meta.url;
+})();
+
+if (isMainModule) {
+  start().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+export { app, applySettingsChanges, normalizeSettingsProposal, isValidSettingsProposal };

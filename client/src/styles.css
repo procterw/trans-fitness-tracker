@@ -1826,8 +1826,6 @@ ul {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid #ddd;
 }
 
 .fitnessCategoryTitle {
@@ -1983,7 +1981,6 @@ input.fitnessChecklistDate {
 }
 
 .fitnessHistory {
-  margin-top: 28px;
   border: none;
   border-radius: 0;
   overflow: hidden;
@@ -1997,8 +1994,6 @@ input.fitnessChecklistDate {
   background: transparent;
   max-width: 768px;
   width: 100%;
-  margin-left: auto;
-  margin-right: auto;
 }
 
 .fitnessHistoryPhaseMeta {
@@ -2009,9 +2004,8 @@ input.fitnessChecklistDate {
   display: grid;
   gap: 2px;
   max-width: 768px;
-  width: 100%;
-  margin-left: auto;
-  margin-right: auto;
+  width: 40%;
+  margin: 30px 0;
 }
 
 .fitnessHistoryPhaseTitleRow {
@@ -2070,8 +2064,8 @@ input.fitnessChecklistDate {
   left: 0;
   z-index: 3;
   background: var(--card);
-  min-width: 120px;
-  width: 120px;
+  min-width: 180px;
+  width: 180px;
 }
 
 .fitnessHistoryWeekHeader .fitnessHistoryWeekTitle {
@@ -2095,9 +2089,9 @@ input.fitnessChecklistDate {
   left: 0;
   z-index: 1;
   background: var(--card);
-  min-width: 120px;
-  width: 120px;
-  max-width: 160px;
+  min-width: 180px;
+  width: 180px;
+  max-width: 240px;
   font-weight: 700;
 }
 
@@ -2389,8 +2383,8 @@ input.fitnessChecklistDate {
   .fitnessHistoryActivityCell {
     position: sticky;
     left: 0;
-    min-width: 120px;
-    width: 120px;
+    min-width: 160px;
+    width: 160px;
     max-width: none;
   }
 
@@ -2444,10 +2438,6 @@ input.fitnessChecklistDate {
     margin-top: 30px;
   }
 
-  .fitnessHistory {
-    margin-top: 0;
-  }
-
   .workoutsNarrow + .workoutsChecklistSection,
   .workoutsChecklistSection + .fitnessHistorySection {
     margin-top: 30px;
@@ -2466,17 +2456,18 @@ input.fitnessChecklistDate {
 }
 
 .workoutsBlockMetaSection {
-  margin-top: 2px;
   min-width: 0;
   width: 100%;
   flex: 1 1 0;
 }
 
-.workoutsBlockMetaName {
+.workoutsBlockMetaName,
+.workoutsWeekContextLabel {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
   color: var(--text);
+  margin-bottom: 10px;
 }
 
 .workoutsBlockMetaDescription {
@@ -2496,16 +2487,6 @@ input.fitnessChecklistDate {
   min-width: 0;
   width: 100%;
   flex: 1 1 0;
-}
-
-.workoutsWeekContextLabel {
-  display: block;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--text);
-  margin-bottom: 8px;
 }
 
 .workoutsWeekContextTextarea {
@@ -2533,7 +2514,6 @@ input.fitnessChecklistDate {
 .workoutsDataPanel {
   border: none;
   border-radius: 0;
-  margin: 18px 0 0;
   padding: 0;
   background: transparent;
   box-shadow: none;
