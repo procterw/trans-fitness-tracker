@@ -27,10 +27,12 @@ import {
 import { deriveGoalsListsFromGoalsText, normalizeGoalsText, parseGoalsTextToList } from "./goalsText.js";
 import { analyzeImportPayload, applyImportPlan } from "./importData.js";
 import {
+  buildFoodAssistantMessage,
   isClearFoodCommand,
   isExistingActivityEntry,
   logFoodFromInputs,
   looksLikeBulkFoodImportText,
+  summarizeActivityLoadForDate,
   validateIngestActivityDecision,
   writeFoodEventFromIngestDecision,
   refreshCurrentWeekSummaryForActivity,
@@ -3161,11 +3163,12 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         requestEventId: eventId,
         clientRequestId,
       });
+      const activityWeek = await getCurrentActivityWeek();
+      const sessionsToday = summarizeActivityLoadForDate(activityWeek, payload?.date ?? null);
       const responsePayload = {
         ok: true,
         action: "food",
-        assistant_message:
-          assistantMessage || `Logged ${payload?.estimate?.meal_title || "your entry"} for ${payload?.date || "today"}.`,
+        assistant_message: buildFoodAssistantMessage({ payload, sessionsToday }),
         followup_question: decision?.followup_question || null,
         food_result: payload,
         activity_updates: null,

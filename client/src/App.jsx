@@ -939,12 +939,16 @@ export default function App() {
         composerMessageIdRef.current += 1;
         const activityStatus = json?.activity_log_state === "updated" ? "Updated activity." : "Saved activity.";
         const foodLogAction = json?.food_result?.log_action ?? json?.log_action ?? null;
+        const foodTitle = typeof json?.food_result?.event?.description === "string" ? json.food_result.event.description.trim() : "";
+        const fallbackFoodTitle =
+          typeof json?.food_result?.estimate?.meal_title === "string" ? json.food_result.estimate.meal_title.trim() : "";
+        const bestFoodTitle = foodTitle || fallbackFoodTitle || "meal";
         const foodStatus =
           foodLogAction === "updated"
-            ? "Updated meal entry."
+            ? `Updated ${bestFoodTitle}`
             : foodLogAction === "existing"
-              ? "Meal already saved."
-              : "Saved meal entry.";
+              ? `${bestFoodTitle} already saved`
+              : `Logged ${bestFoodTitle}`;
         assistantMessages.push({
           id: composerMessageIdRef.current,
           role: "assistant",

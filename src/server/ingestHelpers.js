@@ -331,6 +331,81 @@ export function summarizeFoodResult(payload) {
   };
 }
 
+export function summarizeActivityLoadForDate(currentWeek, date) {
+  if (!currentWeek || typeof currentWeek !== "object") return null;
+  if (!isIsoDateString(date)) return null;
+
+  let sessions = 0;
+  for (const categoryKey of getFitnessCategoryKeys(currentWeek)) {
+    const list = Array.isArray(currentWeek?.[categoryKey]) ? currentWeek[categoryKey] : [];
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const itemDate = typeof item.date === "string" ? item.date.trim() : "";
+      if (item.checked === true && itemDate === date) sessions += 1;
+    }
+  }
+  return sessions;
+}
+
+export function buildFoodAssistantMessage({ payload, sessionsToday = null }) {
+  const totals = payload?.estimate?.totals ?? {};
+  const dayTotals = payload?.day_totals ?? {};
+
+  const calories = fmtNutrient(totals.calories, "kcal", { round: true });
+  const carbs = fmtNutrient(totals.carbs_g, "g carbs");
+  const fat = fmtNutrient(totals.fat_g, "g fat");
+  const protein = fmtNutrient(totals.protein_g, "g protein");
+  const fiber = fmtNutrient(totals.fiber_g, "g fiber");
+
+  const dayCalories = fmtNutrient(dayTotals.calories, "kcal", { round: true });
+  const dayCarbs = fmtNutrient(dayTotals.carbs_g, "g carbs");
+  const dayFat = fmtNutrient(dayTotals.fat_g, "g fat");
+  const dayProtein = fmtNutrient(dayTotals.protein_g, "g protein");
+  const dayFiber = fmtNutrient(dayTotals.fiber_g, "g fiber");
+
+  const mealParts = [calories, carbs, fat, protein, fiber].filter(Boolean);
+  const dayParts = [dayCalories, dayCarbs, dayFat, dayProtein, dayFiber].filter(Boolean);
+
+  const nutritionSummary = [
+    mealParts.length ? `- Meal estimate: ${mealParts.join(", ")}` : "- Meal estimate: saved",
+    dayParts.length ? `- Day totals: ${dayParts.join(", ")}` : "- Day totals: awaiting more entries",
+  ].join("\n");
+
+  const proteinValue = Number(dayTotals.protein_g);
+  const carbValue = Number(dayTotals.carbs_g);
+  const fiberValue = Number(dayTotals.fiber_g);
+  const sessionCount = Number.isInteger(sessionsToday) && sessionsToday >= 0 ? sessionsToday : null;
+
+  const activitySummary =
+    sessionCount === null
+      ? "Activity today: not available."
+      : sessionCount === 0
+        ? "Activity today: no sessions logged yet."
+        : sessionCount === 1
+          ? "Activity today: 1 session logged."
+          : `Activity today: ${sessionCount} sessions logged.`;
+
+  let fitSummary = "";
+  if (sessionCount !== null && sessionCount >= 2) {
+    fitSummary =
+      (Number.isFinite(proteinValue) && proteinValue < 100) || (Number.isFinite(carbValue) && carbValue < 180)
+        ? "Assessment: higher-activity day with intake currently light for recovery; prioritize protein and carbohydrate in the next meal."
+        : "Assessment: higher-activity day with intake reasonably aligned for recovery if remaining meals stay balanced.";
+  } else if (sessionCount === 1) {
+    fitSummary =
+      Number.isFinite(proteinValue) && proteinValue < 90
+        ? "Assessment: moderate-activity day with protein still below a strong target; bias the next meal toward protein."
+        : "Assessment: moderate-activity day with intake tracking well so far; keep protein and fiber steady in remaining meals.";
+  } else {
+    fitSummary =
+      Number.isFinite(fiberValue) && fiberValue < 20
+        ? "Assessment: lower-activity day with room to improve fiber density later in the day."
+        : "Assessment: lower-activity day with intake profile generally balanced so far.";
+  }
+
+  return [nutritionSummary, `${activitySummary} ${fitSummary}`].join("\n\n");
+}
+
 function isIsoDateString(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
 }
