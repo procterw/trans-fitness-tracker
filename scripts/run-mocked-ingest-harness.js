@@ -17,6 +17,34 @@ function setupIsolatedTrackingEnv(root) {
 
 function makeMockClient({ intent = "activity" } = {}) {
   const calls = [];
+  const foodDecision =
+    intent === "food"
+      ? {
+          description: "oatmeal with blueberries",
+          notes: "with almond milk",
+          event_id: null,
+          date: null,
+          requires_estimate: true,
+          estimated_description: "oatmeal bowl",
+        }
+      : null;
+  const activityDecision =
+    intent === "activity"
+      ? {
+          selections: [
+            {
+              category: "endurance",
+              index: 0,
+              label: "Run",
+              duration_min: 45,
+              intensity: "moderate",
+              notes: "from screenshot",
+            },
+          ],
+          followup_question: null,
+        }
+      : null;
+
   const client = {
     responses: {
       parse: async (payload) => {
@@ -25,24 +53,12 @@ function makeMockClient({ intent = "activity" } = {}) {
           output_parsed: {
             intent,
             confidence: 0.9,
-            question: null,
+            assistant_message: `Handled ${intent} intent for testing.`,
+            followup_question: null,
             clarifying_question: null,
-            activity:
-              intent === "activity"
-                ? {
-                    selections: [
-                      {
-                        category: "endurance",
-                        index: 0,
-                        label: "Run",
-                        duration_min: 45,
-                        intensity: "moderate",
-                        notes: "from screenshot",
-                      },
-                    ],
-                    followup_question: null,
-                  }
-                : null,
+            food: foodDecision,
+            activity: activityDecision,
+            question: intent === "question" ? "How much protein did I have?" : null,
           },
         };
       },
@@ -68,6 +84,7 @@ async function main() {
     clientOverride: imageCall.client,
   });
   assert.equal(imageResult.intent, "activity");
+  assert.equal(typeof imageResult.assistant_message, "string");
   assert.equal(imageCall.calls.length, 1);
   const imagePayload = imageCall.calls[0];
   const imageUserMessage = imagePayload.input.at(-1);
@@ -86,10 +103,21 @@ async function main() {
     clientOverride: textCall.client,
   });
   assert.equal(textResult.intent, "clarify");
+  assert.equal(typeof textResult.assistant_message, "string");
   assert.equal(textCall.calls.length, 1);
   const textUserMessage = textCall.calls[0].input.at(-1);
   assert.equal(typeof textUserMessage.content, "string");
   assert.equal(textUserMessage.content, "worked out");
+
+  const foodCall = makeMockClient({ intent: "food" });
+  const foodResult = await decideIngestAction({
+    message: "I ate oatmeal",
+    hasImage: false,
+    clientOverride: foodCall.client,
+  });
+  assert.equal(foodResult.intent, "food");
+  assert.equal(typeof foodResult.food?.description, "string");
+  assert.equal(foodCall.calls.length, 1);
 
   const missingImageCall = makeMockClient({ intent: "clarify" });
   await decideIngestAction({
@@ -105,6 +133,8 @@ async function main() {
   console.log("Mocked ingest harness passed:");
   console.log("- image inputs are sent as model-readable input_image content");
   console.log("- text-only inputs stay text-only");
+  console.log("- assistant_message is always available");
+  console.log("- unified payload includes food schema when intent is food");
   console.log("- fallback behavior for missing image bytes is stable");
 }
 
@@ -113,3 +143,4 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+

@@ -14,7 +14,6 @@ import {
   streamOnboardingChecklist,
   askSettingsAssistant,
   streamSettingsAssistant,
-  composeMealEntryResponse,
   decideIngestAction,
 } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
@@ -28,16 +27,16 @@ import {
 import { deriveGoalsListsFromGoalsText, normalizeGoalsText, parseGoalsTextToList } from "./goalsText.js";
 import { analyzeImportPayload, applyImportPlan } from "./importData.js";
 import {
-  formatMealEntryAssistantMessage,
   isClearFoodCommand,
   isExistingActivityEntry,
   logFoodFromInputs,
   looksLikeBulkFoodImportText,
+  validateIngestActivityDecision,
+  writeFoodEventFromIngestDecision,
   refreshCurrentWeekSummaryForActivity,
   resolveActivitySelections,
   resolveClearFoodDate,
   summarizeActivityUpdates,
-  summarizeFoodResult,
 } from "./server/ingestHelpers.js";
 import {
   enableSseHeaders,
@@ -3019,6 +3018,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         answer: null,
         date: targetDate,
         log_action: "cleared",
+        week: null,
       };
       if (stream) {
         enableSseHeaders(res);
@@ -3038,6 +3038,9 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         food_result: null,
         activity_updates: null,
         answer: null,
+        date: null,
+        log_action: null,
+        week: null,
       };
       if (stream) {
         enableSseHeaders(res);
@@ -3047,107 +3050,129 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       return res.json(responsePayload);
     }
 
-    const decision = await decideIngestAction({
-      message,
-      hasImage: Boolean(file),
-      imageBuffer: file?.buffer ?? null,
-      imageMimeType: file?.mimetype ?? null,
-      date,
-      messages,
-    });
-    const confidence = typeof decision?.confidence === "number" ? decision.confidence : 0;
-    const intent = decision?.intent ?? "clarify";
-
-    if (confidence < 0.55 && intent !== "clarify") {
-      return res.json({
+    let decision;
+    try {
+      decision = await decideIngestAction({
+        message,
+        hasImage: Boolean(file),
+        imageBuffer: file?.buffer ?? null,
+        imageMimeType: file?.mimetype ?? null,
+        date,
+        messages,
+      });
+    } catch (error) {
+      const fallback = {
         ok: true,
         action: "clarify",
-        assistant_message:
-          decision?.clarifying_question ??
-          "Do you want to log food, log an activity, or ask a question?",
+        assistant_message: "I could not classify that message yet. Do you want to log food, log an activity, or ask a question?",
         followup_question: null,
         food_result: null,
         activity_updates: null,
         answer: null,
-      });
+        date: null,
+        log_action: null,
+        week: null,
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, fallback);
+        return res.end();
+      }
+      return res.json(fallback);
+    }
+
+    const confidence = typeof decision?.confidence === "number" ? decision.confidence : 0;
+    const intent = decision?.intent ?? "clarify";
+    const assistantMessage =
+      typeof decision?.assistant_message === "string" && decision.assistant_message.trim()
+        ? decision.assistant_message.trim()
+        : null;
+    const responseToClarify = {
+      ok: true,
+      action: "clarify",
+      assistant_message:
+        assistantMessage ??
+        decision?.clarifying_question ??
+        "Do you want to log food, log an activity, or ask a question?",
+      followup_question: decision?.clarifying_question ?? null,
+      food_result: null,
+      activity_updates: null,
+      answer: null,
+      date: null,
+      log_action: null,
+      week: null,
+    };
+
+    if (confidence < 0.55 && intent !== "clarify") {
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responseToClarify);
+        return res.end();
+      }
+      return res.json(responseToClarify);
+    }
+
+    if (intent === "clarify") {
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responseToClarify);
+        return res.end();
+      }
+      return res.json(responseToClarify);
     }
 
     if (intent === "question") {
-      const questionText = decision?.question?.trim() || message;
-      if (stream) {
-        enableSseHeaders(res);
-        try {
-          const answer = await streamAssistantResponse({
-            question: questionText,
-            date,
-            messages,
-            onText: (delta) => sendStreamingAssistantChunk(res, delta),
-          });
-          sendStreamingAssistantDone(res, {
-            ok: true,
-            action: "question",
-            assistant_message: answer,
-            followup_question: null,
-            food_result: null,
-            activity_updates: null,
-            answer,
-          });
-        } catch (error) {
-          sendStreamingAssistantError(res, error);
-        } finally {
-          res.end();
-        }
-        return;
-      }
-      const answer = await askAssistant({ question: questionText, date, messages });
-      res.json({
+      const responsePayload = {
         ok: true,
         action: "question",
-        assistant_message: answer,
-        followup_question: null,
+        assistant_message: assistantMessage || decision?.question || message,
+        followup_question: decision?.followup_question || null,
         food_result: null,
         activity_updates: null,
-        answer,
-      });
-      return;
+        answer: decision?.question || message,
+        date: null,
+        log_action: null,
+        week: null,
+      };
+      if (stream) {
+        enableSseHeaders(res);
+        sendStreamingAssistantDone(res, responsePayload);
+        return res.end();
+      }
+      return res.json(responsePayload);
     }
 
     if (intent === "food") {
-      const payload = await logFoodFromInputs({
-        file,
-        descriptionText: message,
-        notes: "",
-        date,
-        eventId,
-        clientRequestId,
-      });
-      let mealResponse = summarizeFoodResult(payload);
-      try {
-        const generated = await composeMealEntryResponse({
-          payload,
-          date: payload?.date ?? date,
-          messages,
-        });
-        const assistantMessage = formatMealEntryAssistantMessage(generated);
-        mealResponse = {
-          assistant_message: assistantMessage || summarizeFoodResult(payload).assistant_message,
-          followup_question: generated?.followup_question ?? null,
-        };
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.warn("Meal response generation failed, using fallback summary.", err);
+      if (!decision?.food || typeof decision.food !== "object") {
+        responseToClarify.assistant_message = "I need a clearer food description to log this.";
+        responseToClarify.followup_question = null;
+        if (stream) {
+          enableSseHeaders(res);
+          sendStreamingAssistantDone(res, responseToClarify);
+          return res.end();
+        }
+        return res.json(responseToClarify);
       }
 
+      const payload = await writeFoodEventFromIngestDecision({
+        decision,
+        file,
+        requestDate: date,
+        requestEventId: eventId,
+        clientRequestId,
+      });
       const responsePayload = {
         ok: true,
         action: "food",
-        assistant_message: mealResponse.assistant_message,
-        followup_question: mealResponse.followup_question,
+        assistant_message:
+          assistantMessage || `Logged ${payload?.estimate?.meal_title || "your entry"} for ${payload?.date || "today"}.`,
+        followup_question: decision?.followup_question || null,
         food_result: payload,
         activity_updates: null,
         answer: null,
-        date: payload?.date ?? null,
-        log_action: payload?.log_action ?? null,
+        date: payload?.date || null,
+        log_action: payload?.log_action || null,
+        week: null,
       };
       if (stream) {
         enableSseHeaders(res);
@@ -3158,24 +3183,41 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
     }
 
     if (intent === "activity") {
-      const currentWeek = await ensureCurrentWeek();
-      const { resolved, errors } = resolveActivitySelections(decision?.activity?.selections, currentWeek);
-      if (!resolved.length || errors.length) {
-        return res.json({
-          ok: true,
-          action: "clarify",
-          assistant_message:
-            decision?.activity?.followup_question ??
-            decision?.clarifying_question ??
-            "Which checklist item should I log this under?",
-          followup_question: null,
-          food_result: null,
-          activity_updates: null,
-          answer: null,
-        });
+      const activitySelectionValidation = validateIngestActivityDecision(decision?.activity);
+      if (!activitySelectionValidation.ok) {
+        responseToClarify.assistant_message =
+          decision?.activity?.followup_question ??
+          decision?.clarifying_question ??
+          "Which checklist item should I log this under?";
+        if (activitySelectionValidation.errors[0]) {
+          responseToClarify.assistant_message = activitySelectionValidation.errors[0];
+        }
+        responseToClarify.followup_question = null;
+        if (stream) {
+          enableSseHeaders(res);
+          sendStreamingAssistantDone(res, responseToClarify);
+          return res.end();
+        }
+        return res.json(responseToClarify);
       }
 
-      const activityDate = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : getSuggestedLogDate();
+      const currentWeek = await ensureCurrentWeek();
+      const { resolved, errors } = resolveActivitySelections(decision.activity.selections, currentWeek);
+      if (!resolved.length || errors.length) {
+        responseToClarify.assistant_message =
+          decision?.activity?.followup_question ??
+          decision?.clarifying_question ??
+          "Which checklist item should I log this under?";
+        responseToClarify.followup_question = null;
+        if (stream) {
+          enableSseHeaders(res);
+          sendStreamingAssistantDone(res, responseToClarify);
+          return res.end();
+        }
+        return res.json(responseToClarify);
+      }
+
+      const activityDate = getSuggestedLogDate();
       const updates = resolved.map((u) => ({
         category: u.category,
         index: u.index,
@@ -3193,12 +3235,14 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         ok: true,
         action: "activity",
         activity_log_state: hasExistingEntries ? "updated" : "saved",
-        assistant_message: summarizeActivityUpdates(resolved),
-        followup_question: decision?.activity?.followup_question ?? null,
+        assistant_message: assistantMessage || summarizeActivityUpdates(resolved),
+        followup_question: decision?.followup_question || null,
         food_result: null,
         activity_updates: resolved,
         week: canonicalWeek,
         answer: null,
+        date: activityDate,
+        log_action: hasExistingEntries ? "updated" : "saved",
       };
       if (stream) {
         enableSseHeaders(res);
@@ -3208,24 +3252,25 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       return res.json(responsePayload);
     }
 
-    const responsePayload = {
-      ok: true,
-      action: "clarify",
-      assistant_message:
-        decision?.clarifying_question ?? "Do you want to log food, log an activity, or ask a question?",
-      followup_question: null,
-      food_result: null,
-      activity_updates: null,
-      answer: null,
-    };
     if (stream) {
       enableSseHeaders(res);
-      sendStreamingAssistantDone(res, responsePayload);
+      sendStreamingAssistantDone(res, responseToClarify);
       return res.end();
     }
-    return res.json(responsePayload);
+    return res.json(responseToClarify);
   } catch (err) {
-    res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    const isInputError =
+      message === "Invalid event id" ||
+      message === "Food description is required for estimation." ||
+      message === "Provide either an image or a meal description." ||
+      message === "Missing nutrients" ||
+      message.startsWith("Invalid date:") ||
+      message.startsWith("Food event not found:") ||
+      message === "Invalid food action payload." ||
+      message === "No activity selections." ||
+      message.startsWith("Could not parse structured");
+    res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 

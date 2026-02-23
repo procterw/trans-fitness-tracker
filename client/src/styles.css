@@ -2051,6 +2051,11 @@ input.fitnessChecklistDate {
   background: transparent;
 }
 
+.fitnessHistoryTable th:first-child,
+.fitnessHistoryTable td:first-child {
+  padding-left: 0;
+}
+
 .fitnessHistoryTable thead th {
   position: sticky;
   top: 0;

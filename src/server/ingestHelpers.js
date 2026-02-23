@@ -9,6 +9,32 @@ import {
 } from "../trackingData.js";
 import { estimateNutritionFromImage, estimateNutritionFromText } from "../visionNutrition.js";
 
+const UUID_LIKE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function normalizeTextValue(value, { fallback = "" } = {}) {
+  if (typeof value !== "string") return fallback;
+  const text = value.trim();
+  return text.length ? text : fallback;
+}
+
+function normalizeDateOrNull(value) {
+  const text = normalizeTextValue(value, { fallback: "" });
+  if (!text) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new Error(`Invalid date: ${text}`);
+  }
+  return text;
+}
+
+function parseIngestEventId(value) {
+  const text = normalizeTextValue(value);
+  if (!text) return null;
+  if (!UUID_LIKE_RE.test(text)) {
+    throw new Error("Invalid event id");
+  }
+  return text;
+}
+
 export async function logFoodFromInputs({ file, descriptionText, notes, date, eventId = null, clientRequestId = null }) {
   const trimmedDescription = typeof descriptionText === "string" ? descriptionText.trim() : "";
   const trimmedNotes = typeof notes === "string" ? notes.trim() : "";
@@ -74,6 +100,93 @@ export async function logFoodFromInputs({ file, descriptionText, notes, date, ev
     day,
     log_action: log_action ?? (normalizedEventId ? "updated" : "created"),
   };
+}
+
+export function validateIngestActivityDecision(activity) {
+  const result = {
+    ok: true,
+    errors: [],
+  };
+  if (!activity || typeof activity !== "object" || Array.isArray(activity)) {
+    result.ok = false;
+    result.errors.push("Missing activity selections.");
+    return result;
+  }
+
+  const selections = Array.isArray(activity?.selections) ? activity.selections : null;
+  if (!selections || !selections.length) {
+    result.ok = false;
+    result.errors.push("No activity selections.");
+    return result;
+  }
+
+  for (const selection of selections) {
+    if (!selection || typeof selection !== "object" || Array.isArray(selection)) {
+      result.ok = false;
+      result.errors.push("Invalid activity selection.");
+      return result;
+    }
+
+    if (typeof selection?.category !== "string" || !selection.category.trim()) {
+      result.ok = false;
+      result.errors.push("Activity selection is missing category.");
+      return result;
+    }
+
+    if (!Number.isInteger(selection?.index) || selection.index < 0) {
+      result.ok = false;
+      result.errors.push(`No valid checklist index for ${selection?.category || "activity"}.`);
+      return result;
+    }
+
+    if (typeof selection?.label !== "string" || !selection.label.trim()) {
+      result.ok = false;
+      result.errors.push("Activity selection is missing label.");
+      return result;
+    }
+  }
+
+  return result;
+}
+
+export async function writeFoodEventFromIngestDecision({
+  decision,
+  file,
+  requestDate = null,
+  requestEventId = null,
+  clientRequestId = null,
+}) {
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+    throw new Error("Invalid food action payload.");
+  }
+
+  if (!decision.food || typeof decision.food !== "object" || Array.isArray(decision.food)) {
+    throw new Error("Invalid food action payload.");
+  }
+
+  const foodDecision = decision.food;
+  const requiresEstimate = foodDecision.requires_estimate === true;
+  const description = normalizeTextValue(foodDecision.description);
+  const estimatedDescription = normalizeTextValue(foodDecision.estimated_description);
+  const descriptionForEstimator = description || estimatedDescription;
+  const notes = normalizeTextValue(foodDecision.notes);
+  const eventId = parseIngestEventId(foodDecision.event_id) || parseIngestEventId(requestEventId);
+  const date = normalizeDateOrNull(foodDecision.date) || normalizeDateOrNull(requestDate) || null;
+
+  if (requiresEstimate && (!descriptionForEstimator || file)) {
+    throw new Error("Food description is required for estimation.");
+  }
+
+  const payload = await logFoodFromInputs({
+    file,
+    descriptionText: descriptionForEstimator || "",
+    notes,
+    date,
+    eventId,
+    clientRequestId,
+  });
+
+  return payload;
 }
 
 function normalizeLabel(value) {

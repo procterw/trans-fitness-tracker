@@ -117,7 +117,13 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "Put any remaining specifics (distance, location, modifiers) into notes.",
   "For vague activity text, still return a selection when a checklist item mapping is possible; otherwise return clarify.",
   "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
+  "Return a final assistant-facing response in assistant_message for direct display.",
+  "For food intent, do not guess nutrients and do not include nutrient numbers in schema payload.",
+  "For food intent, include a short description + notes to support deterministic estimation.",
+  "For food intent, set requires_estimate=true when a text-to-estimate path is needed and false when image/photo path is used.",
+  "For clarify intent, keep intent exactly clarify and provide clarifying_question.",
   "Return only the JSON that matches the provided schema.",
+  "Never emit schema fields outside the declared structure.",
 ];
 
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
@@ -408,20 +414,32 @@ const ActivitySelectionSchema = z.object({
   notes: z.string().nullable(),
 });
 
-const IngestDecisionSchema = z.object({
-  intent: z.enum(["food", "activity", "question", "clarify"]),
-  confidence: z.number().min(0).max(1),
-  question: z.string().nullable(),
-  clarifying_question: z.string().nullable(),
-  activity: z
-    .object({
-      selections: z.array(ActivitySelectionSchema),
-      followup_question: z.string().nullable(),
-    })
-    .nullable(),
+const IngestFoodDecisionSchema = z.object({
+  description: z.string(),
+  notes: z.string(),
+  event_id: z.string().nullable(),
+  date: z.union([z.null(), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be an ISO date string or null")]),
+  requires_estimate: z.boolean(),
+  estimated_description: z.string().nullable().optional(),
 });
 
-const IngestDecisionFormat = zodTextFormat(IngestDecisionSchema, "ingest_decision");
+const IngestActivityDecisionSchema = z.object({
+  selections: z.array(ActivitySelectionSchema),
+  followup_question: z.string().nullable(),
+});
+
+const IngestUnifiedSchema = z.object({
+  intent: z.enum(["food", "activity", "question", "clarify"]),
+  confidence: z.number().min(0).max(1),
+  assistant_message: z.string(),
+  followup_question: z.string().nullable(),
+  clarifying_question: z.string().nullable(),
+  food: IngestFoodDecisionSchema.nullable(),
+  activity: IngestActivityDecisionSchema.nullable(),
+  question: z.string().nullable(),
+});
+
+const IngestDecisionFormat = zodTextFormat(IngestUnifiedSchema, "ingest_decision");
 
 const MealEntryResponseSchema = z.object({
   confirmation: z.string(),
@@ -613,6 +631,11 @@ export async function decideIngestAction({
 
   const selectedDate = isIsoDateString(date) ? date : getSuggestedLogDate();
   const checklistCategories = buildChecklistSnapshot(currentWeek ?? {});
+  const [dayForDate, totalsForDate, recentDays] = await Promise.all([
+    getFoodDayForDate(selectedDate),
+    getDailyTotalsForDate(selectedDate),
+    listFoodDays({ limit: 14 }),
+  ]);
 
   const system = buildSystemInstructions({
     tracking,
@@ -626,6 +649,10 @@ export async function decideIngestAction({
     has_image: hasImage,
     checklist_categories: checklistCategories,
     profiles: pickSettingsProfiles(tracking),
+    week: currentWeek ?? {},
+    day_for_date: dayForDate,
+    day_totals: totalsForDate,
+    recent_days: recentDays,
   };
 
   const safeMessage = cleanUserMessage(message);
@@ -655,7 +682,7 @@ export async function decideIngestAction({
     model,
     input,
     format: IngestDecisionFormat,
-    schema: IngestDecisionSchema,
+    schema: IngestUnifiedSchema,
     errorMessage: "OpenAI response did not include parsed output.",
   });
   return parsed;
