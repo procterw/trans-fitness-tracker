@@ -865,7 +865,7 @@ ul {
   max-width: none;
 }
 
-.settingsChatSplit {
+.settingsEditorSplit {
   flex: 1;
   min-height: 0;
   display: grid;
@@ -884,7 +884,8 @@ ul {
   font-size: 13px;
 }
 
-.settingsChecklistPanel {
+.settingsBlocksPanel,
+.settingsChecklistEditorPanel {
   border-right: 1px solid var(--border);
   background: var(--sidebar);
   padding: 16px 16px 20px;
@@ -892,14 +893,12 @@ ul {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   font-size: 13px;
 }
 
-.settingsChecklistBody {
-  display: grid;
-  min-height: auto;
-  overflow: visible;
+.settingsChecklistEditorPanel {
+  border-right: none;
 }
 
 .settingsBlockSelectField {
@@ -917,122 +916,16 @@ ul {
   font-size: 13px;
 }
 
-.settingsBlockJson {
-  margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--card) 86%, black 14%);
-  color: var(--text);
-  padding: 8px 10px;
-  font-size: 11px;
+.settingsBlockDescription,
+.settingsChecklistDescription {
+  min-height: 84px;
+  resize: vertical;
   line-height: 1.35;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  white-space: pre;
-  overflow: auto;
-  max-height: 280px;
-}
-
-.settingsChecklistGroup {
-  display: grid;
-  gap: 6px;
-}
-
-.settingsChatColumn {
-  position: relative;
-  min-height: 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  width: 100%;
-}
-
-.settingsChatMessages {
-  max-width: 768px;
-  width: 100%;
-  margin: auto;
-}
-
-.settingsChatColumn .chatComposer {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 6;
-  margin: 0;
-  width: 100%;
-  background: var(--chat-bg);
-  transform: none;
-}
-
-.settingsChatColumn .settingsChatMessages {
-  padding-bottom: calc(132px + env(safe-area-inset-bottom));
-}
-
-.settingsChatColumn .composerBar {
-  margin-bottom: 0;
-  border-radius: 0;
-  border: 1px solid var(--composer-border);
-  border-left: none;
-  border-right: none;
-  box-shadow: none;
-  padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
-}
-
-.settingsChatColumn .composerPreviewRow + .composerBar {
-  border-top: none;
 }
 
 .settingsProfilesHeader {
   margin: 0;
   padding-bottom: 10px;
-}
-
-.settingsProfilesMeta {
-  margin: 0;
-  text-transform: none;
-  max-width: 250px;
-  text-align: right;
-}
-
-.settingsSaveStatus {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.settingsSaveStatusSaved {
-  color: var(--text);
-  font-weight: 700;
-}
-
-.settingsSaveCheck {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  line-height: 1;
-  font-weight: 800;
-}
-
-.settingsSaveLabel {
-  font-size: 12px;
-}
-
-.settingsSaveSpinner {
-  width: 12px;
-  height: 12px;
-  border: 2px solid color-mix(in srgb, var(--ok) 42%, transparent);
-  border-top-color: var(--ok);
-  border-radius: 50%;
-  display: inline-block;
-  animation: settingsSpinner 0.8s linear infinite;
-}
-
-@keyframes settingsSpinner {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .settingsProfilesFields {
@@ -1050,13 +943,46 @@ ul {
   min-height: 180px;
   font-size: 13px;
   line-height: 1.35;
-  resize: none;
+  resize: vertical;
   background: var(--card);
   color: var(--text);
 }
 
-.settingsProfilesActions {
-  margin-top: 12px;
+.settingsChecklistEditorRows {
+  display: grid;
+  gap: 10px;
+}
+
+.settingsChecklistEditorRow {
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.settingsChecklistEditorRowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settingsDragHandle {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  font-weight: 800;
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+}
+
+.settingsChecklistOptionalField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
 }
 
 .chatMsg,
@@ -2246,7 +2172,7 @@ input.fitnessChecklistDate {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .settingsChatSplit {
+  .settingsEditorSplit {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2264,7 +2190,8 @@ input.fitnessChecklistDate {
     max-height: 40vh;
   }
 
-  .settingsChecklistPanel {
+  .settingsBlocksPanel,
+  .settingsChecklistEditorPanel {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     border-right: none;

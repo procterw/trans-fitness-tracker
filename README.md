@@ -41,8 +41,7 @@ Destructive dev reset:
 ## Settings API (profiles)
 - `GET /api/settings/state` returns current settings profile text blobs.
 - `POST /api/settings/profiles` directly saves textarea edits for profile text blobs.
-- `POST /api/settings/chat` proposes and applies settings changes directly when possible (no additional UI confirmation required).
-- `POST /api/settings/confirm` applies a previously returned proposal payload for manual confirmation workflows.
+- `POST /api/settings/confirm` applies a structured settings proposal payload (used by the Settings UI block/checklist editor).
 
 ## Supabase (optional, multi-user)
 You can enable Google login + Postgres storage via Supabase. The React login UI is gated by `VITE_SUPABASE_ENABLED` and the API auth requirement is gated by `SUPABASE_AUTH_REQUIRED`.

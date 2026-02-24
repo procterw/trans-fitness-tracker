@@ -12,8 +12,6 @@ import {
   streamAssistantResponse,
   proposeOnboardingChecklist,
   streamOnboardingChecklist,
-  askSettingsAssistant,
-  streamSettingsAssistant,
   decideIngestAction,
 } from "./assistant.js";
 import { createSupabaseAuth } from "./auth/supabaseAuth.js";
@@ -506,6 +504,14 @@ function workoutsToTemplate(workouts) {
     template[key] = byKey.get(key);
   }
   return template;
+}
+
+function emptyWorkoutsTemplate() {
+  return {
+    category_order: ["workouts"],
+    category_labels: { workouts: "Workouts" },
+    workouts: [],
+  };
 }
 
 function checklistCategoriesToTemplate(categories, currentWeek = {}) {
@@ -1204,6 +1210,7 @@ const SETTINGS_CONFIRMATION_FIELD = "confirmation_phrase";
 const TRAINING_BLOCK_OPERATIONS = new Set([
   "update_block",
   "create_block",
+  "delete_block",
   "switch_block",
   "replace_workouts",
   "add_workouts",
@@ -1641,113 +1648,6 @@ function checklistCategoriesToWorkoutDefinitions(categories, currentWeek = null)
   return workouts;
 }
 
-function findMatchingBracket(text, startIndex) {
-  if (typeof text !== "string") return -1;
-  if (text[startIndex] !== "[") return -1;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  for (let index = startIndex; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escape) {
-        escape = false;
-        continue;
-      }
-      if (char === "\\") {
-        escape = true;
-        continue;
-      }
-      if (char === "\"") inString = false;
-      continue;
-    }
-    if (char === "\"") {
-      inString = true;
-      continue;
-    }
-    if (char === "[") {
-      depth += 1;
-      continue;
-    }
-    if (char === "]") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-function extractWorkoutsArrayFromMessage(message) {
-  const text = typeof message === "string" ? message : "";
-  if (!text) return null;
-
-  const workoutsKeyMatch = /["']?workouts["']?\s*:\s*\[/i.exec(text);
-  if (workoutsKeyMatch) {
-    const arrayStart = text.indexOf("[", workoutsKeyMatch.index);
-    if (arrayStart >= 0) {
-      const arrayEnd = findMatchingBracket(text, arrayStart);
-      if (arrayEnd > arrayStart) {
-        const arrayText = text.slice(arrayStart, arrayEnd + 1);
-        try {
-          const parsed = JSON.parse(arrayText);
-          if (Array.isArray(parsed)) return parsed;
-        } catch {
-          // Fall through to other parse attempts.
-        }
-      }
-    }
-  }
-
-  const codeBlockMatch = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  if (codeBlockMatch && typeof codeBlockMatch[1] === "string") {
-    const block = codeBlockMatch[1].trim();
-    if (!block) return null;
-    try {
-      const parsed = JSON.parse(block);
-      if (Array.isArray(parsed)) return parsed;
-      if (isPlainObject(parsed) && Array.isArray(parsed.workouts)) return parsed.workouts;
-    } catch {
-      // Ignore and return null below.
-    }
-  }
-
-  let cursor = 0;
-  while (cursor < text.length) {
-    const arrayStart = text.indexOf("[", cursor);
-    if (arrayStart < 0) break;
-    const arrayEnd = findMatchingBracket(text, arrayStart);
-    if (arrayEnd > arrayStart) {
-      const arrayText = text.slice(arrayStart, arrayEnd + 1);
-      try {
-        const parsed = JSON.parse(arrayText);
-        if (Array.isArray(parsed) && parsed.length) return parsed;
-      } catch {
-        // Keep scanning for a later JSON array candidate.
-      }
-    }
-    cursor = arrayStart + 1;
-  }
-
-  return null;
-}
-
-function shouldApplyImmediateFromMessage(message) {
-  const text = typeof message === "string" ? message.toLowerCase() : "";
-  if (!text) return null;
-  if (/\b(this week|now|immediate|today)\b/.test(text)) return "immediate";
-  if (/\b(next week|starting next week)\b/.test(text)) return "next_week";
-  return null;
-}
-
-function messageImpliesAddWorkouts(message) {
-  const text = typeof message === "string" ? message.toLowerCase() : "";
-  if (!text) return false;
-  const addIntent = /\b(add|append|include|insert|another|additional|plus)\b/.test(text);
-  if (!addIntent) return false;
-  const replaceIntent = /\b(replace|rewrite|reset|overhaul|from scratch|entire list|whole list)\b/.test(text);
-  return !replaceIntent;
-}
-
 function preserveExistingWorkoutsForAddOperation({ existingWorkouts = [], nextWorkouts = [] } = {}) {
   const prior = normalizeTrainingWorkoutsList(existingWorkouts);
   const candidate = normalizeTrainingWorkoutsList(nextWorkouts);
@@ -1923,8 +1823,7 @@ function buildTrainingBlockFromWorkouts({
   blockEnd = null,
 }) {
   const normalizedWorkouts = normalizeTrainingWorkoutsList(workouts);
-  const template = workoutsToTemplate(normalizedWorkouts);
-  if (!template) return null;
+  const template = workoutsToTemplate(normalizedWorkouts) ?? emptyWorkoutsTemplate();
   const built = buildTrainingBlockFromTemplate({
     template,
     blockId,
@@ -2212,7 +2111,35 @@ async function applySettingsChanges({ proposal, selectedBlockId = "", confirmati
     const addWorkouts = normalizeTrainingWorkoutsList(requestedBlockPatch.workouts_add);
     const removeRequests = normalizeSettingsWorkoutRemovals(requestedBlockPatch.workouts_remove);
 
-    if (requestedOperation === "switch_block") {
+    if (requestedOperation === "delete_block") {
+      if (selectedIndex < 0) {
+        return {
+          ...responseBase,
+          followupQuestion: "I need a valid target block to delete. Provide the block id or name.",
+        };
+      }
+      const [deletedBlock] = blocks.splice(selectedIndex, 1);
+      const deletedBlockId = typeof deletedBlock?.id === "string" ? deletedBlock.id : "";
+      const deletedWasActive = deletedBlockId && deletedBlockId === activeBlockId;
+
+      if (!blocks.length) {
+        targetBlockId = null;
+        targetBlockTemplate = null;
+        phaseShiftRequested = deletedWasActive;
+      } else if (deletedWasActive) {
+        const fallbackIndex = Math.min(selectedIndex, blocks.length - 1);
+        const fallbackBlock = blocks[fallbackIndex] ?? blocks[blocks.length - 1];
+        targetBlockId = fallbackBlock?.id || null;
+        targetBlockTemplate = extractTemplateFromStoredBlock(fallbackBlock);
+        phaseShiftRequested = targetBlockId !== activeBlockId;
+      } else {
+        targetBlockId = activeBlockId && blocks.some((block) => block.id === activeBlockId) ? activeBlockId : blocks[blocks.length - 1].id;
+        const targetBlock = blocks.find((block) => block.id === targetBlockId) ?? null;
+        targetBlockTemplate = extractTemplateFromStoredBlock(targetBlock);
+        phaseShiftRequested = targetBlockId !== activeBlockId;
+      }
+      trainingBlockChanged = true;
+    } else if (requestedOperation === "switch_block") {
       if (selectedIndex < 0) {
         return {
           ...responseBase,
@@ -2248,13 +2175,6 @@ async function applySettingsChanges({ proposal, selectedBlockId = "", confirmati
         }
         nextWorkouts = nextWorkouts.filter((_row, index) => !removeIndexes.has(index));
       }
-      if (!nextWorkouts.length) {
-        return {
-          ...responseBase,
-          followupQuestion: "A new block needs at least one workout. Add workouts before creating the block.",
-        };
-      }
-
       const todayIso = getSeattleDateString(new Date());
       const mondayThisWeek = mondayOfWeek(todayIso) || todayIso;
       const defaultStart = addDaysIso(mondayThisWeek, 7) || todayIso;
@@ -2297,12 +2217,6 @@ async function applySettingsChanges({ proposal, selectedBlockId = "", confirmati
       const baseExistingWorkouts = getStoredBlockWorkouts(existing);
       let nextWorkouts = baseExistingWorkouts;
       if (requestedOperation === "replace_workouts") {
-        if (!replaceWorkouts.length) {
-          return {
-            ...responseBase,
-            followupQuestion: "I need at least one workout to replace this block.",
-          };
-        }
         nextWorkouts = hydrateWorkoutsWithExistingDefinitions({
           candidateWorkouts: replaceWorkouts,
           existingWorkouts: nextWorkouts,
@@ -2464,13 +2378,19 @@ async function applySettingsChanges({ proposal, selectedBlockId = "", confirmati
       if (activeTemplate) metadata.checklist_template = activeTemplate;
       else delete metadata.checklist_template;
       domains.push(SETTINGS_TRAINING_BLOCK_FIELD);
-      changesApplied.push(
-        phaseShiftRequested
-          ? requestedTiming === "next_week"
-            ? "Scheduled training block change for next week."
-            : "Switched training block."
-          : "Updated training block.",
-      );
+      if (requestedOperation === "delete_block") {
+        changesApplied.push(
+          phaseShiftRequested ? "Deleted training block and switched active block." : "Deleted training block.",
+        );
+      } else {
+        changesApplied.push(
+          phaseShiftRequested
+            ? requestedTiming === "next_week"
+              ? "Scheduled training block change for next week."
+              : "Switched training block."
+            : "Updated training block.",
+        );
+      }
     }
 
     const shouldApplyImmediateShift = phaseShiftRequested && requestedTiming !== "next_week";
@@ -2754,129 +2674,6 @@ app.post("/api/user/import/confirm", async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-
-app.post("/api/settings/chat", async (req, res) => {
-  try {
-    const stream = isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream);
-    if (stream) enableSseHeaders(res);
-
-    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
-    if (!message) return res.status(400).json({ ok: false, error: "Missing field: message" });
-    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-    const selectedBlockId =
-      typeof req.body?.selected_block_id === "string" && req.body.selected_block_id.trim()
-        ? req.body.selected_block_id.trim()
-        : "";
-    const currentWeek = await ensureCurrentWeek();
-
-    const result = stream
-      ? await streamSettingsAssistant({
-          message,
-          messages,
-          selectedBlockId,
-          onText: (delta) => sendStreamingAssistantChunk(res, delta),
-        })
-      : await askSettingsAssistant({ message, messages, selectedBlockId });
-
-    const changes = normalizeSettingsProposal(result?.changes ?? {}, currentWeek);
-    if (isPlainObject(changes.training_block)) {
-      const currentOperation = normalizeTrainingBlockOperation(changes.training_block.operation);
-      if (currentOperation === "replace_workouts" && messageImpliesAddWorkouts(message)) {
-        const inferredAdditions = normalizeTrainingWorkoutsList(
-          Array.isArray(changes.training_block.workouts_add) && changes.training_block.workouts_add.length
-            ? changes.training_block.workouts_add
-            : changes.training_block.workouts,
-        );
-        if (inferredAdditions.length) {
-          changes.training_block = {
-            ...changes.training_block,
-            operation: "add_workouts",
-            workouts: null,
-            workouts_add: inferredAdditions,
-            checklist_categories: null,
-          };
-        }
-      }
-    }
-    const messageWorkouts = extractWorkoutsArrayFromMessage(message);
-    const hasExplicitStructuredTrainingBlock = isPlainObject(changes.training_block) && (
-      Array.isArray(changes.training_block.workouts) ||
-      Array.isArray(changes.training_block.workouts_add) ||
-      Array.isArray(changes.training_block.workouts_remove) ||
-      Array.isArray(changes.training_block.checklist_categories)
-    );
-    if (Array.isArray(messageWorkouts) && messageWorkouts.length && !hasExplicitStructuredTrainingBlock) {
-      const fromMessage = normalizeSettingsWorkoutsToChecklistCategories(messageWorkouts, currentWeek);
-      if (fromMessage && fromMessage.length) {
-        const existingTrainingBlock = isPlainObject(changes.training_block) ? changes.training_block : {};
-        const inferredTiming = shouldApplyImmediateFromMessage(message);
-        const inferredFromMessageWorkouts = normalizeSettingsWorkoutDefinitions(messageWorkouts, currentWeek);
-        const inferredAdd = messageImpliesAddWorkouts(message);
-        changes.training_block = {
-          ...existingTrainingBlock,
-          operation:
-            normalizeTrainingBlockOperation(existingTrainingBlock.operation) ||
-            (inferredAdd ? "add_workouts" : "replace_workouts"),
-          checklist_categories: inferredAdd ? null : fromMessage,
-          workouts: inferredAdd ? null : inferredFromMessageWorkouts,
-          workouts_add: inferredAdd ? inferredFromMessageWorkouts : existingTrainingBlock.workouts_add ?? null,
-          apply_timing:
-            normalizeTrainingBlockApplyTiming(existingTrainingBlock.apply_timing) ||
-            inferredTiming ||
-            null,
-        };
-      }
-    }
-    const hasProposal = hasPendingSettingsChanges(changes);
-    const applied = hasProposal
-      ? await applySettingsChanges({ proposal: changes, selectedBlockId })
-      : {
-          changesApplied: [],
-          updated: null,
-          week: null,
-          settingsVersion: null,
-          effectiveFrom: null,
-          followupQuestion: null,
-          requiresTimingChoice: false,
-          requiresConfirmation: false,
-          confirmationPhrase: null,
-          proposal: null,
-        };
-    const assistantMessage = typeof result?.assistant_message === "string" ? result.assistant_message.trim() : "";
-    const canonicalWeek = await getCurrentActivityWeek();
-
-    const payload = {
-      ok: true,
-      assistant_message: assistantMessage,
-      followup_question: applied.followupQuestion ?? result.followup_question ?? null,
-      requires_confirmation: applied.requiresConfirmation === true,
-      proposal_id: null,
-      proposal: applied.proposal ?? (applied.requiresTimingChoice ? changes : null),
-      confirmation_phrase: applied.confirmationPhrase ?? null,
-      changes_applied: applied.changesApplied,
-      updated: applied.updated,
-      settings_version: applied.settingsVersion,
-      effective_from: applied.effectiveFrom,
-      week: canonicalWeek,
-    };
-    if (stream) {
-      sendStreamingAssistantDone(res, payload);
-      return res.end();
-    }
-    return res.json(payload);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const isValidationError =
-      message === "Invalid settings proposal payload." ||
-      message.startsWith("Invalid training block configuration:");
-    if (isStreamingRequest(req.body?.stream) || isStreamingRequest(req.query?.stream)) {
-      sendStreamingAssistantError(res, err);
-      if (!res.writableEnded) res.end();
-      return;
-    }
-    res.status(isValidationError ? 400 : 500).json({ ok: false, error: message });
   }
 });
 

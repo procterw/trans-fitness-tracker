@@ -200,38 +200,6 @@ export async function* ingestAssistantStream({
   }
 }
 
-export async function* settingsChatStream({ message = "", messages = [], selectedBlockId = "" }) {
-  const body = { message, messages, stream: true };
-  if (selectedBlockId) body.selected_block_id = selectedBlockId;
-
-  const res = await fetch(
-    "/api/settings/chat",
-    await withAuth({
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json?.error || `Request failed (${res.status})`);
-  }
-
-  for await (const event of parseSsePayloads(res)) {
-    yield event;
-  }
-}
-
-export async function settingsChat({ message = "", messages = [], selectedBlockId = "" }) {
-  const body = { message, messages };
-  if (selectedBlockId) body.selected_block_id = selectedBlockId;
-  return fetchJson("/api/settings/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
 export async function settingsBootstrap({ clientTimezone = "" } = {}) {
   return fetchJson("/api/settings/bootstrap", {
     method: "POST",

@@ -14,7 +14,6 @@ import {
   saveSettingsProfiles,
   settingsBootstrap,
   ingestAssistantStream,
-  settingsChatStream,
   confirmSettingsChanges,
   updateFitnessItem,
   updateFitnessWeekContext,
@@ -33,7 +32,6 @@ import SidebarView from "./views/SidebarView.jsx";
 import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
-import StatusMessage from "./components/StatusMessage.jsx";
 import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
 import useSerialQueue from "./hooks/useSerialQueue.js";
 import { addDaysIso, localDateString } from "./utils/date.js";
@@ -129,84 +127,6 @@ function normalizeFitnessWeek(value) {
   };
 }
 
-function categoryKeyFromLabel(value) {
-  const text = typeof value === "string" ? value : "";
-  const normalized = text
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return normalized || "workouts";
-}
-
-function checklistCategoriesFromFitnessWeek(week) {
-  const safeWeek = asObject(week);
-  const workouts = Array.isArray(safeWeek.workouts) ? safeWeek.workouts : [];
-  const byCategory = new Map();
-
-  for (const workout of workouts) {
-    const safeWorkout = asObject(workout);
-    const label =
-      typeof safeWorkout.category === "string" && safeWorkout.category.trim()
-        ? safeWorkout.category.trim()
-        : "Workouts";
-    const key = categoryKeyFromLabel(label);
-    if (!byCategory.has(key)) {
-      byCategory.set(key, {
-        key,
-        label,
-        items: [],
-      });
-    }
-    byCategory.get(key).items.push({
-      item: typeof safeWorkout.name === "string" ? safeWorkout.name : "",
-      description: typeof safeWorkout.description === "string" ? safeWorkout.description : "",
-      checked: safeWorkout.completed === true,
-      details: typeof safeWorkout.details === "string" ? safeWorkout.details : "",
-    });
-  }
-
-  return Array.from(byCategory.values());
-}
-
-function checklistCategoriesFromTrainingBlock(block) {
-  const safeBlock = asObject(block);
-  const workouts = Array.isArray(safeBlock.workouts) ? safeBlock.workouts : [];
-  const byCategory = new Map();
-
-  const ensureGroup = (key, label) => {
-    if (!byCategory.has(key)) {
-      byCategory.set(key, {
-        key,
-        label,
-        items: [],
-      });
-    }
-    return byCategory.get(key);
-  };
-
-  for (const workout of workouts) {
-    const safeWorkout = asObject(workout);
-    const item = typeof safeWorkout.name === "string" ? safeWorkout.name.trim() : "";
-    if (!item) continue;
-    const label =
-      typeof safeWorkout.category === "string" && safeWorkout.category.trim()
-        ? safeWorkout.category.trim()
-        : "Workouts";
-    const key = categoryKeyFromLabel(label);
-    const group = ensureGroup(key, label);
-    group.items.push({
-      item,
-      description: typeof safeWorkout.description === "string" ? safeWorkout.description : "",
-      checked: false,
-      details: typeof safeWorkout.details === "string" ? safeWorkout.details : "",
-      optional: safeWorkout.optional === true,
-    });
-  }
-
-  return Array.from(byCategory.values());
-}
-
 function normalizeSettingsTrainingBlocks(value) {
   const safe = asObject(value);
   const rawBlocks = Array.isArray(safe.blocks) ? safe.blocks : [];
@@ -257,6 +177,59 @@ function normalizeSettingsTrainingBlocks(value) {
   };
 }
 
+function normalizeChecklistEditorRow(row) {
+  const safe = asObject(row);
+  const name = typeof safe.name === "string" ? safe.name : "";
+  return {
+    id: typeof safe.id === "string" && safe.id ? safe.id : `row_${Math.random().toString(36).slice(2, 10)}`,
+    name,
+    description: typeof safe.description === "string" ? safe.description : "",
+    category:
+      typeof safe.category === "string" && safe.category.trim()
+        ? safe.category.trim()
+        : "Workouts",
+    optional: safe.optional === true,
+  };
+}
+
+function normalizeChecklistEditorRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => normalizeChecklistEditorRow(row));
+}
+
+function workoutsFromChecklistEditorRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const safe = asObject(row);
+    const name = typeof safe.name === "string" ? safe.name.trim() : "";
+    if (!name) continue;
+    const token = name.toLowerCase();
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push({
+      name,
+      description: typeof safe.description === "string" ? safe.description : "",
+      category:
+        typeof safe.category === "string" && safe.category.trim()
+          ? safe.category.trim()
+          : "Workouts",
+      optional: safe.optional === true,
+    });
+  }
+  return out;
+}
+
+function normalizeWorkoutsForCompare(rows) {
+  return workoutsFromChecklistEditorRows(rows).map((row) => ({
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    optional: row.optional === true,
+  }));
+}
+
 export default function App() {
   const [view, setView] = useState("chat");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -271,9 +244,6 @@ export default function App() {
   const composerAttachmentIdRef = useRef(0);
   const previewUrlsRef = useRef(new Set());
   const importFileInputRef = useRef(null);
-  const settingsFormRef = useRef(null);
-  const settingsInputRef = useRef(null);
-  const settingsMessagesRef = useRef(null);
 
   // Chat view state (unified: photo + manual)
   const [foodDate, setFoodDate] = useState("");
@@ -284,15 +254,11 @@ export default function App() {
   const [composerMessages, setComposerMessages] = useState([]);
   const composerMessageIdRef = useRef(0);
   const composerSubmitInFlightRef = useRef(false);
-  const [settingsInput, setSettingsInput] = useState("");
-  const [settingsMessages, setSettingsMessages] = useState([]);
-  const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsProfilesSaving, setSettingsProfilesSaving] = useState(false);
+  const [settingsBlocksSaving, setSettingsBlocksSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
-  const [settingsPendingProposal, setSettingsPendingProposal] = useState(null);
-  const [settingsPendingConfirmationPhrase, setSettingsPendingConfirmationPhrase] = useState("");
-  const settingsMessageIdRef = useRef(0);
   const settingsProfilesSaveSeqRef = useRef(0);
+  const settingsBlocksSaveSeqRef = useRef(0);
   const [settingsBootstrapChecking, setSettingsBootstrapChecking] = useState(false);
   const settingsBootstrapRoutedRef = useRef(false);
   const [sidebarDaySummary, setSidebarDaySummary] = useState(null);
@@ -303,6 +269,12 @@ export default function App() {
   const [settingsProfilesDraft, setSettingsProfilesDraft] = useState(() => normalizeSettingsProfiles({}));
   const [settingsTrainingBlocks, setSettingsTrainingBlocks] = useState(() => normalizeSettingsTrainingBlocks({}));
   const [settingsSelectedBlockId, setSettingsSelectedBlockId] = useState("");
+  const [settingsBlockDraft, setSettingsBlockDraft] = useState(() => ({
+    id: "",
+    name: "",
+    description: "",
+    workouts: [],
+  }));
 
   // Workouts view state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -386,13 +358,6 @@ export default function App() {
     }
   };
 
-  const normalizeForCompare = (text) =>
-    String(text || "")
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .replace(/[?.!]+$/g, "")
-      .trim();
-
   const settingsProfilesDirty = useMemo(
     () => JSON.stringify(settingsProfilesDraft) !== JSON.stringify(settingsProfilesSaved),
     [settingsProfilesDraft, settingsProfilesSaved],
@@ -410,10 +375,11 @@ export default function App() {
   const loadSettingsProfilesState = useCallback(async () => {
     const json = await getSettingsState();
     const normalized = normalizeSettingsProfiles(json?.profiles);
+    const blocks = normalizeSettingsTrainingBlocks(json?.training_blocks);
     setSettingsProfilesSaved(normalized);
     setSettingsProfilesDraft(normalized);
-    setSettingsTrainingBlocks(normalizeSettingsTrainingBlocks(json?.training_blocks));
-    return normalized;
+    setSettingsTrainingBlocks(blocks);
+    return { profiles: normalized, trainingBlocks: blocks };
   }, []);
 
   useEffect(() => {
@@ -426,10 +392,9 @@ export default function App() {
 
     const fallbackId =
       settingsTrainingBlocks.active_block_id ||
-      (typeof fitnessWeek?.block_id === "string" ? fitnessWeek.block_id : "") ||
-      blocks[0].id;
+      blocks[blocks.length - 1].id;
     setSettingsSelectedBlockId(fallbackId);
-  }, [settingsTrainingBlocks, settingsSelectedBlockId, fitnessWeek?.block_id]);
+  }, [settingsTrainingBlocks, settingsSelectedBlockId]);
 
   useEffect(() => {
     if (signedOut) return;
@@ -479,19 +444,6 @@ export default function App() {
     settingsBootstrap({ clientTimezone: getClientTimezone() })
       .then((json) => {
         if (canceled) return;
-        if (json?.seeded_now) {
-          settingsMessageIdRef.current += 1;
-          setSettingsMessages((prev) => [
-            {
-              id: settingsMessageIdRef.current,
-              role: "assistant",
-              content: "Starter settings profile and checklist were added. Tell me what you want to change.",
-              format: "plain",
-              tone: "status",
-            },
-            ...prev,
-          ]);
-        }
         loadSettingsProfilesState().catch(() => {});
         if (!settingsBootstrapRoutedRef.current && json?.default_open_view === "settings") {
           settingsBootstrapRoutedRef.current = true;
@@ -658,12 +610,6 @@ export default function App() {
   }, [composerMessages, composerLoading]);
 
   useEffect(() => {
-    const el = settingsMessagesRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [settingsMessages, settingsLoading]);
-
-  useEffect(() => {
     return () => {
       for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
       previewUrlsRef.current.clear();
@@ -677,21 +623,8 @@ export default function App() {
   }, [composerLoading]);
 
   useEffect(() => {
-    if (view !== "settings") return;
-    if (settingsLoading || settingsProfilesSaving) return;
-    const activeEl = document.activeElement;
-    if (
-      activeEl instanceof HTMLElement &&
-      (activeEl.classList.contains("settingsProfileTextarea") || activeEl.closest(".settingsProfilesPanel"))
-    ) {
-      return;
-    }
-    settingsInputRef.current?.focus();
-  }, [settingsLoading, settingsProfilesSaving, view]);
-
-  useEffect(() => {
     if (signedOut) return;
-    if (settingsLoading || settingsProfilesSaving || !settingsProfilesDirty) return;
+    if (settingsProfilesSaving || !settingsProfilesDirty) return;
 
     const profileSnapshot = normalizeSettingsProfiles(settingsProfilesDraft);
     const timeoutId = setTimeout(async () => {
@@ -720,7 +653,7 @@ export default function App() {
     }, 1500);
 
     return () => clearTimeout(timeoutId);
-  }, [settingsProfilesDraft, settingsProfilesDirty, settingsLoading, settingsProfilesSaving, signedOut]);
+  }, [settingsProfilesDraft, settingsProfilesDirty, settingsProfilesSaving, signedOut]);
 
   const onSignIn = async () => {
     setAuthActionLoading(true);
@@ -1134,199 +1067,18 @@ export default function App() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
-  const sendSettingsMessage = async (rawMessage) => {
-    if (settingsLoading || settingsProfilesSaving) return;
-    setSettingsError("");
-
-    const messageText = typeof rawMessage === "string" ? rawMessage.trim() : "";
-    if (!messageText) {
-      setSettingsError("Type a settings request.");
-      return;
-    }
-    const isConfirmationReply =
-      typeof settingsPendingConfirmationPhrase === "string" &&
-      settingsPendingConfirmationPhrase.length > 0 &&
-      messageText === settingsPendingConfirmationPhrase &&
-      settingsPendingProposal &&
-      typeof settingsPendingProposal === "object";
-
-    setSettingsLoading(true);
-    const previous = settingsMessages;
-
-    settingsMessageIdRef.current += 1;
-    const userMessage = {
-      id: settingsMessageIdRef.current,
-      role: "user",
-      content: messageText,
-      format: "plain",
-    };
-    setSettingsMessages((prev) => [...prev, userMessage]);
-    if (messageText === settingsInput.trim()) {
-      setSettingsInput("");
-    }
-
-    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
-      const assistantMessages = [];
-
-      const assistantText = typeof json?.assistant_message === "string" ? json.assistant_message.trim() : "";
-      const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
-      const isDuplicateFollowup =
-        Boolean(assistantText && followupText) &&
-        normalizeForCompare(assistantText) === normalizeForCompare(followupText);
-
-      if (assistantText) {
-        if (streamingAssistantMessageId) {
-          setSettingsMessages((prev) =>
-            prev.map((message) =>
-              message.id === streamingAssistantMessageId
-                ? {
-                    ...message,
-                    content: assistantText,
-                    format: "markdown",
-                  }
-                : message,
-            ),
-          );
-        } else {
-          settingsMessageIdRef.current += 1;
-          assistantMessages.push({
-            id: settingsMessageIdRef.current,
-            role: "assistant",
-            content: assistantText,
-            format: "markdown",
-          });
-        }
-      }
-
-      if (followupText && !isDuplicateFollowup) {
-        settingsMessageIdRef.current += 1;
-        assistantMessages.push({
-          id: settingsMessageIdRef.current,
-          role: "assistant",
-          content: followupText,
-          format: "plain",
-        });
-      }
-
-      const requiresConfirmation = json?.requires_confirmation === true;
-      const confirmationPhrase =
-        typeof json?.confirmation_phrase === "string" ? json.confirmation_phrase.trim() : "";
-      if (requiresConfirmation && json?.proposal && confirmationPhrase) {
-        setSettingsPendingProposal(json.proposal);
-        setSettingsPendingConfirmationPhrase(confirmationPhrase);
-        if (!followupText) {
-          settingsMessageIdRef.current += 1;
-          assistantMessages.push({
-            id: settingsMessageIdRef.current,
-            role: "assistant",
-            content: `Reply with ${confirmationPhrase} to confirm.`,
-            format: "plain",
-          });
-        }
-      } else if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
-        setSettingsPendingProposal(null);
-        setSettingsPendingConfirmationPhrase("");
-      }
-
-      if (Array.isArray(json?.changes_applied) && json.changes_applied.length) {
-        settingsMessageIdRef.current += 1;
-        const versionLabel =
-          typeof json?.settings_version === "number" ? ` (settings v${json.settings_version})` : "";
-        const effectiveLabel =
-          typeof json?.effective_from === "string" && json.effective_from
-            ? ` Effective: ${json.effective_from}.`
-            : "";
-        assistantMessages.push({
-          id: settingsMessageIdRef.current,
-          role: "assistant",
-          content: `✓ ${json.changes_applied.join(" ")}${versionLabel}.${effectiveLabel}`,
-          format: "plain",
-          tone: "status",
-        });
-      }
-
-      if (assistantMessages.length) {
-        setSettingsMessages((prev) => [...prev, ...assistantMessages]);
-      }
-    };
-
-    try {
-      let streamingMessageId = null;
-      let responsePayload = null;
-      if (isConfirmationReply) {
-        responsePayload = await confirmSettingsChanges({
-          proposal: settingsPendingProposal,
-          confirmationPhrase: messageText,
-          selectedBlockId: settingsSelectedBlockId || "",
-        });
-      } else {
-        let streamedText = "";
-        const streamIterator = settingsChatStream({
-          message: messageText,
-          messages: previous,
-          selectedBlockId: settingsSelectedBlockId || "",
-        });
-
-        for await (const event of streamIterator) {
-          if (event?.type === "error") {
-            throw new Error(event.error || "Streaming request failed.");
-          }
-          if (event?.type === "chunk") {
-            const delta = typeof event.delta === "string" ? event.delta : "";
-            if (!delta) continue;
-            streamedText += delta;
-            if (!streamingMessageId) {
-              settingsMessageIdRef.current += 1;
-              streamingMessageId = settingsMessageIdRef.current;
-              setSettingsMessages((prev) => [
-                ...prev,
-                {
-                  id: streamingMessageId,
-                  role: "assistant",
-                  content: "",
-                  format: "markdown",
-                },
-              ]);
-            }
-            const nextContent = streamedText;
-            setSettingsMessages((prev) =>
-              prev.map((message) =>
-                message.id === streamingMessageId ? { ...message, content: nextContent } : message,
-              ),
-            );
-          }
-          if (event?.type === "done") {
-            responsePayload = event.payload ?? null;
-          }
-        }
-      }
-
-      if (!responsePayload) throw new Error("Streaming response did not complete.");
-
-      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
-      if (responsePayload?.week) {
-        setFitnessWeek(normalizeFitnessWeek(responsePayload.week));
-      }
-      const updatedProfiles = normalizeSettingsProfiles(responsePayload?.updated);
-      if (responsePayload?.updated) {
-        setSettingsProfilesSaved(updatedProfiles);
-        setSettingsProfilesDraft(updatedProfiles);
-      }
-
-      if (responsePayload?.changes_applied?.length) {
-        await loadSettingsProfilesState();
-      }
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSettingsLoading(false);
-    }
-  };
-
-  const onSubmitSettings = async (e) => {
-    e.preventDefault();
-    await sendSettingsMessage(settingsInput);
-  };
+  const applySettingsProposal = useCallback(
+    async ({ proposal, selectedBlockId = "" }) => {
+      const response = await confirmSettingsChanges({
+        proposal,
+        selectedBlockId: selectedBlockId || settingsSelectedBlockId || "",
+      });
+      if (response?.week) setFitnessWeek(normalizeFitnessWeek(response.week));
+      await loadSettingsProfilesState();
+      return response;
+    },
+    [settingsSelectedBlockId, loadSettingsProfilesState],
+  );
 
   const onSettingsProfileChange = (field, value) => {
     if (!["general", "fitness", "diet", "agent"].includes(field)) return;
@@ -1451,118 +1203,320 @@ export default function App() {
   const dashDay = dashPayload?.day ?? null;
   const dashDayTotals = dashPayload?.day_totals ?? null;
   const settingsBlockOptions = useMemo(() => {
-    const blocks = Array.isArray(settingsTrainingBlocks.blocks) ? [...settingsTrainingBlocks.blocks] : [];
-    const knownBlockIds = new Set(blocks.map((row) => row.id));
-    const weeksForBlocks = [fitnessWeek, ...(Array.isArray(fitnessHistory) ? fitnessHistory : [])].filter(Boolean);
-    for (const week of weeksForBlocks) {
-      const id = typeof week?.block_id === "string" ? week.block_id.trim() : "";
-      if (!id || knownBlockIds.has(id)) continue;
-      knownBlockIds.add(id);
-      blocks.push({
-        id,
-        name: typeof week?.block_name === "string" ? week.block_name : "",
-        description: typeof week?.block_details === "string" ? week.block_details : "",
-        category_order: [],
-        category_labels: {},
-        workouts: [],
-        block_start: typeof week?.block_start === "string" ? week.block_start : "",
-        block_end: typeof week?.block_end === "string" ? week.block_end : "",
-        updated_at: "",
-      });
-    }
-    const currentBlockId = typeof fitnessWeek?.block_id === "string" ? fitnessWeek.block_id : "";
-    if (currentBlockId && !blocks.some((row) => row.id === currentBlockId)) {
-      blocks.push({
-        id: currentBlockId,
-        name: typeof fitnessWeek?.block_name === "string" ? fitnessWeek.block_name : "Current block",
-        description: typeof fitnessWeek?.block_details === "string" ? fitnessWeek.block_details : "",
-        category_order: [],
-        category_labels: {},
-        workouts: [],
-        block_start: typeof fitnessWeek?.block_start === "string" ? fitnessWeek.block_start : "",
-        block_end: typeof fitnessWeek?.block_end === "string" ? fitnessWeek.block_end : "",
-        updated_at: "",
-      });
-    }
-    const activeId = settingsTrainingBlocks.active_block_id || fitnessWeek?.block_id || "";
-    const activeIndex = blocks.findIndex((row) => row.id === activeId);
-    const today = localDateString(new Date());
-
-    const blockRanges = new Map();
-    const allWeeks = [fitnessWeek, ...(Array.isArray(fitnessHistory) ? fitnessHistory : [])].filter(Boolean);
-    for (const week of allWeeks) {
-      const id = typeof week?.block_id === "string" ? week.block_id : "";
-      if (!id) continue;
-      const start = typeof week?.block_start === "string" ? week.block_start : "";
-      const end = typeof week?.block_end === "string" ? week.block_end : "";
-      if (!blockRanges.has(id)) {
-        blockRanges.set(id, { start: "", end: "" });
-      }
-      const range = blockRanges.get(id);
-      if (start && (!range.start || start < range.start)) range.start = start;
-      if (end && (!range.end || end > range.end)) range.end = end;
-    }
-
-    return blocks.map((row, index) => {
-      const rangeFromBlock = {
-        start: typeof row.block_start === "string" ? row.block_start : "",
-        end: typeof row.block_end === "string" ? row.block_end : "",
-      };
-      const rangeFromWeeks = blockRanges.get(row.id) || { start: "", end: "" };
-      const range = {
-        start: rangeFromBlock.start || rangeFromWeeks.start,
-        end: rangeFromBlock.end || rangeFromWeeks.end,
-      };
-      const hasRange = Boolean(range?.start || range?.end);
-      let phase = "Block";
-      if (hasRange) {
-        if (range.end && range.end < today) phase = "Past";
-        else if (range.start && range.start > today) phase = "Future";
-        else phase = "Current";
-      } else if (activeIndex >= 0) {
-        phase = index < activeIndex ? "Past" : index > activeIndex ? "Future" : "Current";
-      }
-      const title = row.name || "Untitled block";
-      return {
-        id: row.id,
-        label: `${title} (${phase})`,
-        name: title,
-        description: row.description,
-        workouts: row.workouts,
-        category_order: row.category_order || [],
-        category_labels: row.category_labels || {},
-        block_start: row.block_start,
-        block_end: row.block_end,
-        updated_at: row.updated_at,
-      };
-    });
-  }, [settingsTrainingBlocks, fitnessWeek, fitnessHistory]);
+    const blocks = Array.isArray(settingsTrainingBlocks.blocks) ? settingsTrainingBlocks.blocks : [];
+    return [...blocks].reverse().map((row) => ({
+      id: row.id,
+      label: row.name || "Untitled block",
+      name: row.name || "",
+      description: row.description || "",
+      workouts: Array.isArray(row.workouts) ? row.workouts : [],
+      block_start: row.block_start || "",
+      block_end: row.block_end || "",
+    }));
+  }, [settingsTrainingBlocks]);
 
   const selectedBlockOption =
     settingsBlockOptions.find((row) => row.id === settingsSelectedBlockId) ||
-    settingsBlockOptions.find((row) => row.id === (settingsTrainingBlocks.active_block_id || fitnessWeek?.block_id || "")) ||
+    settingsBlockOptions.find((row) => row.id === (settingsTrainingBlocks.active_block_id || "")) ||
     null;
-  const selectedBlockWorkouts = Array.isArray(selectedBlockOption?.workouts) ? selectedBlockOption.workouts : [];
-  const settingsChecklistCategories = checklistCategoriesFromTrainingBlock({
-    ...selectedBlockOption,
-    workouts: selectedBlockWorkouts,
-  });
-  const settingsChecklistWeekLabel = "";
-  const settingsChecklistPhaseName =
-    selectedBlockOption?.name || fitnessWeek?.block_name || "";
-  const settingsChecklistPhaseDescription = selectedBlockOption?.description || fitnessWeek?.block_details || "";
-  const settingsSelectedBlockData = selectedBlockOption
-    ? {
-        ...selectedBlockOption,
-        workouts: selectedBlockWorkouts,
-        block_id: selectedBlockOption?.id || "",
-        week_start: "",
-        week_end: "",
-        ai_summary: "",
-        context: "",
-        week_label: "",
+  const persistedSelectedWorkouts = Array.isArray(selectedBlockOption?.workouts) ? selectedBlockOption.workouts : [];
+  const persistedSelectedWorkoutsComparable = useMemo(
+    () => normalizeWorkoutsForCompare(persistedSelectedWorkouts),
+    [persistedSelectedWorkouts],
+  );
+  const draftWorkoutsComparable = useMemo(
+    () => normalizeWorkoutsForCompare(settingsBlockDraft.workouts),
+    [settingsBlockDraft.workouts],
+  );
+  const settingsBlockDraftDirty =
+    settingsBlockDraft.id === (selectedBlockOption?.id || "") &&
+    (
+      settingsBlockDraft.name !== (selectedBlockOption?.name || "") ||
+      settingsBlockDraft.description !== (selectedBlockOption?.description || "") ||
+      JSON.stringify(draftWorkoutsComparable) !== JSON.stringify(persistedSelectedWorkoutsComparable)
+    );
+
+  useEffect(() => {
+    const nextId = selectedBlockOption?.id || "";
+    const nextName = selectedBlockOption?.name || "";
+    const nextDescription = selectedBlockOption?.description || "";
+    const nextRows = normalizeChecklistEditorRows(selectedBlockOption?.workouts || []);
+
+    setSettingsBlockDraft((prev) => {
+      const sameId = prev.id === nextId;
+      const sameName = prev.name === nextName;
+      const sameDescription = prev.description === nextDescription;
+      const sameWorkouts =
+        JSON.stringify(normalizeWorkoutsForCompare(prev.workouts)) ===
+        JSON.stringify(normalizeWorkoutsForCompare(nextRows));
+      if (sameId && sameName && sameDescription && sameWorkouts) return prev;
+      return {
+        id: nextId,
+        name: nextName,
+        description: nextDescription,
+        workouts: nextRows,
+      };
+    });
+  }, [selectedBlockOption]);
+
+  useEffect(() => {
+    if (signedOut) return;
+    if (!settingsBlockDraftDirty) return;
+    if (!settingsSelectedBlockId || settingsProfilesSaving) return;
+
+    const snapshot = {
+      id: settingsBlockDraft.id || settingsSelectedBlockId,
+      name: settingsBlockDraft.name,
+      description: settingsBlockDraft.description,
+      workouts: normalizeChecklistEditorRows(settingsBlockDraft.workouts),
+    };
+
+    const timeoutId = setTimeout(async () => {
+      const saveSeq = ++settingsBlocksSaveSeqRef.current;
+      setSettingsBlocksSaving(true);
+      try {
+        setSettingsError("");
+        await applySettingsProposal({
+          proposal: {
+            training_block: {
+              operation: "replace_workouts",
+              id: snapshot.id,
+              name: snapshot.name,
+              description: snapshot.description,
+              workouts: workoutsFromChecklistEditorRows(snapshot.workouts),
+              apply_timing: "immediate",
+            },
+          },
+          selectedBlockId: settingsSelectedBlockId,
+        });
+      } catch (err) {
+        if (saveSeq === settingsBlocksSaveSeqRef.current) {
+          setSettingsError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (saveSeq === settingsBlocksSaveSeqRef.current) {
+          setSettingsBlocksSaving(false);
+        }
       }
-    : null;
+    }, 700);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    settingsBlockDraft,
+    settingsBlockDraftDirty,
+    settingsSelectedBlockId,
+    settingsProfilesSaving,
+    signedOut,
+    applySettingsProposal,
+  ]);
+
+  const createDraftChecklistRow = () => ({
+    id: `row_${Math.random().toString(36).slice(2, 10)}`,
+    name: "",
+    description: "",
+    category: "Workouts",
+    optional: false,
+  });
+
+  const onAddBlock = async () => {
+    if (settingsBlocksSaving) return;
+    const newBlockId =
+      typeof window !== "undefined" && window.crypto?.randomUUID
+        ? window.crypto.randomUUID()
+        : `block_${Date.now()}`;
+    try {
+      setSettingsBlocksSaving(true);
+      setSettingsError("");
+      await applySettingsProposal({
+        proposal: {
+          training_block: {
+            operation: "create_block",
+            id: newBlockId,
+            name: "New block",
+            description: "",
+            workouts: [
+              {
+                name: "New checklist item",
+                description: "",
+                category: "Workouts",
+                optional: false,
+              },
+            ],
+            apply_timing: "immediate",
+          },
+        },
+        selectedBlockId: settingsSelectedBlockId,
+      });
+      setSettingsSelectedBlockId(newBlockId);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBlocksSaving(false);
+    }
+  };
+
+  const onDeleteBlock = async () => {
+    if (!settingsSelectedBlockId || settingsBlocksSaving) return;
+    if (!window.confirm("Delete this block?")) return;
+    try {
+      setSettingsBlocksSaving(true);
+      setSettingsError("");
+      await applySettingsProposal({
+        proposal: {
+          training_block: {
+            operation: "delete_block",
+            id: settingsSelectedBlockId,
+            apply_timing: "immediate",
+          },
+        },
+        selectedBlockId: settingsSelectedBlockId,
+      });
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBlocksSaving(false);
+    }
+  };
+
+  const onImportBlock = async () => {
+    if (settingsBlocksSaving) return;
+    const raw = window.prompt("Paste block JSON");
+    if (raw === null) return;
+    const text = raw.trim();
+    if (!text) {
+      setSettingsError("Paste a JSON object for a block.");
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setSettingsError("Invalid JSON.");
+      return;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setSettingsError("Imported value must be a JSON object.");
+      return;
+    }
+
+    const importedName =
+      typeof parsed.name === "string"
+        ? parsed.name
+        : typeof parsed.block_name === "string"
+          ? parsed.block_name
+          : settingsBlockDraft.name;
+    const importedDescription =
+      typeof parsed.description === "string"
+        ? parsed.description
+        : typeof parsed.block_details === "string"
+          ? parsed.block_details
+          : settingsBlockDraft.description;
+    const importedRows = normalizeChecklistEditorRows(
+      Array.isArray(parsed.workouts) ? parsed.workouts : Array.isArray(parsed.rows) ? parsed.rows : [],
+    );
+    const importedWorkouts = workoutsFromChecklistEditorRows(importedRows);
+
+    const targetBlockId = settingsSelectedBlockId ||
+      (typeof parsed.id === "string" && parsed.id.trim()
+        ? parsed.id.trim()
+        : typeof window !== "undefined" && window.crypto?.randomUUID
+          ? window.crypto.randomUUID()
+          : `block_${Date.now()}`);
+    const operation = settingsSelectedBlockId ? "replace_workouts" : "create_block";
+    const operationWorkouts =
+      operation === "create_block" && !importedWorkouts.length
+        ? [
+            {
+              name: "New checklist item",
+              description: "",
+              category: "Workouts",
+              optional: false,
+            },
+          ]
+        : importedWorkouts;
+
+    try {
+      setSettingsBlocksSaving(true);
+      setSettingsError("");
+      await applySettingsProposal({
+        proposal: {
+          training_block: {
+            operation,
+            id: targetBlockId,
+            name: importedName,
+            description: importedDescription,
+            workouts: operationWorkouts,
+            apply_timing: "immediate",
+          },
+        },
+        selectedBlockId: settingsSelectedBlockId,
+      });
+      setSettingsSelectedBlockId(targetBlockId);
+      setSettingsBlockDraft({
+        id: targetBlockId,
+        name: importedName || "",
+        description: importedDescription || "",
+        workouts: normalizeChecklistEditorRows(
+          operation === "create_block" && !importedRows.length
+            ? [{ name: "New checklist item", description: "", category: "Workouts", optional: false }]
+            : importedRows,
+        ),
+      });
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsBlocksSaving(false);
+    }
+  };
+
+  const onAddChecklistRow = () => {
+    setSettingsBlockDraft((prev) => ({
+      ...prev,
+      workouts: [...normalizeChecklistEditorRows(prev.workouts), createDraftChecklistRow()],
+    }));
+  };
+
+  const onChecklistRowChange = (index, field, value) => {
+    setSettingsBlockDraft((prev) => {
+      const rows = normalizeChecklistEditorRows(prev.workouts);
+      if (!rows[index]) return prev;
+      rows[index] = {
+        ...rows[index],
+        [field]: field === "optional" ? value === true : String(value ?? ""),
+      };
+      return {
+        ...prev,
+        workouts: rows,
+      };
+    });
+  };
+
+  const onDeleteChecklistRow = (index) => {
+    setSettingsBlockDraft((prev) => {
+      const rows = normalizeChecklistEditorRows(prev.workouts);
+      if (!rows[index]) return prev;
+      rows.splice(index, 1);
+      return {
+        ...prev,
+        workouts: rows,
+      };
+    });
+  };
+
+  const onReorderChecklistRows = (sourceIndex, targetIndex) => {
+    if (sourceIndex === targetIndex) return;
+    setSettingsBlockDraft((prev) => {
+      const rows = normalizeChecklistEditorRows(prev.workouts);
+      if (!rows[sourceIndex] || !rows[targetIndex]) return prev;
+      const [moved] = rows.splice(sourceIndex, 1);
+      rows.splice(targetIndex, 0, moved);
+      return {
+        ...prev,
+        workouts: rows,
+      };
+    });
+  };
 
   const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
   const sidebarDayLineNames = sidebarDayDetailLines
@@ -1647,28 +1601,29 @@ export default function App() {
 
         {view === "settings" ? (
           <SettingsView
-            settingsMessagesRef={settingsMessagesRef}
-            settingsFormRef={settingsFormRef}
-            settingsInputRef={settingsInputRef}
-            settingsMessages={settingsMessages}
-            settingsInput={settingsInput}
-            settingsLoading={settingsLoading}
-            settingsProfilesSaving={settingsProfilesSaving}
             settingsError={settingsError}
+            settingsBlocksSaving={settingsBlocksSaving}
             settingsProfiles={settingsProfilesDraft}
-            settingsProfilesDirty={settingsProfilesDirty}
-            onSubmitSettings={onSubmitSettings}
-            onSettingsInputChange={setSettingsInput}
-            onSettingsInputAutoSize={autosizeComposerTextarea}
             onSettingsProfileChange={onSettingsProfileChange}
-            checklistCategories={settingsChecklistCategories}
-            checklistWeekLabel={settingsChecklistWeekLabel}
-            checklistPhaseName={settingsChecklistPhaseName}
-            checklistPhaseDescription={settingsChecklistPhaseDescription}
             blockOptions={settingsBlockOptions}
-            selectedBlockJson={settingsSelectedBlockData}
             selectedBlockId={selectedBlockOption?.id || ""}
             onSelectBlock={setSettingsSelectedBlockId}
+            onAddBlock={onAddBlock}
+            currentBlockName={settingsBlockDraft.name}
+            currentBlockDescription={settingsBlockDraft.description}
+            onBlockNameChange={(value) =>
+              setSettingsBlockDraft((prev) => ({ ...prev, name: typeof value === "string" ? value : "" }))
+            }
+            onBlockDescriptionChange={(value) =>
+              setSettingsBlockDraft((prev) => ({ ...prev, description: typeof value === "string" ? value : "" }))
+            }
+            onDeleteBlock={onDeleteBlock}
+            onImportBlock={onImportBlock}
+            checklistRows={settingsBlockDraft.workouts}
+            onAddChecklistRow={onAddChecklistRow}
+            onChecklistRowChange={onChecklistRowChange}
+            onDeleteChecklistRow={onDeleteChecklistRow}
+            onReorderChecklistRows={onReorderChecklistRows}
           />
         ) : (
           <div className="mainContentRow">

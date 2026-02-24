@@ -1,99 +1,39 @@
-import React from "react";
+import React, { useRef } from "react";
 
-import MessageThread from "../components/MessageThread.jsx";
 import StatusMessage from "../components/StatusMessage.jsx";
 
 export default function SettingsView({
-  settingsMessagesRef,
-  settingsFormRef,
-  settingsInputRef,
-  settingsMessages,
-  settingsInput,
-  settingsLoading,
   settingsError,
+  settingsBlocksSaving = false,
   settingsProfiles,
-  settingsProfilesDirty,
-  settingsProfilesSaving,
-  onSubmitSettings,
-  onSettingsInputChange,
-  onSettingsInputAutoSize,
   onSettingsProfileChange,
-  checklistCategories = [],
-  checklistWeekLabel = "",
-  checklistPhaseName = "",
-  checklistPhaseDescription = "",
   blockOptions = [],
-  selectedBlockJson = null,
   selectedBlockId = "",
   onSelectBlock = () => {},
+  onAddBlock = () => {},
+  currentBlockName = "",
+  currentBlockDescription = "",
+  onBlockNameChange = () => {},
+  onBlockDescriptionChange = () => {},
+  onDeleteBlock = () => {},
+  onImportBlock = () => {},
+  checklistRows = [],
+  onAddChecklistRow = () => {},
+  onChecklistRowChange = () => {},
+  onDeleteChecklistRow = () => {},
+  onReorderChecklistRows = () => {},
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
-  const groupedChecklistCategories = (() => {
-    const rows = Array.isArray(checklistCategories) ? checklistCategories : [];
-    const byKey = new Map();
+  const dragIndexRef = useRef(null);
 
-    const ensureGroup = (key, label) => {
-      if (!byKey.has(key)) {
-        byKey.set(key, { key, label, items: [] });
-      }
-      return byKey.get(key);
-    };
-
-    let receivedGrouped = false;
-    for (const row of rows) {
-      const hasItems = Array.isArray(row?.items);
-      if (hasItems) {
-        receivedGrouped = true;
-        const key = typeof row?.key === "string" && row.key.trim() ? row.key.trim() : "workouts";
-        const label = typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "Workouts";
-        const group = ensureGroup(key, label);
-        const items = row.items;
-        for (const item of items) {
-          const itemLabel = typeof item?.item === "string" ? item.item : "";
-          if (!itemLabel) continue;
-          group.items.push({
-            item: itemLabel,
-            description: typeof item?.description === "string" ? item.description : "",
-            checked: item?.checked === true,
-            category: typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "",
-          });
-        }
-      } else if (row && typeof row === "object") {
-        const itemLabel = typeof row?.item === "string" ? row.item : "";
-        if (!itemLabel) continue;
-        const categoryLabel =
-          typeof row?.category === "string" && row.category.trim() ? row.category.trim() : "Workouts";
-        const key = categoryLabel.toLowerCase().trim();
-        const group = ensureGroup(key, categoryLabel);
-        group.items.push({
-          item: itemLabel,
-          description: typeof row?.description === "string" ? row.description : "",
-          checked: row?.checked === true,
-          category: categoryLabel,
-        });
-      }
-    }
-
-    if (!rows.length) return [];
-    if (!receivedGrouped) {
-      return Array.from(byKey.values());
-    }
-
-    const grouped = rows
-      .map((row) => {
-        const key = typeof row?.key === "string" && row.key.trim() ? row.key.trim() : "workouts";
-        const label = typeof row?.label === "string" && row.label.trim() ? row.label.trim() : "Category";
-        const items = Array.isArray(row?.items) ? row.items : [];
-        return { key, label, items };
-      })
-      .filter((row) => row.items.length);
-    return grouped.length ? grouped : Array.from(byKey.values());
-  })();
+  const hasBlocks = Array.isArray(blockOptions) && blockOptions.length > 0;
+  const selectedExists = hasBlocks && blockOptions.some((block) => block?.id === selectedBlockId);
+  const selectValue = selectedExists ? selectedBlockId : hasBlocks ? blockOptions[0].id : "";
 
   return (
     <section className="chatPanel">
       <div className="chatBox chatBoxFull">
-        <div className="settingsChatSplit">
+        <div className="settingsEditorSplit">
           <aside className="settingsProfilesPanel" aria-label="Settings profiles">
             <div className="settingsProfilesHeader sidebarSectionHeader">
               <h2 className="sidebarHeading">Settings profiles</h2>
@@ -142,20 +82,21 @@ export default function SettingsView({
             </div>
           </aside>
 
-          <aside className="settingsChecklistPanel" aria-label="Blocks">
+          <aside className="settingsBlocksPanel" aria-label="Blocks editor">
             <div className="sidebarSectionHeader">
               <h2 className="sidebarHeading">Blocks</h2>
-              {checklistWeekLabel ? <span className="sidebarDate">{checklistWeekLabel}</span> : null}
             </div>
+
             <label className="settingsBlockSelectField" htmlFor="settings_block_select">
-              <span className="sidebarSectionLabel">Current block</span>
+              <span className="sidebarSectionLabel">Block list</span>
               <select
                 id="settings_block_select"
                 className="settingsBlockSelect"
-                value={selectedBlockId}
+                value={selectValue}
                 onChange={(e) => onSelectBlock(e.target.value)}
+                disabled={settingsBlocksSaving}
               >
-                {Array.isArray(blockOptions) && blockOptions.length ? (
+                {hasBlocks ? (
                   blockOptions.map((block) => (
                     <option key={block.id || block.label} value={block.id || ""}>
                       {typeof block?.label === "string" && block.label ? block.label : "Block"}
@@ -166,117 +107,149 @@ export default function SettingsView({
                 )}
               </select>
             </label>
-            {checklistPhaseName ? (
-              <div className="muted" style={{ marginBottom: 8 }}>
-                <strong>{checklistPhaseName}</strong>
-                {checklistPhaseDescription ? ` — ${checklistPhaseDescription}` : ""}
-              </div>
-            ) : null}
-            <div className="settingsChecklistBody">
-              {Array.isArray(groupedChecklistCategories) && groupedChecklistCategories.length ? (
-                <div className="sidebarChecklist">
-                  {groupedChecklistCategories.map((category) => {
-                    const key = typeof category?.key === "string" ? category.key : "";
-                    const label = typeof category?.label === "string" && category.label.trim() ? category.label.trim() : key || "Category";
-                    const items = Array.isArray(category?.items) ? category.items : [];
 
-                    return (
-                      <div key={key || label} className="settingsChecklistGroup">
-                        <h3 className="sidebarSectionLabel">{label}</h3>
-                        <div className="sidebarChecklistItems">
-                          {items.length ? (
-                            items.map((it, idx) => {
-                              const itemLabel = typeof it?.item === "string" ? it.item : "";
-                              const itemDescription = typeof it?.description === "string" ? it.description.trim() : "";
-                                const checked = it?.checked === true;
+            <button type="button" className="secondary" onClick={onAddBlock} disabled={settingsBlocksSaving}>
+              Add block
+            </button>
 
-                              return (
-                                <div key={idx} className={`sidebarChecklistItem ${checked ? "done" : ""}`}>
-                                  <span
-                                    className={checked ? "sidebarChecklistMark checked" : ""}
-                                    aria-hidden="true"
-                                  >
-                                    {checked ? "✓" : ""}
-                                  </span>
-                                  <span className="sidebarChecklistText">
-                                    <span>{itemLabel}</span>
-                                    {itemDescription ? <span className="sidebarChecklistDescription">{itemDescription}</span> : null}
-                                  </span>
-                                </div>
-                              );
-                            })
-                          ) : (
-                            <div className="sidebarChecklistItem muted">No items.</div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+            <label className="settingsProfilesField" htmlFor="settings_block_name">
+              <span className="sidebarSectionLabel">Block name</span>
+              <input
+                id="settings_block_name"
+                type="text"
+                value={currentBlockName}
+                onChange={(e) => onBlockNameChange(e.target.value)}
+                placeholder="Block name"
+                disabled={settingsBlocksSaving}
+              />
+            </label>
+
+            <label className="settingsProfilesField" htmlFor="settings_block_description">
+              <span className="sidebarSectionLabel">Block description</span>
+              <textarea
+                id="settings_block_description"
+                value={currentBlockDescription}
+                onChange={(e) => onBlockDescriptionChange(e.target.value)}
+                placeholder="Block description"
+                className="settingsBlockDescription"
+                disabled={settingsBlocksSaving}
+              />
+            </label>
+
+            <button type="button" className="danger" onClick={onDeleteBlock} disabled={!selectValue || settingsBlocksSaving}>
+              Delete block
+            </button>
+
+            <button type="button" className="secondary" onClick={onImportBlock} disabled={settingsBlocksSaving}>
+              Import block JSON
+            </button>
+          </aside>
+
+          <aside className="settingsChecklistEditorPanel" aria-label="Checklist editor">
+            <div className="sidebarSectionHeader">
+              <h2 className="sidebarHeading">Checklist</h2>
+              <button type="button" className="secondary small" onClick={onAddChecklistRow} disabled={settingsBlocksSaving || !selectValue}>
+                Add row
+              </button>
+            </div>
+
+            <div className="settingsChecklistEditorRows">
+              {Array.isArray(checklistRows) && checklistRows.length ? (
+                checklistRows.map((row, index) => (
+                  <div
+                    key={row?.id || index}
+                    className="settingsChecklistEditorRow"
+                    draggable
+                    aria-disabled={settingsBlocksSaving}
+                    onDragStart={() => {
+                      if (settingsBlocksSaving) return;
+                      dragIndexRef.current = index;
+                    }}
+                    onDragOver={(event) => {
+                      if (settingsBlocksSaving) return;
+                      event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      if (settingsBlocksSaving) return;
+                      event.preventDefault();
+                      const sourceIndex = dragIndexRef.current;
+                      if (!Number.isInteger(sourceIndex)) return;
+                      if (sourceIndex === index) return;
+                      onReorderChecklistRows(sourceIndex, index);
+                      dragIndexRef.current = null;
+                    }}
+                    onDragEnd={() => {
+                      dragIndexRef.current = null;
+                    }}
+                  >
+                    <div className="settingsChecklistEditorRowTop">
+                      <span className="settingsDragHandle" aria-hidden="true">::</span>
+                      <button
+                        type="button"
+                        className="secondary small"
+                        onClick={() => onDeleteChecklistRow(index)}
+                        disabled={settingsBlocksSaving}
+                      >
+                        Delete
+                      </button>
+                    </div>
+
+                    <label className="settingsProfilesField" htmlFor={`checklist_name_${index}`}>
+                      <span className="sidebarSectionLabel">Name</span>
+                      <input
+                        id={`checklist_name_${index}`}
+                        type="text"
+                        value={typeof row?.name === "string" ? row.name : ""}
+                        onChange={(e) => onChecklistRowChange(index, "name", e.target.value)}
+                        placeholder="Workout name"
+                        disabled={settingsBlocksSaving}
+                      />
+                    </label>
+
+                    <label className="settingsProfilesField" htmlFor={`checklist_description_${index}`}>
+                      <span className="sidebarSectionLabel">Description</span>
+                      <textarea
+                        id={`checklist_description_${index}`}
+                        value={typeof row?.description === "string" ? row.description : ""}
+                        onChange={(e) => onChecklistRowChange(index, "description", e.target.value)}
+                        placeholder="Optional details"
+                        className="settingsChecklistDescription"
+                        disabled={settingsBlocksSaving}
+                      />
+                    </label>
+
+                    <label className="settingsProfilesField" htmlFor={`checklist_category_${index}`}>
+                      <span className="sidebarSectionLabel">Category</span>
+                      <input
+                        id={`checklist_category_${index}`}
+                        type="text"
+                        value={typeof row?.category === "string" ? row.category : ""}
+                        onChange={(e) => onChecklistRowChange(index, "category", e.target.value)}
+                        placeholder="Category"
+                        disabled={settingsBlocksSaving}
+                      />
+                    </label>
+
+                    <label className="settingsChecklistOptionalField" htmlFor={`checklist_optional_${index}`}>
+                      <input
+                        id={`checklist_optional_${index}`}
+                        type="checkbox"
+                        checked={row?.optional === true}
+                        onChange={(e) => onChecklistRowChange(index, "optional", e.target.checked)}
+                        disabled={settingsBlocksSaving}
+                      />
+                      <span>Optional</span>
+                    </label>
+                  </div>
+                ))
               ) : (
-                <div className="muted">No checklist categories yet.</div>
+                <div className="muted">No checklist rows yet.</div>
               )}
             </div>
           </aside>
-
-          <div className="settingsChatColumn">
-            <MessageThread
-              containerRef={settingsMessagesRef}
-              messages={settingsMessages}
-              loading={settingsLoading && !settingsError}
-              className="settingsChatMessages"
-              ariaLabel="Settings conversation"
-              emptyState={
-                <div className="muted">
-                  Ask to update any profile field. Example: “Rewrite my training profile with a 12-week progression and injury constraints.”
-                </div>
-              }
-            />
-
-            <form ref={settingsFormRef} onSubmit={onSubmitSettings} className="composerForm foodComposerForm chatComposer">
-              <div className="composerBar" aria-label="Settings input">
-                <textarea
-                  ref={settingsInputRef}
-                  rows={1}
-                  className="composerInput"
-                  value={settingsInput}
-                  onChange={(e) => onSettingsInputChange(e.target.value)}
-                  onInput={(e) => onSettingsInputAutoSize(e.currentTarget)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter" || e.shiftKey) return;
-                    if (settingsLoading || settingsProfilesSaving) {
-                      e.preventDefault();
-                      return;
-                    }
-                    e.preventDefault();
-                    settingsFormRef.current?.requestSubmit();
-                  }}
-                  placeholder="Update settings via chat…"
-                  aria-label="Settings input"
-                />
-
-                <button
-                  type="submit"
-                  className="sendButton"
-                  disabled={settingsLoading || settingsProfilesSaving}
-                  aria-label="Send settings message"
-                  onMouseDown={(e) => e.preventDefault()}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path
-                      d="M3 11.2L21 3l-8.2 18-2.2-6.2L3 11.2z"
-                      stroke="currentColor"
-                      strokeWidth="2.2"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-
-              <StatusMessage error={settingsError} className="composerStatus" />
-            </form>
-          </div>
         </div>
+
+        <StatusMessage error={settingsError} className="composerStatus" />
       </div>
     </section>
   );

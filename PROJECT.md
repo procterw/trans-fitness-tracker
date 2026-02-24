@@ -46,7 +46,7 @@ This repo includes a minimal local web app that supports:
 - First-visit settings bootstrap:
   - on first authenticated visit, the app seeds minimal starter profile text + checklist defaults
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
-  - settings supports direct textarea editing and chat-driven profile/checklist edits without UI confirmation
+  - settings supports direct textarea editing plus UI-based block/checklist editing (no settings chat)
 - Weekly fitness checklist updates (`week` payload over canonical activity weeks)
 - Settings for editing four profile text blobs (`general`, `fitness`, `diet`, `agent`)
 - A basic dashboard for browsing:
@@ -115,13 +115,8 @@ This repo includes a minimal local web app that supports:
 - `POST /api/assistant/ingest` → multipart form: `message` + optional `image`, `date`, `messages`
   - GPT‑5.2 decides if the input is food, activity, or a question; logs the result or answers/clarifies
   - For image inputs, routing inspects image content (for example meal photos vs Strava/workout screenshots)
-- `POST /api/settings/chat` → JSON body: `message` + optional `messages`
-  - GPT‑5.2 settings assistant that can answer settings questions and propose updates to:
-    - `general`, `fitness`, `diet`, `agent`
-    - `training_block` (`id`, `name`, `description`, `apply_timing`, `checklist_categories`)
-  - Applies recognized profile/checklist changes directly and returns the applied result
 - `POST /api/settings/confirm` → JSON body: `proposal`
-  - Applies a previously proposed settings change for manual confirmation workflows
+  - Applies a structured settings mutation proposal (used by the Settings UI editor for block/checklist CRUD)
 - `GET /api/fitness/history?limit=N` → recent canonical week snapshots (`weeks[]`), each with block metadata and `workouts[]`
 
 ## Day logging format
