@@ -1,6 +1,29 @@
-import React, { useRef } from "react";
+import React, { useMemo, useRef } from "react";
 
 import StatusMessage from "../components/StatusMessage.jsx";
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function highlightJson(value) {
+  const escaped = escapeHtml(value);
+  const tokenPattern = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)/g;
+  return escaped.replace(tokenPattern, (token) => {
+    let className = "jsonTokenNumber";
+    if (/^"/.test(token)) {
+      className = /:$/.test(token) ? "jsonTokenKey" : "jsonTokenString";
+    } else if (token === "true" || token === "false") {
+      className = "jsonTokenBoolean";
+    } else if (token === "null") {
+      className = "jsonTokenNull";
+    }
+    return `<span class="${className}">${token}</span>`;
+  });
+}
 
 export default function SettingsView({
   settingsError,
@@ -11,21 +34,16 @@ export default function SettingsView({
   selectedBlockId = "",
   onSelectBlock = () => {},
   onAddBlock = () => {},
-  currentBlockName = "",
-  currentBlockDescription = "",
-  onBlockNameChange = () => {},
-  onBlockDescriptionChange = () => {},
   onDeleteBlock = () => {},
-  onImportBlock = () => {},
-  checklistRows = [],
-  onAddChecklistRow = () => {},
-  onChecklistRowChange = () => {},
-  onDeleteChecklistRow = () => {},
-  onReorderChecklistRows = () => {},
+  onOpenTrainingImport = () => {},
+  checklistJsonValue = "{}",
+  checklistJsonError = "",
+  onChecklistJsonChange = () => {},
 }) {
   const profiles = settingsProfiles && typeof settingsProfiles === "object" ? settingsProfiles : {};
-  const dragIndexRef = useRef(null);
-
+  const checklistJsonText = typeof checklistJsonValue === "string" ? checklistJsonValue : "{}";
+  const checklistJsonHighlighted = useMemo(() => highlightJson(checklistJsonText), [checklistJsonText]);
+  const checklistJsonHighlightRef = useRef(null);
   const hasBlocks = Array.isArray(blockOptions) && blockOptions.length > 0;
   const selectedExists = hasBlocks && blockOptions.some((block) => block?.id === selectedBlockId);
   const selectValue = selectedExists ? selectedBlockId : hasBlocks ? blockOptions[0].id : "";
@@ -83,169 +101,89 @@ export default function SettingsView({
           </aside>
 
           <aside className="settingsBlocksPanel" aria-label="Blocks editor">
-            <div className="sidebarSectionHeader">
+            <div className="settingsBlockHeaderRow">
               <h2 className="sidebarHeading">Blocks</h2>
+              <div className="settingsBlockHeaderActions">
+                <button type="button" className="secondary small" onClick={onAddBlock} disabled={settingsBlocksSaving}>
+                  Add block
+                </button>
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={onOpenTrainingImport}
+                  disabled={settingsBlocksSaving}
+                >
+                  Import
+                </button>
+              </div>
             </div>
 
-            <label className="settingsBlockSelectField" htmlFor="settings_block_select">
-              <span className="sidebarSectionLabel">Block list</span>
-              <select
-                id="settings_block_select"
-                className="settingsBlockSelect"
-                value={selectValue}
-                onChange={(e) => onSelectBlock(e.target.value)}
-                disabled={settingsBlocksSaving}
-              >
-                {hasBlocks ? (
-                  blockOptions.map((block) => (
-                    <option key={block.id || block.label} value={block.id || ""}>
-                      {typeof block?.label === "string" && block.label ? block.label : "Block"}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">No blocks yet</option>
-                )}
-              </select>
-            </label>
-
-            <button type="button" className="secondary" onClick={onAddBlock} disabled={settingsBlocksSaving}>
-              Add block
-            </button>
-
-            <label className="settingsProfilesField" htmlFor="settings_block_name">
-              <span className="sidebarSectionLabel">Block name</span>
-              <input
-                id="settings_block_name"
-                type="text"
-                value={currentBlockName}
-                onChange={(e) => onBlockNameChange(e.target.value)}
-                placeholder="Block name"
-                disabled={settingsBlocksSaving}
-              />
-            </label>
-
-            <label className="settingsProfilesField" htmlFor="settings_block_description">
-              <span className="sidebarSectionLabel">Block description</span>
-              <textarea
-                id="settings_block_description"
-                value={currentBlockDescription}
-                onChange={(e) => onBlockDescriptionChange(e.target.value)}
-                placeholder="Block description"
-                className="settingsBlockDescription"
-                disabled={settingsBlocksSaving}
-              />
-            </label>
+            <div className="settingsBlockSelectField">
+              {hasBlocks ? (
+                <div className="settingsBlockList" role="listbox" aria-label="Block list">
+                  {blockOptions.map((block) => {
+                    const blockId = block?.id || "";
+                    const isSelected = blockId === selectValue;
+                    return (
+                      <button
+                        key={block.id || block.label}
+                        type="button"
+                        className={`settingsBlockListButton ${isSelected ? "active" : ""}`}
+                        onClick={() => onSelectBlock(blockId)}
+                        disabled={settingsBlocksSaving}
+                        aria-pressed={isSelected}
+                      >
+                        <span className="settingsBlockListTitle">
+                          {typeof block?.label === "string" && block.label ? block.label : "Block"}
+                        </span>
+                        {typeof block?.dateRangeLabel === "string" && block.dateRangeLabel ? (
+                          <span className="settingsBlockListDateRange">{block.dateRangeLabel}</span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="muted">No blocks yet</div>
+              )}
+            </div>
 
             <button type="button" className="danger" onClick={onDeleteBlock} disabled={!selectValue || settingsBlocksSaving}>
               Delete block
             </button>
-
-            <button type="button" className="secondary" onClick={onImportBlock} disabled={settingsBlocksSaving}>
-              Import block JSON
-            </button>
           </aside>
 
-          <aside className="settingsChecklistEditorPanel" aria-label="Checklist editor">
-            <div className="sidebarSectionHeader">
-              <h2 className="sidebarHeading">Checklist</h2>
-              <button type="button" className="secondary small" onClick={onAddChecklistRow} disabled={settingsBlocksSaving || !selectValue}>
-                Add row
-              </button>
-            </div>
+          <aside className="settingsChecklistEditorPanel" aria-label="Block JSON editor">
 
-            <div className="settingsChecklistEditorRows">
-              {Array.isArray(checklistRows) && checklistRows.length ? (
-                checklistRows.map((row, index) => (
-                  <div
-                    key={row?.id || index}
-                    className="settingsChecklistEditorRow"
-                    draggable
-                    aria-disabled={settingsBlocksSaving}
-                    onDragStart={() => {
-                      if (settingsBlocksSaving) return;
-                      dragIndexRef.current = index;
-                    }}
-                    onDragOver={(event) => {
-                      if (settingsBlocksSaving) return;
-                      event.preventDefault();
-                    }}
-                    onDrop={(event) => {
-                      if (settingsBlocksSaving) return;
-                      event.preventDefault();
-                      const sourceIndex = dragIndexRef.current;
-                      if (!Number.isInteger(sourceIndex)) return;
-                      if (sourceIndex === index) return;
-                      onReorderChecklistRows(sourceIndex, index);
-                      dragIndexRef.current = null;
-                    }}
-                    onDragEnd={() => {
-                      dragIndexRef.current = null;
-                    }}
-                  >
-                    <div className="settingsChecklistEditorRowTop">
-                      <span className="settingsDragHandle" aria-hidden="true">::</span>
-                      <button
-                        type="button"
-                        className="secondary small"
-                        onClick={() => onDeleteChecklistRow(index)}
-                        disabled={settingsBlocksSaving}
-                      >
-                        Delete
-                      </button>
-                    </div>
-
-                    <label className="settingsProfilesField" htmlFor={`checklist_name_${index}`}>
-                      <span className="sidebarSectionLabel">Name</span>
-                      <input
-                        id={`checklist_name_${index}`}
-                        type="text"
-                        value={typeof row?.name === "string" ? row.name : ""}
-                        onChange={(e) => onChecklistRowChange(index, "name", e.target.value)}
-                        placeholder="Workout name"
-                        disabled={settingsBlocksSaving}
-                      />
-                    </label>
-
-                    <label className="settingsProfilesField" htmlFor={`checklist_description_${index}`}>
-                      <span className="sidebarSectionLabel">Description</span>
-                      <textarea
-                        id={`checklist_description_${index}`}
-                        value={typeof row?.description === "string" ? row.description : ""}
-                        onChange={(e) => onChecklistRowChange(index, "description", e.target.value)}
-                        placeholder="Optional details"
-                        className="settingsChecklistDescription"
-                        disabled={settingsBlocksSaving}
-                      />
-                    </label>
-
-                    <label className="settingsProfilesField" htmlFor={`checklist_category_${index}`}>
-                      <span className="sidebarSectionLabel">Category</span>
-                      <input
-                        id={`checklist_category_${index}`}
-                        type="text"
-                        value={typeof row?.category === "string" ? row.category : ""}
-                        onChange={(e) => onChecklistRowChange(index, "category", e.target.value)}
-                        placeholder="Category"
-                        disabled={settingsBlocksSaving}
-                      />
-                    </label>
-
-                    <label className="settingsChecklistOptionalField" htmlFor={`checklist_optional_${index}`}>
-                      <input
-                        id={`checklist_optional_${index}`}
-                        type="checkbox"
-                        checked={row?.optional === true}
-                        onChange={(e) => onChecklistRowChange(index, "optional", e.target.checked)}
-                        disabled={settingsBlocksSaving}
-                      />
-                      <span>Optional</span>
-                    </label>
-                  </div>
-                ))
-              ) : (
-                <div className="muted">No checklist rows yet.</div>
-              )}
-            </div>
+            <label className="settingsProfilesField settingsChecklistJsonField" htmlFor="settings_checklist_json">
+              <div className="settingsChecklistJsonEditor">
+                <pre
+                  ref={checklistJsonHighlightRef}
+                  className="settingsChecklistJsonHighlight"
+                  aria-hidden="true"
+                  dangerouslySetInnerHTML={{ __html: checklistJsonHighlighted }}
+                />
+                <textarea
+                  id="settings_checklist_json"
+                  className="settingsChecklistJsonTextarea"
+                  value={checklistJsonText}
+                  onChange={(e) => onChecklistJsonChange(e.target.value)}
+                  onScroll={(event) => {
+                    const highlightEl = checklistJsonHighlightRef.current;
+                    if (!highlightEl) return;
+                    highlightEl.scrollTop = event.currentTarget.scrollTop;
+                    highlightEl.scrollLeft = event.currentTarget.scrollLeft;
+                  }}
+                  placeholder='{"id":"...","name":"Block name","description":"...","block_start":"YYYY-MM-DD","block_end":"","workouts":[{"name":"Workout","description":"","category":"Workouts","optional":false}]}'
+                  spellCheck={false}
+                />
+              </div>
+            </label>
+            {checklistJsonError ? (
+              <div className="error">{checklistJsonError}</div>
+            ) : (
+              <div className="muted">Edit the block as JSON. Save runs automatically after valid edits.</div>
+            )}
           </aside>
         </div>
 

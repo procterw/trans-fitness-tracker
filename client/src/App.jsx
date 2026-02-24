@@ -32,6 +32,7 @@ import SidebarView from "./views/SidebarView.jsx";
 import SignedOutView from "./views/SignedOutView.jsx";
 import WorkoutsView from "./views/WorkoutsView.jsx";
 import AppNavbar from "./components/AppNavbar.jsx";
+import StatusMessage from "./components/StatusMessage.jsx";
 import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
 import useSerialQueue from "./hooks/useSerialQueue.js";
 import { addDaysIso, localDateString } from "./utils/date.js";
@@ -40,6 +41,94 @@ import SettingsView from "./views/SettingsView.jsx";
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function getTrainingImportPayload(raw) {
+  const safe = asObject(raw);
+  const rootTraining = asObject(safe.training);
+  if (Object.keys(rootTraining).length) return rootTraining;
+
+  const rootActivity = asObject(safe.activity);
+  if (Object.keys(rootActivity).length) return rootActivity;
+
+  const nestedExport = asObject(asObject(safe.export).data);
+  const exportTraining = asObject(nestedExport.training);
+  if (Object.keys(exportTraining).length) return exportTraining;
+
+  const exportActivity = asObject(nestedExport.activity);
+  if (Object.keys(exportActivity).length) return exportActivity;
+
+  const rootData = asObject(safe.data);
+  const dataTraining = asObject(rootData.training);
+  if (Object.keys(dataTraining).length) return dataTraining;
+
+  return asObject(rootData.activity);
+}
+
+function validateSettingsTrainingImport(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) {
+    return {
+      valid: false,
+      error: "Paste a JSON object containing training.blocks and training.weeks before importing.",
+      blocksCount: 0,
+      weeksCount: 0,
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {
+      valid: false,
+      error: "Invalid JSON.",
+      blocksCount: 0,
+      weeksCount: 0,
+    };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      valid: false,
+      error: "Import payload must be a JSON object.",
+      blocksCount: 0,
+      weeksCount: 0,
+    };
+  }
+
+  const training = getTrainingImportPayload(parsed);
+  const blocks = asArray(training?.blocks);
+  const weeks = asArray(training?.weeks);
+
+  if (!Array.isArray(training?.blocks) || !Array.isArray(training?.weeks)) {
+    return {
+      valid: false,
+      error: "Training payload must include both `blocks` and `weeks` arrays.",
+      blocksCount: blocks.length,
+      weeksCount: weeks.length,
+    };
+  }
+
+  if (!blocks.length && !weeks.length) {
+    return {
+      valid: false,
+      error: "Training blocks and weeks must not both be empty.",
+      blocksCount: 0,
+      weeksCount: 0,
+    };
+  }
+
+  return {
+    valid: true,
+    error: "",
+    blocksCount: blocks.length,
+    weeksCount: weeks.length,
+  };
 }
 
 function normalizeWorkoutRow(row, fallbackCategory = "Workouts") {
@@ -177,11 +266,35 @@ function normalizeSettingsTrainingBlocks(value) {
   };
 }
 
-function normalizeChecklistEditorRow(row) {
+function sortTrainingBlocksMostCurrentFirst(blocks) {
+  const list = Array.isArray(blocks) ? blocks : [];
+  return [...list].sort((a, b) => {
+    const aStart = typeof a?.block_start === "string" ? a.block_start : "";
+    const bStart = typeof b?.block_start === "string" ? b.block_start : "";
+    if (aStart !== bStart) return bStart.localeCompare(aStart);
+
+    const aUpdated = typeof a?.updated_at === "string" ? a.updated_at : "";
+    const bUpdated = typeof b?.updated_at === "string" ? b.updated_at : "";
+    if (aUpdated !== bUpdated) return bUpdated.localeCompare(aUpdated);
+
+    return String(b?.id || "").localeCompare(String(a?.id || ""));
+  });
+}
+
+function formatBlockDateRangeLabel(blockStart, blockEnd) {
+  const start = typeof blockStart === "string" ? blockStart.trim() : "";
+  const end = typeof blockEnd === "string" ? blockEnd.trim() : "";
+  if (start && end) return `${start} to ${end}`;
+  if (start) return `${start} onward`;
+  if (end) return `through ${end}`;
+  return "";
+}
+
+function normalizeChecklistEditorRow(row, fallbackId = "") {
   const safe = asObject(row);
   const name = typeof safe.name === "string" ? safe.name : "";
   return {
-    id: typeof safe.id === "string" && safe.id ? safe.id : `row_${Math.random().toString(36).slice(2, 10)}`,
+    id: typeof safe.id === "string" && safe.id ? safe.id : fallbackId || "row",
     name,
     description: typeof safe.description === "string" ? safe.description : "",
     category:
@@ -194,7 +307,54 @@ function normalizeChecklistEditorRow(row) {
 
 function normalizeChecklistEditorRows(rows) {
   if (!Array.isArray(rows)) return [];
-  return rows.map((row) => normalizeChecklistEditorRow(row));
+  return rows.map((row, index) => normalizeChecklistEditorRow(row, `row_${index}`));
+}
+
+function normalizeSettingsBlockDraft(raw, fallbackId = "") {
+  const safe = asObject(raw);
+  const fallback = typeof fallbackId === "string" ? fallbackId : "";
+  return {
+    id:
+      typeof safe.id === "string" && safe.id.trim()
+        ? safe.id.trim()
+        : fallback,
+    name: typeof safe.name === "string" ? safe.name.trim() : "",
+    description: typeof safe.description === "string" ? safe.description.trim() : "",
+    category_order: Array.isArray(safe.category_order)
+      ? safe.category_order.filter((value) => typeof value === "string" && value.trim())
+      : [],
+    category_labels: asObject(safe.category_labels),
+    workouts: normalizeChecklistEditorRows(Array.isArray(safe.workouts) ? safe.workouts : []),
+    block_start: typeof safe.block_start === "string" ? safe.block_start : "",
+    block_end: typeof safe.block_end === "string" ? safe.block_end : "",
+    updated_at: typeof safe.updated_at === "string" ? safe.updated_at : "",
+  };
+}
+
+function normalizeSettingsBlockForComparison(raw) {
+  const safe = normalizeSettingsBlockDraft(raw);
+  return {
+    id: safe.id,
+    name: safe.name,
+    description: safe.description,
+    category_order: safe.category_order,
+    category_labels: safe.category_labels,
+    block_start: safe.block_start,
+    block_end: safe.block_end,
+    workouts: normalizeWorkoutsForCompare(safe.workouts),
+  };
+}
+
+function normalizeSettingsBlockForProposal(raw) {
+  const safe = normalizeSettingsBlockDraft(raw);
+  return {
+    ...safe,
+    workouts: workoutsFromChecklistEditorRows(safe.workouts),
+  };
+}
+
+function blockDraftToJson(raw) {
+  return JSON.stringify(normalizeSettingsBlockDraft(raw), null, 2);
 }
 
 function workoutsFromChecklistEditorRows(rows) {
@@ -273,8 +433,25 @@ export default function App() {
     id: "",
     name: "",
     description: "",
+    category_order: [],
+    category_labels: {},
     workouts: [],
+    block_start: "",
+    block_end: "",
+    updated_at: "",
   }));
+  const [settingsChecklistJsonDraft, setSettingsChecklistJsonDraft] = useState("{}");
+  const [settingsChecklistJsonError, setSettingsChecklistJsonError] = useState("");
+  const [settingsTrainingImportOpen, setSettingsTrainingImportOpen] = useState(false);
+  const [settingsTrainingImportText, setSettingsTrainingImportText] = useState("");
+  const [settingsTrainingImportValidation, setSettingsTrainingImportValidation] = useState(() =>
+    validateSettingsTrainingImport(""),
+  );
+  const [settingsTrainingImportConfirmText, setSettingsTrainingImportConfirmText] = useState("");
+  const [settingsTrainingImportError, setSettingsTrainingImportError] = useState("");
+  const [settingsTrainingImportLoading, setSettingsTrainingImportLoading] = useState(false);
+  const [settingsTrainingImportAnalysis, setSettingsTrainingImportAnalysis] = useState(null);
+  const [settingsTrainingImportResult, setSettingsTrainingImportResult] = useState(null);
 
   // Workouts view state
   const [fitnessStatus, setFitnessStatus] = useState("");
@@ -390,9 +567,8 @@ export default function App() {
     }
     if (settingsSelectedBlockId && blocks.some((row) => row.id === settingsSelectedBlockId)) return;
 
-    const fallbackId =
-      settingsTrainingBlocks.active_block_id ||
-      blocks[blocks.length - 1].id;
+    const sortedBlocks = sortTrainingBlocksMostCurrentFirst(blocks);
+    const fallbackId = settingsTrainingBlocks.active_block_id || sortedBlocks[0]?.id || "";
     setSettingsSelectedBlockId(fallbackId);
   }, [settingsTrainingBlocks, settingsSelectedBlockId]);
 
@@ -1204,14 +1380,12 @@ export default function App() {
   const dashDayTotals = dashPayload?.day_totals ?? null;
   const settingsBlockOptions = useMemo(() => {
     const blocks = Array.isArray(settingsTrainingBlocks.blocks) ? settingsTrainingBlocks.blocks : [];
-    return [...blocks].reverse().map((row) => ({
+    const sorted = sortTrainingBlocksMostCurrentFirst(blocks);
+    return sorted.map((row) => ({
+      ...normalizeSettingsBlockDraft(row),
       id: row.id,
+      dateRangeLabel: formatBlockDateRangeLabel(row.block_start, row.block_end),
       label: row.name || "Untitled block",
-      name: row.name || "",
-      description: row.description || "",
-      workouts: Array.isArray(row.workouts) ? row.workouts : [],
-      block_start: row.block_start || "",
-      block_end: row.block_end || "",
     }));
   }, [settingsTrainingBlocks]);
 
@@ -1219,57 +1393,37 @@ export default function App() {
     settingsBlockOptions.find((row) => row.id === settingsSelectedBlockId) ||
     settingsBlockOptions.find((row) => row.id === (settingsTrainingBlocks.active_block_id || "")) ||
     null;
-  const persistedSelectedWorkouts = Array.isArray(selectedBlockOption?.workouts) ? selectedBlockOption.workouts : [];
-  const persistedSelectedWorkoutsComparable = useMemo(
-    () => normalizeWorkoutsForCompare(persistedSelectedWorkouts),
-    [persistedSelectedWorkouts],
+  const selectedComparable = useMemo(
+    () => JSON.stringify(normalizeSettingsBlockForComparison(selectedBlockOption)),
+    [selectedBlockOption],
   );
-  const draftWorkoutsComparable = useMemo(
-    () => normalizeWorkoutsForCompare(settingsBlockDraft.workouts),
-    [settingsBlockDraft.workouts],
-  );
+  const draftComparable = useMemo(() => JSON.stringify(normalizeSettingsBlockForComparison(settingsBlockDraft)), [settingsBlockDraft]);
   const settingsBlockDraftDirty =
-    settingsBlockDraft.id === (selectedBlockOption?.id || "") &&
-    (
-      settingsBlockDraft.name !== (selectedBlockOption?.name || "") ||
-      settingsBlockDraft.description !== (selectedBlockOption?.description || "") ||
-      JSON.stringify(draftWorkoutsComparable) !== JSON.stringify(persistedSelectedWorkoutsComparable)
-    );
+    settingsBlockDraft.id === (selectedBlockOption?.id || "") && draftComparable !== selectedComparable;
 
   useEffect(() => {
-    const nextId = selectedBlockOption?.id || "";
-    const nextName = selectedBlockOption?.name || "";
-    const nextDescription = selectedBlockOption?.description || "";
-    const nextRows = normalizeChecklistEditorRows(selectedBlockOption?.workouts || []);
+    const nextDraft = normalizeSettingsBlockDraft(selectedBlockOption || {});
 
     setSettingsBlockDraft((prev) => {
-      const sameId = prev.id === nextId;
-      const sameName = prev.name === nextName;
-      const sameDescription = prev.description === nextDescription;
-      const sameWorkouts =
-        JSON.stringify(normalizeWorkoutsForCompare(prev.workouts)) ===
-        JSON.stringify(normalizeWorkoutsForCompare(nextRows));
-      if (sameId && sameName && sameDescription && sameWorkouts) return prev;
-      return {
-        id: nextId,
-        name: nextName,
-        description: nextDescription,
-        workouts: nextRows,
-      };
+      const nextComparable = JSON.stringify(normalizeSettingsBlockForComparison(nextDraft));
+      const prevComparable = JSON.stringify(normalizeSettingsBlockForComparison(prev));
+      if (nextComparable === prevComparable) return prev;
+      return nextDraft;
     });
   }, [selectedBlockOption]);
+
+  useEffect(() => {
+    const nextChecklistJson = blockDraftToJson(settingsBlockDraft);
+    setSettingsChecklistJsonDraft((prev) => (prev === nextChecklistJson ? prev : nextChecklistJson));
+    setSettingsChecklistJsonError("");
+  }, [settingsBlockDraft]);
 
   useEffect(() => {
     if (signedOut) return;
     if (!settingsBlockDraftDirty) return;
     if (!settingsSelectedBlockId || settingsProfilesSaving) return;
 
-    const snapshot = {
-      id: settingsBlockDraft.id || settingsSelectedBlockId,
-      name: settingsBlockDraft.name,
-      description: settingsBlockDraft.description,
-      workouts: normalizeChecklistEditorRows(settingsBlockDraft.workouts),
-    };
+    const snapshot = normalizeSettingsBlockForProposal(settingsBlockDraft);
 
     const timeoutId = setTimeout(async () => {
       const saveSeq = ++settingsBlocksSaveSeqRef.current;
@@ -1283,7 +1437,9 @@ export default function App() {
               id: snapshot.id,
               name: snapshot.name,
               description: snapshot.description,
-              workouts: workoutsFromChecklistEditorRows(snapshot.workouts),
+              block_start: snapshot.block_start,
+              block_end: snapshot.block_end,
+              workouts: snapshot.workouts,
               apply_timing: "immediate",
             },
           },
@@ -1309,14 +1465,6 @@ export default function App() {
     signedOut,
     applySettingsProposal,
   ]);
-
-  const createDraftChecklistRow = () => ({
-    id: `row_${Math.random().toString(36).slice(2, 10)}`,
-    name: "",
-    description: "",
-    category: "Workouts",
-    optional: false,
-  });
 
   const onAddBlock = async () => {
     if (settingsBlocksSaving) return;
@@ -1378,144 +1526,108 @@ export default function App() {
     }
   };
 
-  const onImportBlock = async () => {
+  const onOpenSettingsTrainingImport = () => {
     if (settingsBlocksSaving) return;
-    const raw = window.prompt("Paste block JSON");
-    if (raw === null) return;
-    const text = raw.trim();
-    if (!text) {
-      setSettingsError("Paste a JSON object for a block.");
+    setSettingsTrainingImportText("");
+    setSettingsTrainingImportValidation(validateSettingsTrainingImport(""));
+    setSettingsTrainingImportConfirmText("");
+    setSettingsTrainingImportAnalysis(null);
+    setSettingsTrainingImportError("");
+    setSettingsTrainingImportResult(null);
+    setSettingsTrainingImportOpen(true);
+  };
+
+  const onCloseSettingsTrainingImport = () => {
+    if (settingsTrainingImportLoading) return;
+    setSettingsTrainingImportOpen(false);
+    setSettingsTrainingImportText("");
+    setSettingsTrainingImportValidation(validateSettingsTrainingImport(""));
+    setSettingsTrainingImportConfirmText("");
+    setSettingsTrainingImportError("");
+    setSettingsTrainingImportAnalysis(null);
+    setSettingsTrainingImportResult(null);
+  };
+
+  const onSettingsTrainingImportTextChange = (value) => {
+    const nextValue = typeof value === "string" ? value : "";
+    setSettingsTrainingImportText(nextValue);
+    setSettingsTrainingImportValidation(validateSettingsTrainingImport(nextValue));
+    setSettingsTrainingImportError("");
+    setSettingsTrainingImportAnalysis(null);
+    setSettingsTrainingImportResult(null);
+  };
+
+  const onSubmitSettingsTrainingImport = async () => {
+    if (settingsTrainingImportLoading) return;
+    if (!settingsTrainingImportValidation.valid) {
+      setSettingsTrainingImportError(settingsTrainingImportValidation.error || "Training JSON structure is invalid.");
+      return;
+    }
+    if (settingsTrainingImportConfirmText.trim() !== "IMPORT") {
+      setSettingsTrainingImportError("Type IMPORT to confirm.");
       return;
     }
 
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      setSettingsError("Invalid JSON.");
-      return;
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      setSettingsError("Imported value must be a JSON object.");
-      return;
-    }
-
-    const importedName =
-      typeof parsed.name === "string"
-        ? parsed.name
-        : typeof parsed.block_name === "string"
-          ? parsed.block_name
-          : settingsBlockDraft.name;
-    const importedDescription =
-      typeof parsed.description === "string"
-        ? parsed.description
-        : typeof parsed.block_details === "string"
-          ? parsed.block_details
-          : settingsBlockDraft.description;
-    const importedRows = normalizeChecklistEditorRows(
-      Array.isArray(parsed.workouts) ? parsed.workouts : Array.isArray(parsed.rows) ? parsed.rows : [],
-    );
-    const importedWorkouts = workoutsFromChecklistEditorRows(importedRows);
-
-    const targetBlockId = settingsSelectedBlockId ||
-      (typeof parsed.id === "string" && parsed.id.trim()
-        ? parsed.id.trim()
-        : typeof window !== "undefined" && window.crypto?.randomUUID
-          ? window.crypto.randomUUID()
-          : `block_${Date.now()}`);
-    const operation = settingsSelectedBlockId ? "replace_workouts" : "create_block";
-    const operationWorkouts =
-      operation === "create_block" && !importedWorkouts.length
-        ? [
-            {
-              name: "New checklist item",
-              description: "",
-              category: "Workouts",
-              optional: false,
-            },
-          ]
-        : importedWorkouts;
+    setSettingsTrainingImportLoading(true);
+    setSettingsTrainingImportError("");
+    setSettingsTrainingImportResult(null);
 
     try {
-      setSettingsBlocksSaving(true);
-      setSettingsError("");
-      await applySettingsProposal({
-        proposal: {
-          training_block: {
-            operation,
-            id: targetBlockId,
-            name: importedName,
-            description: importedDescription,
-            workouts: operationWorkouts,
-            apply_timing: "immediate",
-          },
-        },
-        selectedBlockId: settingsSelectedBlockId,
-      });
-      setSettingsSelectedBlockId(targetBlockId);
+      const analysis = await analyzeUserImport({ rawText: settingsTrainingImportText });
+      setSettingsTrainingImportAnalysis(analysis);
+      const token = typeof analysis?.import_token === "string" ? analysis.import_token : "";
+      if (!token) {
+        setSettingsTrainingImportError("No importable training domains were found in this JSON.");
+        return;
+      }
+
+      const summary = analysis?.summary || {};
+      const hasTrainingBlocks = Boolean(summary.activity_blocks?.importable);
+      const hasTrainingWeeks = Boolean(summary.activity_weeks?.importable);
+      if (!hasTrainingBlocks || !hasTrainingWeeks) {
+        setSettingsTrainingImportError("Import JSON must include importable training blocks and tracking weeks.");
+        return;
+      }
+
+      const result = await confirmUserImport({ importToken: token, confirmText: "IMPORT" });
+      setSettingsTrainingImportResult(result);
+      setImportStatus("Training import complete.");
+
+      await refreshAppContext();
+      await loadSettingsProfilesState();
+      await loadFitness();
+      await loadFitnessHistory();
+      await loadDashboardFoodLog();
+      const selectedDashDate = dashDate || suggestedDate || foodDate;
+      if (selectedDashDate) {
+        await loadDashboard(selectedDashDate);
+        await loadSidebarDaySummary(selectedDashDate);
+      }
+      setSettingsTrainingImportOpen(false);
+    } catch (err) {
+      setSettingsTrainingImportError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSettingsTrainingImportLoading(false);
+    }
+  };
+
+  const onChecklistJsonChange = (value) => {
+    const nextValue = typeof value === "string" ? value : "";
+    setSettingsChecklistJsonDraft(nextValue);
+    try {
+      const parsed = JSON.parse(nextValue);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Block JSON must be an object.");
+      }
+      const nextDraft = normalizeSettingsBlockDraft(parsed, settingsBlockDraft.id || settingsSelectedBlockId);
+      setSettingsChecklistJsonError("");
       setSettingsBlockDraft({
-        id: targetBlockId,
-        name: importedName || "",
-        description: importedDescription || "",
-        workouts: normalizeChecklistEditorRows(
-          operation === "create_block" && !importedRows.length
-            ? [{ name: "New checklist item", description: "", category: "Workouts", optional: false }]
-            : importedRows,
-        ),
+        ...nextDraft,
+        id: settingsBlockDraft.id || nextDraft.id,
       });
     } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSettingsBlocksSaving(false);
+      setSettingsChecklistJsonError(err instanceof Error ? err.message : "Invalid block JSON.");
     }
-  };
-
-  const onAddChecklistRow = () => {
-    setSettingsBlockDraft((prev) => ({
-      ...prev,
-      workouts: [...normalizeChecklistEditorRows(prev.workouts), createDraftChecklistRow()],
-    }));
-  };
-
-  const onChecklistRowChange = (index, field, value) => {
-    setSettingsBlockDraft((prev) => {
-      const rows = normalizeChecklistEditorRows(prev.workouts);
-      if (!rows[index]) return prev;
-      rows[index] = {
-        ...rows[index],
-        [field]: field === "optional" ? value === true : String(value ?? ""),
-      };
-      return {
-        ...prev,
-        workouts: rows,
-      };
-    });
-  };
-
-  const onDeleteChecklistRow = (index) => {
-    setSettingsBlockDraft((prev) => {
-      const rows = normalizeChecklistEditorRows(prev.workouts);
-      if (!rows[index]) return prev;
-      rows.splice(index, 1);
-      return {
-        ...prev,
-        workouts: rows,
-      };
-    });
-  };
-
-  const onReorderChecklistRows = (sourceIndex, targetIndex) => {
-    if (sourceIndex === targetIndex) return;
-    setSettingsBlockDraft((prev) => {
-      const rows = normalizeChecklistEditorRows(prev.workouts);
-      if (!rows[sourceIndex] || !rows[targetIndex]) return prev;
-      const [moved] = rows.splice(sourceIndex, 1);
-      rows.splice(targetIndex, 0, moved);
-      return {
-        ...prev,
-        workouts: rows,
-      };
-    });
   };
 
   const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
@@ -1609,21 +1721,11 @@ export default function App() {
             selectedBlockId={selectedBlockOption?.id || ""}
             onSelectBlock={setSettingsSelectedBlockId}
             onAddBlock={onAddBlock}
-            currentBlockName={settingsBlockDraft.name}
-            currentBlockDescription={settingsBlockDraft.description}
-            onBlockNameChange={(value) =>
-              setSettingsBlockDraft((prev) => ({ ...prev, name: typeof value === "string" ? value : "" }))
-            }
-            onBlockDescriptionChange={(value) =>
-              setSettingsBlockDraft((prev) => ({ ...prev, description: typeof value === "string" ? value : "" }))
-            }
             onDeleteBlock={onDeleteBlock}
-            onImportBlock={onImportBlock}
-            checklistRows={settingsBlockDraft.workouts}
-            onAddChecklistRow={onAddChecklistRow}
-            onChecklistRowChange={onChecklistRowChange}
-            onDeleteChecklistRow={onDeleteChecklistRow}
-            onReorderChecklistRows={onReorderChecklistRows}
+            onOpenTrainingImport={onOpenSettingsTrainingImport}
+            checklistJsonValue={settingsChecklistJsonDraft}
+            checklistJsonError={settingsChecklistJsonError}
+            onChecklistJsonChange={onChecklistJsonChange}
           />
         ) : (
           <div className="mainContentRow">
@@ -1690,6 +1792,119 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {settingsTrainingImportOpen ? (
+          <div
+            className="importModalOverlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Import training data"
+          >
+            <div className="importModalCard">
+              <div className="importModalHeader">
+                <h2>Import training</h2>
+                <button
+                  type="button"
+                  className="secondary small"
+                  onClick={onCloseSettingsTrainingImport}
+                  disabled={settingsTrainingImportLoading}
+                >
+                  Close
+                </button>
+              </div>
+
+              <p className="muted">
+                This will <strong>overwrite all existing training blocks and tracked workouts</strong>. This cannot be undone.
+              </p>
+
+              <div className="importModalRow">
+                <label htmlFor="settings_training_import_text">
+                  <strong>Paste training JSON</strong>
+                </label>
+                <textarea
+                  id="settings_training_import_text"
+                  value={settingsTrainingImportText}
+                  disabled={settingsTrainingImportLoading}
+                  onChange={(e) => onSettingsTrainingImportTextChange(e.target.value)}
+                  placeholder='{"export":{"data":{"training":{"blocks":[...],"weeks":[...]}}}}'
+                  rows={10}
+                />
+              </div>
+
+              {settingsTrainingImportValidation.valid ? (
+                <div className="importSummary">
+                  <p>
+                    <strong>Detected training shape:</strong>{" "}
+                    {settingsTrainingImportValidation.blocksCount} blocks,{" "}
+                    {settingsTrainingImportValidation.weeksCount} weeks
+                  </p>
+                </div>
+              ) : (
+                <div className="error">{settingsTrainingImportValidation.error}</div>
+              )}
+
+              {Array.isArray(settingsTrainingImportAnalysis?.warnings) && settingsTrainingImportAnalysis.warnings.length ? (
+                <div className="importWarnings">
+                  <p>
+                    <strong>Server warnings:</strong>
+                  </p>
+                  <ul>
+                    {settingsTrainingImportAnalysis.warnings.map((warning, idx) => (
+                      <li key={idx}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {settingsTrainingImportResult ? (
+                <div className="importSummary">
+                  <p>
+                    <strong>Applied:</strong> {(settingsTrainingImportResult.applied_domains || []).join(", ") || "(none)"}
+                  </p>
+                  {Array.isArray(settingsTrainingImportResult.skipped_domains) && settingsTrainingImportResult.skipped_domains.length ? (
+                    <p>
+                      <strong>Skipped:</strong>{" "}
+                      {settingsTrainingImportResult.skipped_domains
+                        .map((entry) => `${entry.domain}${entry.reason ? ` (${entry.reason})` : ""}`)
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="importConfirmRow">
+                <label htmlFor="settings_training_import_confirm_text">
+                  Type <code>IMPORT</code> to confirm overwrite:
+                </label>
+                <input
+                  id="settings_training_import_confirm_text"
+                  type="text"
+                  value={settingsTrainingImportConfirmText}
+                  disabled={settingsTrainingImportLoading}
+                  onChange={(e) => setSettingsTrainingImportConfirmText(e.target.value)}
+                  placeholder="IMPORT"
+                />
+              </div>
+
+              <StatusMessage error={settingsTrainingImportError} className="composerStatus" />
+
+              <div className="importModalActions">
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={onSubmitSettingsTrainingImport}
+                  disabled={
+                    settingsTrainingImportLoading ||
+                    !settingsTrainingImportValidation.valid ||
+                    settingsTrainingImportConfirmText.trim() !== "IMPORT"
+                  }
+                >
+                  {settingsTrainingImportLoading ? "Importing…" : "Overwrite training"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {importModalOpen ? (
           <div className="importModalOverlay" role="dialog" aria-modal="true" aria-label="Import tracking data">
