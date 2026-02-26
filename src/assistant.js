@@ -118,6 +118,7 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "Return a final assistant-facing response in assistant_message for direct display.",
   "For food intent, do not guess nutrients and do not include nutrient numbers in schema payload.",
   "For food intent, include a short description + notes to support deterministic estimation.",
+  "If the user is clarifying details for a meal that was just logged, set food.event_id to that existing meal event id from context so the entry is updated instead of duplicated.",
   "For food intent, set requires_estimate=true when a text-to-estimate path is needed and false when image/photo path is used.",
   "For clarify intent, keep intent exactly clarify and provide clarifying_question.",
   "Return only the JSON that matches the provided schema.",

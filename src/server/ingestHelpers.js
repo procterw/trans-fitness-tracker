@@ -26,11 +26,12 @@ function normalizeDateOrNull(value) {
   return text;
 }
 
-function parseIngestEventId(value) {
+function parseIngestEventId(value, { strict = true } = {}) {
   const text = normalizeTextValue(value);
   if (!text) return null;
   if (!UUID_LIKE_RE.test(text)) {
-    throw new Error("Invalid event id");
+    if (strict) throw new Error("Invalid event id");
+    return null;
   }
   return text;
 }
@@ -170,7 +171,10 @@ export async function writeFoodEventFromIngestDecision({
   const estimatedDescription = normalizeTextValue(foodDecision.estimated_description);
   const descriptionForEstimator = description || estimatedDescription;
   const notes = normalizeTextValue(foodDecision.notes);
-  const eventId = parseIngestEventId(foodDecision.event_id) || parseIngestEventId(requestEventId);
+  // Prefer explicit request event id (client/UI context). Model event ids are best-effort only.
+  const requestEventIdParsed = parseIngestEventId(requestEventId);
+  const modelEventIdParsed = parseIngestEventId(foodDecision.event_id, { strict: false });
+  const eventId = requestEventIdParsed || modelEventIdParsed;
   const date = normalizeDateOrNull(foodDecision.date) || normalizeDateOrNull(requestDate) || null;
 
   if (requiresEstimate && (!descriptionForEstimator || file)) {
@@ -341,7 +345,7 @@ export function summarizeActivityLoadForDate(currentWeek, date) {
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
       const itemDate = typeof item.date === "string" ? item.date.trim() : "";
-      if (item.checked === true && itemDate === date) sessions += 1;
+      if (item.completed === true && itemDate === date) sessions += 1;
     }
   }
   return sessions;
@@ -479,5 +483,5 @@ export function isExistingActivityEntry(currentWeek, update) {
   if (!item || typeof item !== "object") return false;
   const hasDetails = typeof item.details === "string" && item.details.trim().length > 0;
   const hasDate = typeof item.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.date.trim());
-  return Boolean(item.checked) || hasDetails || hasDate;
+  return Boolean(item.completed) || hasDetails || hasDate;
 }

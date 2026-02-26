@@ -1,4 +1,5 @@
 import React from "react";
+import { buildFoodDaySummary, formatFoodEntries, getFoodEntriesFromDay } from "../utils/foodSummary.js";
 import NutrientsTable from "./NutrientsTable.jsx";
 
 function escapeText(value) {
@@ -8,6 +9,15 @@ function escapeText(value) {
 export default function EstimateResult({ payload, onAsk }) {
   if (!payload) return null;
   const { estimate, day_totals: dayTotals, event, day } = payload;
+  const dayFoodEntries = getFoodEntriesFromDay(day, {
+    fallbackSummary: typeof day?.ai_summary === "string" ? day.ai_summary : typeof day?.details === "string" ? day.details : "",
+  });
+  const dayFoodsText = formatFoodEntries(dayFoodEntries);
+  const dayQualitySummary = buildFoodDaySummary({
+    totals: dayTotals,
+    foodEntries: dayFoodEntries,
+    summaryText: typeof day?.ai_summary === "string" ? day.ai_summary : "",
+  });
 
   return (
     <div>
@@ -50,8 +60,9 @@ export default function EstimateResult({ payload, onAsk }) {
           <p className="muted">
             Status: <code>{escapeText(day.status || "incomplete")}</code>
           </p>
+          <p className="muted">{dayFoodsText ? `Foods: ${dayFoodsText}` : "No foods logged yet."}</p>
+          {dayQualitySummary ? <p className="muted">{dayQualitySummary}</p> : null}
           <NutrientsTable nutrients={day} />
-          {day.ai_summary ? <p className="muted">{escapeText(day.ai_summary)}</p> : null}
         </>
       ) : null}
 

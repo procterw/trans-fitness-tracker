@@ -36,8 +36,11 @@ import StatusMessage from "./components/StatusMessage.jsx";
 import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
 import useSerialQueue from "./hooks/useSerialQueue.js";
 import { addDaysIso, localDateString } from "./utils/date.js";
+import { buildFoodDaySummary, getFoodEntriesFromDay } from "./utils/foodSummary.js";
 import { normalizeProfileText, normalizeSettingsProfiles, settingsProfilesEqual } from "./utils/settingsProfiles.js";
 import SettingsView from "./views/SettingsView.jsx";
+
+const UUID_LIKE_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -744,25 +747,22 @@ export default function App() {
     setSidebarDayStatus("Loading…");
     try {
       const json = await getFoodForDate(date);
+      const day = json?.day && typeof json.day === "object" ? json.day : null;
+      const totals = json?.day_totals ?? null;
+      const daySummaryText =
+        typeof day?.ai_summary === "string" ? day.ai_summary : typeof day?.details === "string" ? day.details : "";
+      const foodEntries = getFoodEntriesFromDay(day, { fallbackSummary: daySummaryText });
+      const qualitySummary = buildFoodDaySummary({
+        totals,
+        foodEntries,
+        summaryText: daySummaryText,
+      });
       if (seq !== sidebarDaySeqRef.current) return;
-      const details =
-        typeof json?.day?.ai_summary === "string" ? json.day.ai_summary : "";
-      const syntheticEvents = details.trim()
-        ? details
-            .split("\n")
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map((line, index) => ({
-              id: `line_${date}_${index}`,
-              description: line,
-            }))
-        : [];
-      const detailLines = syntheticEvents;
       setSidebarDaySummary({
         date,
-        totals: json?.day_totals ?? null,
-        detail_lines: detailLines,
-        detail_line_count: detailLines.length,
+        totals,
+        food_entries: foodEntries,
+        quality_summary: qualitySummary,
       });
       setSidebarDayStatus("");
     } catch (e) {
@@ -1039,7 +1039,7 @@ export default function App() {
       if (wasFocused) setTimeout(() => inputEl?.focus(), 0);
     }
 
-    const appendAssistantMessages = (json, { streamingAssistantMessageId = null } = {}) => {
+    const appendAssistantMessages = (json, { streamingAssistantMessageId = null, clarificationEventId = "" } = {}) => {
       if (!json) return;
       const isStreamingQuestion = Boolean(streamingAssistantMessageId);
       const assistantMessages = [];
@@ -1048,6 +1048,8 @@ export default function App() {
         composerMessageIdRef.current += 1;
         const activityStatus = json?.activity_log_state === "updated" ? "Updated activity." : "Saved activity.";
         const foodLogAction = json?.food_result?.log_action ?? json?.log_action ?? null;
+        const foodEventId =
+          typeof json?.food_result?.event?.id === "string" ? json.food_result.event.id.trim() : "";
         const foodTitle = typeof json?.food_result?.event?.description === "string" ? json.food_result.event.description.trim() : "";
         const fallbackFoodTitle =
           typeof json?.food_result?.estimate?.meal_title === "string" ? json.food_result.estimate.meal_title.trim() : "";
@@ -1064,6 +1066,7 @@ export default function App() {
           content: json.action === "food" ? `✓ ${foodStatus}` : `✓ ${activityStatus}`,
           format: "plain",
           tone: "status",
+          foodEventId: json.action === "food" && foodEventId ? foodEventId : null,
         });
       }
 
@@ -1095,12 +1098,20 @@ export default function App() {
 
       const followupText = typeof json?.followup_question === "string" ? json.followup_question.trim() : "";
       if (followupText) {
+        const explicitFoodEventId =
+          json?.action === "food" && typeof json?.food_result?.event?.id === "string"
+            ? json.food_result.event.id.trim()
+            : "";
+        const carriedFoodEventId = json?.action === "clarify" ? String(clarificationEventId || "").trim() : "";
+        const followupFoodEventId = explicitFoodEventId || carriedFoodEventId;
         composerMessageIdRef.current += 1;
         assistantMessages.push({
           id: composerMessageIdRef.current,
           role: "assistant",
           content: followupText,
           format: "plain",
+          foodFollowup: Boolean(followupFoodEventId),
+          foodEventId: followupFoodEventId || null,
         });
       }
 
@@ -1122,6 +1133,14 @@ export default function App() {
     };
 
     try {
+      const lastAssistantMessage = [...previous].reverse().find((entry) => entry?.role === "assistant");
+      const candidateFollowupEventId =
+        !foodAttachments.length &&
+        lastAssistantMessage?.foodFollowup === true &&
+        typeof lastAssistantMessage?.foodEventId === "string"
+          ? lastAssistantMessage.foodEventId.trim()
+          : "";
+      const followupEventId = UUID_LIKE_RE.test(candidateFollowupEventId) ? candidateFollowupEventId : "";
       const clientRequestId =
         typeof globalThis.crypto?.randomUUID === "function"
           ? globalThis.crypto.randomUUID()
@@ -1135,6 +1154,7 @@ export default function App() {
         file: foodAttachments[0]?.file ?? null,
         date: foodDate,
         messages: previous,
+        eventId: followupEventId,
         clientRequestId,
       });
 
@@ -1172,7 +1192,10 @@ export default function App() {
       if (!responsePayload) {
         throw new Error("Streaming response did not complete.");
       }
-      appendAssistantMessages(responsePayload, { streamingAssistantMessageId: streamingMessageId });
+      appendAssistantMessages(responsePayload, {
+        streamingAssistantMessageId: streamingMessageId,
+        clarificationEventId: followupEventId,
+      });
     } catch (e2) {
       setComposerError(e2 instanceof Error ? e2.message : String(e2));
     } finally {
@@ -1630,12 +1653,9 @@ export default function App() {
     }
   };
 
-  const sidebarDayDetailLines = Array.isArray(sidebarDaySummary?.detail_lines) ? sidebarDaySummary.detail_lines : [];
-  const sidebarDayLineNames = sidebarDayDetailLines
-    .map((line) => (line?.description ? String(line.description) : "Meal"))
-    .filter(Boolean);
-  const sidebarDayMealsSummary = sidebarDayLineNames.length
-    ? `${sidebarDayLineNames.slice(0, 3).join(", ")}${sidebarDayLineNames.length > 3 ? ` +${sidebarDayLineNames.length - 3} more` : ""}`
+  const sidebarDayEntries = Array.isArray(sidebarDaySummary?.food_entries) ? sidebarDaySummary.food_entries : [];
+  const sidebarDayMealsSummary = sidebarDayEntries.length
+    ? `${sidebarDayEntries.slice(0, 3).join(", ")}${sidebarDayEntries.length > 3 ? ` +${sidebarDayEntries.length - 3} more` : ""}`
     : "No meals logged yet.";
 
   const sidebarTotals = sidebarDaySummary?.totals ?? {};
@@ -1666,7 +1686,11 @@ export default function App() {
     else proteinNote = "Protein low (aligned).";
   }
 
-  const sidebarQualitySummary = `${calorieNote} ${proteinNote}`.trim();
+  const fallbackQualitySummary = `${calorieNote} ${proteinNote}`.trim();
+  const sidebarQualitySummary =
+    typeof sidebarDaySummary?.quality_summary === "string" && sidebarDaySummary.quality_summary.trim()
+      ? sidebarDaySummary.quality_summary.trim()
+      : fallbackQualitySummary;
 
   if (signedOut) {
     return (

@@ -1,58 +1,11 @@
 import React from "react";
 
-function classifyFoodText(rawText) {
-  const text = String(rawText || "").toLowerCase();
-  return {
-    produce: /\b(salad|veg|vegetable|fruit|berries|greens?|broccoli|spinach|bean|lentil)\b/.test(text),
-    carbForward: /\b(rice|oat|oatmeal|bread|pasta|potato|cereal|noodle|tortilla)\b/.test(text),
-    proteinForward: /\b(chicken|fish|salmon|tofu|egg|yogurt|turkey|beef|tempeh|shrimp|protein)\b/.test(text),
-    fatForward: /\b(avocado|nut|peanut|olive oil|butter|cheese)\b/.test(text),
-    treatHeavy: /\b(chocolate|dessert|cookie|cake|ice cream|candy|pastry|soda)\b/.test(text),
-    fastFoodLike: /\b(fried|takeout|fast food|burger|fries|pizza)\b/.test(text),
-  };
-}
+import { buildFoodDaySummary, formatFoodEntries, getFoodEntriesFromDay } from "../utils/foodSummary.js";
 
-function buildTodayNarrative({ day, totals }) {
-  const hasAnyTotal =
-    typeof totals?.calories === "number" ||
-    typeof totals?.fat_g === "number" ||
-    typeof totals?.carbs_g === "number" ||
-    typeof totals?.protein_g === "number" ||
-    typeof totals?.fiber_g === "number";
-
-  if (!day && !hasAnyTotal) {
-    return "Quiet start so far. No meals logged yet today. A steady next step is one balanced meal with carbs, fats, and fiber-forward foods.";
-  }
-
-  const detailsText = typeof day?.ai_summary === "string" ? day.ai_summary : "";
-  const info = classifyFoodText(detailsText);
-  const tags = [];
-  if (info.produce) tags.push("produce/fiber-forward foods");
-  if (info.carbForward) tags.push("carb staples");
-  if (info.proteinForward) tags.push("protein-forward choices");
-  if (info.fatForward) tags.push("fat-forward foods");
-  if (info.treatHeavy) tags.push("some sweets");
-  if (info.fastFoodLike) tags.push("some higher-processed items");
-
-  const mixSentence = tags.length
-    ? `From notes, today includes ${tags.slice(0, 4).join(", ")}${tags.length > 4 ? ", and more" : ""}.`
-    : detailsText.trim()
-      ? "Notes are present; food-type mix is still somewhat general."
-      : "No detailed food notes yet.";
-
-  const proteinTotal = typeof totals?.protein_g === "number" ? totals.protein_g : null;
-  let proteinNote = "Protein is not logged yet.";
-  if (proteinTotal !== null) {
-    if (proteinTotal >= 110) proteinNote = "Protein looks high for feminization-focused targets.";
-    else if (proteinTotal >= 80) proteinNote = "Protein is moderate-high; consider lighter protein later.";
-    else if (proteinTotal >= 40) proteinNote = "Protein looks moderate and generally aligned.";
-    else proteinNote = "Protein is still light, which can be fine with steady energy intake.";
-  }
-
-  const calorieTotal = typeof totals?.calories === "number" ? totals.calories : null;
-  const energyNote = calorieTotal === null ? "Calories are not logged yet." : `Energy so far is about ${Math.round(calorieTotal)} kcal.`;
-
-  return `${mixSentence} ${energyNote} ${proteinNote}`;
+function getTodayFoodEntries(day) {
+  return getFoodEntriesFromDay(day, {
+    fallbackSummary: typeof day?.ai_summary === "string" ? day.ai_summary : typeof day?.details === "string" ? day.details : "",
+  });
 }
 
 export default function DietView({
@@ -64,6 +17,7 @@ export default function DietView({
   fmt,
 }) {
   const historyRows = Array.isArray(dashFoodLogRows) ? dashFoodLogRows : [];
+
   const totals = {
     calories: typeof dashDayTotals?.calories === "number" ? dashDayTotals.calories : null,
     fat_g: typeof dashDayTotals?.fat_g === "number" ? dashDayTotals.fat_g : null,
@@ -71,7 +25,14 @@ export default function DietView({
     protein_g: typeof dashDayTotals?.protein_g === "number" ? dashDayTotals.protein_g : null,
     fiber_g: typeof dashDayTotals?.fiber_g === "number" ? dashDayTotals.fiber_g : null,
   };
-  const dayEatingSummary = buildTodayNarrative({ day: dashDay, totals });
+
+  const dayFoodEntries = getTodayFoodEntries(dashDay);
+  const dayFoodsText = formatFoodEntries(dayFoodEntries);
+  const dayQualitySummary = buildFoodDaySummary({
+    totals,
+    foodEntries: dayFoodEntries,
+    summaryText: typeof dashDay?.ai_summary === "string" ? dashDay.ai_summary : "",
+  });
 
   return (
     <div className="mainScroll foodLogView">
@@ -86,7 +47,10 @@ export default function DietView({
 
         <section className="dietRecentSection">
           <h3>Today</h3>
-          <blockquote className="fitnessSummary dietTodaySummary">{dayEatingSummary}</blockquote>
+          <blockquote className="fitnessSummary dietTodaySummary">
+            {dayFoodsText || "No foods logged yet."}
+          </blockquote>
+          {dayQualitySummary ? <p className="muted">{dayQualitySummary}</p> : null}
           {dashLoading ? <p className="muted">Loading…</p> : null}
 
           {!dashLoading ? (
@@ -110,13 +74,6 @@ export default function DietView({
                     <td>{fmt(totals.carbs_g)}</td>
                     <td>{fmt(totals.protein_g)}</td>
                     <td>{fmt(totals.fiber_g)}</td>
-                  </tr>
-                  <tr>
-                    <td className="notesCell" colSpan={6} title={typeof dashDay?.ai_summary === "string" ? dashDay.ai_summary : ""}>
-                      {typeof dashDay?.ai_summary === "string" && dashDay.ai_summary.trim()
-                        ? dashDay.ai_summary
-                        : "No summary logged yet."}
-                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -142,20 +99,33 @@ export default function DietView({
                   </tr>
                 </thead>
                 <tbody>
-                  {historyRows.map((row) => (
-                    <tr key={row.date}>
-                      <td>{row.date}</td>
-                      <td>{fmt(row.calories)}</td>
-                      <td>{fmt(row.fat_g)}</td>
-                      <td>{fmt(row.carbs_g)}</td>
-                      <td>{fmt(row.protein_g)}</td>
-                      <td>{fmt(row.fiber_g)}</td>
-                      <td>{row.status ?? "incomplete"}</td>
-                      <td className="notesCell" title={row.ai_summary ?? ""}>
-                        {row.ai_summary ?? ""}
-                      </td>
-                    </tr>
-                  ))}
+                  {historyRows.map((row) => {
+                    const rowFoodEntries = getFoodEntriesFromDay(row, {
+                      fallbackSummary: typeof row?.ai_summary === "string" ? row.ai_summary : "",
+                    });
+                    const rowFoodsText = formatFoodEntries(rowFoodEntries);
+                    const rowQualitySummary = buildFoodDaySummary({
+                      totals: row,
+                      foodEntries: rowFoodEntries,
+                      summaryText: typeof row?.ai_summary === "string" ? row.ai_summary : "",
+                    });
+
+                    return (
+                      <tr key={row.date}>
+                        <td>{row.date}</td>
+                        <td>{fmt(row.calories)}</td>
+                        <td>{fmt(row.fat_g)}</td>
+                        <td>{fmt(row.carbs_g)}</td>
+                        <td>{fmt(row.protein_g)}</td>
+                        <td>{fmt(row.fiber_g)}</td>
+                        <td>{row.status ?? "incomplete"}</td>
+                        <td className="notesCell" title={rowFoodsText}>
+                          <div>{rowFoodsText || "No foods logged yet."}</div>
+                          {rowQualitySummary ? <div className="muted">{rowQualitySummary}</div> : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
