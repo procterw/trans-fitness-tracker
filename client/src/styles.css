@@ -50,6 +50,10 @@
     --fitness-checkbox-accent: #3ad374;
     --fitness-description-color: color-mix(in srgb, var(--muted) 76%, var(--text) 24%);
   }
+
+  .settingsCalendarWeekBarCurrentWeek {
+    background: color-mix(in srgb, var(--ok) 82%, var(--accent) 18%);
+  }
 }
 
 * {
@@ -897,6 +901,14 @@ ul {
   font-size: 13px;
 }
 
+.settingsCalendarViewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
 .settingsChecklistEditorPanel {
   border-right: none;
   overflow: hidden;
@@ -905,6 +917,51 @@ ul {
 .settingsBlockSelectField {
   display: grid;
   gap: 4px;
+}
+
+.settingsCalendarSelectionRow {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.settingsBlockListField {
+  position: relative;
+  min-height: 0;
+}
+
+.settingsBlockTimeline {
+  position: relative;
+  width: 100%;
+}
+
+.settingsBlockTimelineItem {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  box-sizing: border-box;
+}
+
+.settingsBlockTimelineItem.active {
+  background: #28496f;
+  border-color: #28496f;
+  color: #ffffff;
+}
+
+.settingsBlockTimelineItem.active .settingsBlockListDateRange {
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .settingsBlockHeaderRow {
@@ -928,6 +985,123 @@ ul {
 .settingsBlockList {
   display: grid;
   gap: 6px;
+}
+
+.settingsCalendarSection {
+  display: grid;
+  gap: 6px;
+  width: 130px;
+  padding: 1px;
+  background: #ccc;
+}
+
+.settingsCalendarMonthRows {
+  display: grid;
+  gap: 0;
+}
+
+.settingsCalendarWeekRow {
+  position: relative;
+  height: 24.1px;
+  padding: 0;
+  display: block;
+  border-top: 0;
+}
+
+.settingsCalendarWeekRowEven {
+  background: transparent;
+}
+
+.settingsCalendarWeekRowOdd {
+  background: transparent;
+}
+
+.settingsCalendarWeekRowOverlap {
+  height: 28px;
+}
+
+.settingsCalendarWeekRowOverlap.settingsCalendarWeekRowEven,
+.settingsCalendarWeekRowOverlap.settingsCalendarWeekRowOdd {
+  background: transparent;
+}
+
+.settingsCalendarMonthGapRow {
+  height: 1px;
+}
+
+.settingsCalendarWeekBar {
+  position: absolute;
+  background: transparent;
+  top: 0;
+  bottom: 0;
+}
+
+.settingsCalendarWeekBarMonthBorderTop {
+  border-top: 0;
+}
+
+.settingsCalendarWeekBarMonthBorderBottom {
+  border-bottom: 0;
+}
+
+.settingsCalendarWeekBarTopBorderLine,
+.settingsCalendarWeekBarBottomBorderLine {
+  position: absolute;
+  height: 1px;
+  background: #888;
+  pointer-events: none;
+}
+
+.settingsCalendarWeekBarTopBorderLine {
+  top: 0;
+}
+
+.settingsCalendarWeekBarBottomBorderLine {
+  bottom: 0;
+}
+
+.settingsCalendarWeekBarOverlap {
+  top: 0;
+  bottom: 0;
+}
+
+.settingsCalendarWeekBarOverlapTop {
+  top: 0;
+  bottom: 1px;
+  z-index: 1;
+}
+
+.settingsCalendarWeekBarOverlapBottom {
+  top: 1px;
+  bottom: 0;
+  z-index: 1;
+}
+
+.settingsCalendarWeekBarEven {
+  background: #ffffff;
+}
+
+.settingsCalendarWeekBarOdd {
+  background: #ffffff;
+}
+
+.settingsCalendarWeekBarCurrentWeek {
+  background: #7cafea;
+  outline: none;
+}
+
+.settingsCalendarMonthLabel {
+  position: absolute;
+  top: 2px;
+  transform: translateX(4px);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  opacity: 0.7;
+  pointer-events: none;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 color-mix(in srgb, var(--bg), transparent 35%);
 }
 
 .settingsBlockListButton {
@@ -2735,4 +2909,10 @@ input.fitnessChecklistDate {
     order: 3;
   }
 
+}
+
+@media (prefers-color-scheme: dark) {
+  .settingsCalendarSection {
+    background: #1f232d;
+  }
 }

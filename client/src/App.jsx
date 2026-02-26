@@ -1726,6 +1726,8 @@ export default function App() {
             checklistJsonValue={settingsChecklistJsonDraft}
             checklistJsonError={settingsChecklistJsonError}
             onChecklistJsonChange={onChecklistJsonChange}
+            selectedBlockStartDate={selectedBlockOption?.block_start || ""}
+            selectedBlockEndDate={selectedBlockOption?.block_end || ""}
           />
         ) : (
           <div className="mainContentRow">
