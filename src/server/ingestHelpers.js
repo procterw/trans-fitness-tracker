@@ -458,11 +458,7 @@ export function summarizeActivityUpdates(updates) {
 export async function refreshCurrentWeekSummaryForActivity(currentWeek) {
   const summary = generateWeeklyFitnessSummary(currentWeek);
   const previous =
-    typeof currentWeek?.ai_summary === "string"
-      ? currentWeek.ai_summary.trim()
-      : typeof currentWeek?.summary === "string"
-        ? currentWeek.summary.trim()
-        : "";
+    typeof currentWeek?.summary === "string" ? currentWeek.summary.trim() : "";
   if (summary.trim() === previous) return currentWeek;
   return updateCurrentWeekSummary(summary);
 }

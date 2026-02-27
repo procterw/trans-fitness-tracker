@@ -54,7 +54,7 @@ export default function SettingsView({
         <div className="settingsEditorSplit">
           <aside className="settingsProfilesPanel" aria-label="Settings profiles">
             <div className="settingsProfilesHeader sidebarSectionHeader">
-              <h2 className="sidebarHeading">Settings profiles</h2>
+              <h2 className="sidebarHeading">User profile</h2>
             </div>
             <div className="settingsProfilesFields">
               <label className="settingsProfilesField" htmlFor="general_text">

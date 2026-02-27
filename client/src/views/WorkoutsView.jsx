@@ -245,11 +245,10 @@ export default function WorkoutsView({
   const currentBlockDescription =
     typeof fitnessWeek?.block_details === "string" && fitnessWeek.block_details.trim()
       ? fitnessWeek.block_details.trim()
-      : typeof fitnessWeek?.training_block_description === "string" && fitnessWeek.training_block_description.trim()
-        ? fitnessWeek.training_block_description.trim()
-        : "";
+        : typeof fitnessWeek?.training_block_description === "string" && fitnessWeek.training_block_description.trim()
+          ? fitnessWeek.training_block_description.trim()
+          : "";
   const currentWeekContext = typeof fitnessWeek?.context === "string" ? fitnessWeek.context : "";
-  const currentWeekSummary = typeof fitnessWeek?.ai_summary === "string" ? fitnessWeek.ai_summary : "";
 
   return (
     <div className="mainScroll workoutsView">
@@ -283,10 +282,6 @@ export default function WorkoutsView({
                   onChange={(e) => onEditWeekContext?.(e.target.value ?? "")}
                   aria-label="Training week notes"
                 />
-              </section>
-              <section className="workoutsWeekSummarySection" aria-label="Weekly AI summary">
-              <h3 className="workoutsBlockMetaName">Summary</h3>
-                {currentWeekSummary ? <p className="workoutsBlockMetaDescription">{currentWeekSummary}</p> : <p className="workoutsBlockMetaDescription muted">No summary yet.</p>}
               </section>
             </div>
           ) : null}

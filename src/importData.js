@@ -183,7 +183,7 @@ function normalizeWeek(entry) {
     week_end: hasIsoDate(safe.week_end) ? safe.week_end : "",
     block_id: normalizeOptionalText(safe.block_id),
     workouts,
-    ai_summary: normalizeOptionalText(safe.ai_summary || safe.summary),
+    summary: normalizeOptionalText(safe.summary),
     context: normalizeOptionalText(safe.context),
   };
 }

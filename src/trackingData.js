@@ -235,7 +235,7 @@ function normalizeWeek(entry, { requireStart = true } = {}) {
     week_end: isIsoDateString(safe.week_end) ? safe.week_end : getWeekEndSunday(weekStart || getSeattleDateString()),
     block_id: normalizeOptionalText(safe.block_id || safe.training_block_id),
     workouts,
-    ai_summary: normalizeOptionalText(safe.ai_summary || safe.summary),
+    summary: normalizeOptionalText(safe.summary),
     context: normalizeOptionalText(safe.context),
   };
 }
@@ -556,7 +556,7 @@ function ensureCurrentWeekInCanonical(canonical, now = new Date()) {
       completed: false,
       date: null,
     })),
-    ai_summary: "",
+    summary: "",
     context: "",
   };
 
@@ -661,8 +661,7 @@ function canonicalWeekToLegacy(week, block) {
   return {
     week_start: safeWeek.week_start,
     week_label: weekLabelFromStart(safeWeek.week_start),
-    summary: normalizeOptionalText(safeWeek.ai_summary),
-    ai_summary: normalizeOptionalText(safeWeek.ai_summary),
+    summary: normalizeOptionalText(safeWeek.summary),
     context: normalizeOptionalText(safeWeek.context),
     training_block_id: normalizeOptionalText(safeWeek.block_id),
     training_block_name: normalizeOptionalText(safeBlock?.block_name),
@@ -736,9 +735,8 @@ function canonicalWeekToView(week, block) {
     block_name: normalizeOptionalText(safeBlock?.block_name),
     block_details: normalizeOptionalText(safeBlock?.block_details),
     workouts,
-    ai_summary: normalizeOptionalText(safeWeek.ai_summary),
     context: normalizeOptionalText(safeWeek.context),
-    summary: normalizeOptionalText(safeWeek.ai_summary),
+    summary: normalizeOptionalText(safeWeek.summary),
   };
 }
 
@@ -1137,12 +1135,12 @@ function weekFromLegacyPatch(legacyWeek, fallbackWeek, blockId) {
     week_end: safeFallback.week_end,
     block_id: blockId || safeFallback.block_id,
     workouts,
-    ai_summary:
-      typeof safeLegacy.ai_summary === "string"
-        ? safeLegacy.ai_summary
-        : typeof safeLegacy.summary === "string"
-          ? safeLegacy.summary
-          : safeFallback.ai_summary,
+    summary:
+      typeof safeLegacy.summary === "string"
+        ? safeLegacy.summary
+        : typeof safeFallback.summary === "string"
+          ? safeFallback.summary
+          : "",
     context: typeof safeLegacy.context === "string" ? safeLegacy.context : safeFallback.context,
   });
 }
@@ -1252,7 +1250,7 @@ export async function updateCurrentWeekSummary(summary) {
 
   const next = normalizeWeek({
     ...current,
-    ai_summary: summary,
+    summary,
   });
   ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
   ensured.data.rules.metadata = {
@@ -1362,7 +1360,7 @@ export async function updateCurrentActivityWeekSummary(summary) {
 
   const next = normalizeWeek({
     ...current,
-    ai_summary: summary,
+    summary,
   });
   ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
   ensured.data.rules.metadata = {

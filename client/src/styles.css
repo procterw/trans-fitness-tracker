@@ -655,6 +655,19 @@ textarea {
 }
 
 @media (max-width: 700px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  .settingsProfileTextarea,
+  .settingsChecklistJsonTextarea,
+  .settingsBlockDescription,
+  .settingsChecklistDescription {
+    font-size: 16px !important;
+  }
+
   .row {
     grid-template-columns: 1fr;
   }
@@ -1286,7 +1299,6 @@ ul {
 
 .chatPanel {
   flex: 1;
-  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2218,6 +2230,16 @@ input.fitnessChecklistDate {
 }
 
 @media (max-width: 1000px) {
+  input,
+  textarea,
+  select,
+  .settingsProfileTextarea,
+  .settingsChecklistJsonTextarea,
+  .settingsBlockDescription,
+  .settingsChecklistDescription {
+    font-size: 16px !important;
+  }
+
   .appNavbar {
     min-height: 46px;
     padding: 7px 10px;
@@ -2335,6 +2357,9 @@ input.fitnessChecklistDate {
 
   .settingsEditorSplit {
     grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .chatContextPanel.workflowSidebar {
@@ -2348,7 +2373,10 @@ input.fitnessChecklistDate {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     border-right: none;
-    max-height: 40vh;
+    max-height: none;
+    min-height: auto;
+    height: auto;
+    overflow: visible !important;
   }
 
   .settingsBlocksPanel,
@@ -2356,7 +2384,10 @@ input.fitnessChecklistDate {
     padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     border-right: none;
-    max-height: 40vh;
+    max-height: none;
+    min-height: auto;
+    height: auto;
+    overflow: visible !important;
   }
 
   .chatMessages {
@@ -2481,6 +2512,10 @@ input.fitnessChecklistDate {
     max-width: none;
   }
 
+  .fitnessHistoryPhaseSummary {
+    width: 100%;
+  }
+
   .fitnessHistoryTable {
     width: max-content;
     min-width: 100%;
@@ -2543,7 +2578,7 @@ input.fitnessChecklistDate {
 
 .workoutsBlockHeaderRow {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
   align-items: start;
 }
@@ -2574,6 +2609,13 @@ input.fitnessChecklistDate {
   min-width: 0;
   width: 100%;
   flex: 1 1 0;
+}
+
+.workoutsWeekSummaryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .workoutsWeekSummarySection {
@@ -2674,7 +2716,6 @@ input.fitnessChecklistDate {
 
 .settingsProfileTextarea {
   min-height: 180px;
-  font-size: 13px;
   line-height: 1.45;
   resize: none;
   background: var(--card);

@@ -289,9 +289,10 @@ export async function updateFitnessWeekContext(context = "") {
 }
 
 export async function updateFitnessSummary(summary) {
+  const body = typeof summary === "string" ? { summary } : {};
   return fetchJson("/api/fitness/current/summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ summary }),
+    body: JSON.stringify(body),
   });
 }

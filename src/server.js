@@ -337,9 +337,7 @@ function applyChecklistCategories(currentWeek, categories) {
     summary:
       typeof safeWeek.summary === "string"
         ? safeWeek.summary
-        : typeof safeWeek.ai_summary === "string"
-          ? safeWeek.ai_summary
-          : "",
+        : "",
   };
 
   const usedKeys = new Set();
@@ -1013,16 +1011,12 @@ function canonicalWeekFromChecklistTemplateWeek(templateWeek, fallbackWeek = nul
         : getWeekEndSundayFromStart(weekStartRaw),
     block_id: blockId,
     workouts: nextWorkouts,
-    ai_summary:
-      typeof safeTemplateWeek.ai_summary === "string"
-        ? safeTemplateWeek.ai_summary
-        : typeof safeTemplateWeek.summary === "string"
-          ? safeTemplateWeek.summary
-          : typeof safeFallback.ai_summary === "string"
-            ? safeFallback.ai_summary
-            : typeof safeFallback.summary === "string"
-              ? safeFallback.summary
-              : "",
+    summary:
+      typeof safeTemplateWeek.summary === "string"
+        ? safeTemplateWeek.summary
+        : typeof safeFallback.summary === "string"
+          ? safeFallback.summary
+          : "",
   };
 }
 
@@ -3010,8 +3004,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       }));
       const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
 
-      const updatedWeek = await updateCurrentWeekItems(updates);
-      await refreshCurrentWeekSummaryForActivity(updatedWeek);
+      await updateCurrentWeekItems(updates);
       const canonicalWeek = await getCurrentActivityWeek();
 
       const responsePayload = {
@@ -3212,8 +3205,6 @@ app.post("/api/fitness/current/item", async (req, res) => {
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
     await updateCurrentActivityWorkout({ index, completed: checked, details, date: dateRaw });
-    const checklistWeek = await ensureCurrentWeek();
-    await refreshCurrentWeekSummaryForActivity(checklistWeek);
     const week = await getCurrentActivityWeek();
     res.json({ ok: true, week });
   } catch (err) {
@@ -3230,13 +3221,15 @@ app.post("/api/fitness/current/item", async (req, res) => {
 
 app.post("/api/fitness/current/summary", async (req, res) => {
   try {
-    const summary =
-      typeof req.body?.summary === "string"
-        ? req.body.summary
-        : typeof req.body?.ai_summary === "string"
-          ? req.body.ai_summary
-          : "";
-    const week = await updateCurrentActivityWeekSummary(summary);
+    const body = asObject(req.body);
+    let week;
+    if (Object.prototype.hasOwnProperty.call(body, "summary")) {
+      const summary = typeof body.summary === "string" ? body.summary : "";
+      week = await updateCurrentActivityWeekSummary(summary);
+    } else {
+      const currentWeek = await getCurrentActivityWeek();
+      week = await refreshCurrentWeekSummaryForActivity(currentWeek);
+    }
     res.json({ ok: true, week });
   } catch (err) {
     res.status(500).json({ ok: false, error: err instanceof Error ? err.message : String(err) });

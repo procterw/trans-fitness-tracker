@@ -17,6 +17,7 @@ import {
   confirmSettingsChanges,
   updateFitnessItem,
   updateFitnessWeekContext,
+  updateFitnessSummary,
 } from "./api.js";
 import { getFitnessCategories } from "./fitnessChecklist.js";
 import {
@@ -214,7 +215,7 @@ function normalizeFitnessWeek(value) {
           ? safe.training_block_description
           : "",
     workouts,
-    ai_summary: typeof safe.ai_summary === "string" ? safe.ai_summary : typeof safe.summary === "string" ? safe.summary : "",
+    summary: typeof safe.summary === "string" ? safe.summary : "",
     context: typeof safe.context === "string" ? safe.context : "",
   };
 }
@@ -462,6 +463,9 @@ export default function App() {
   const [fitnessError, setFitnessError] = useState("");
   const [fitnessWeek, setFitnessWeek] = useState(null);
   const [fitnessLoading, setFitnessLoading] = useState(false);
+  const [fitnessSummaryGenerating, setFitnessSummaryGenerating] = useState(false);
+  const fitnessWeekSaveSeqRef = useRef(0);
+  const fitnessSummarySeqRef = useRef(0);
   const [fitnessHistory, setFitnessHistory] = useState([]);
   const [fitnessHistoryError, setFitnessHistoryError] = useState("");
   const [fitnessHistoryLoading, setFitnessHistoryLoading] = useState(false);
@@ -1289,22 +1293,28 @@ export default function App() {
 
   const enqueueFitnessSave = useSerialQueue();
 
-  const saveFitnessItem = ({ workoutIndex, completed, details, date = undefined }) => {
+  const saveFitnessItem = ({ workoutIndex, completed, details, date = undefined, saveSeq }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
       const json = await updateFitnessItem({ workoutIndex, checked: completed, details, date });
-      setFitnessWeek(normalizeFitnessWeek(json?.week));
+      if (saveSeq !== fitnessWeekSaveSeqRef.current) return;
+
+      const nextWeek = normalizeFitnessWeek(json?.week);
+      if (nextWeek) setFitnessWeek(nextWeek);
       setFitnessStatus("Saved.");
     }).catch((e) => {
-      setFitnessError(e instanceof Error ? e.message : String(e));
-      setFitnessStatus("");
-      });
+      if (saveSeq === fitnessWeekSaveSeqRef.current) {
+        setFitnessError(e instanceof Error ? e.message : String(e));
+        setFitnessStatus("");
+      }
+    });
   };
 
   const debouncedSaveFitnessItem = useDebouncedKeyedCallback(saveFitnessItem, 450);
 
   const onToggleFitness = (workoutIndex, completed) => {
+    const saveSeq = ++fitnessWeekSaveSeqRef.current;
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -1317,12 +1327,14 @@ export default function App() {
         completed,
         details: list[workoutIndex].details ?? "",
         date: list[workoutIndex].date || "",
+        saveSeq,
       });
       return next;
     });
   };
 
   const onEditFitnessDetails = (workoutIndex, details) => {
+    const saveSeq = ++fitnessWeekSaveSeqRef.current;
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -1334,12 +1346,14 @@ export default function App() {
         completed: Boolean(list[workoutIndex].completed),
         details,
         date: list[workoutIndex].date || "",
+        saveSeq,
       });
       return next;
     });
   };
 
   const onEditFitnessDate = (workoutIndex, date) => {
+    const saveSeq = ++fitnessWeekSaveSeqRef.current;
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
@@ -1351,33 +1365,64 @@ export default function App() {
         completed: Boolean(list[workoutIndex].completed),
         details: typeof list[workoutIndex].details === "string" ? list[workoutIndex].details : "",
         date,
+        saveSeq,
       });
       return next;
     });
   };
 
-  const saveFitnessWeekContext = ({ context }) => {
+  const saveFitnessWeekContext = ({ context, saveSeq }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
       const json = await updateFitnessWeekContext(context);
-      setFitnessWeek(normalizeFitnessWeek(json?.week));
+      if (saveSeq !== fitnessWeekSaveSeqRef.current) return;
+
+      const nextWeek = normalizeFitnessWeek(json?.week);
+      if (nextWeek) setFitnessWeek(nextWeek);
       setFitnessStatus("Saved.");
     }).catch((e) => {
-      setFitnessError(e instanceof Error ? e.message : String(e));
-      setFitnessStatus("");
+      if (saveSeq === fitnessWeekSaveSeqRef.current) {
+        setFitnessError(e instanceof Error ? e.message : String(e));
+        setFitnessStatus("");
+      }
     });
   };
 
   const debouncedSaveFitnessWeekContext = useDebouncedKeyedCallback(saveFitnessWeekContext, 450);
 
+  const onGenerateFitnessSummary = () => {
+    const saveSeq = ++fitnessSummarySeqRef.current;
+    setFitnessError("");
+    setFitnessStatus("Generating AI summary…");
+    setFitnessSummaryGenerating(true);
+    enqueueFitnessSave(async () => {
+      try {
+        const json = await updateFitnessSummary();
+        if (saveSeq !== fitnessSummarySeqRef.current) return;
+        const nextWeek = normalizeFitnessWeek(json?.week);
+        if (nextWeek) setFitnessWeek(nextWeek);
+        setFitnessStatus("AI summary generated.");
+      } finally {
+        if (saveSeq === fitnessSummarySeqRef.current) setFitnessSummaryGenerating(false);
+      }
+    }).catch((e) => {
+      if (saveSeq === fitnessSummarySeqRef.current) {
+        setFitnessError(e instanceof Error ? e.message : String(e));
+        setFitnessStatus("");
+        setFitnessSummaryGenerating(false);
+      }
+    });
+  };
+
   const onEditWeekContext = (context) => {
     const value = typeof context === "string" ? context : "";
+    const saveSeq = ++fitnessWeekSaveSeqRef.current;
     setFitnessWeek((prev) => {
       if (!prev) return prev;
       const next = structuredClone(prev);
       next.context = value;
-      debouncedSaveFitnessWeekContext("fitness-week-context", { context: value });
+      debouncedSaveFitnessWeekContext("fitness-week-context", { context: value, saveSeq });
       return next;
     });
   };
@@ -1766,6 +1811,7 @@ export default function App() {
                 <WorkoutsView
                   fitnessWeek={fitnessWeek}
                   fitnessLoading={fitnessLoading}
+                  fitnessSummaryGenerating={fitnessSummaryGenerating}
                   fitnessHistory={fitnessHistory}
                   fitnessHistoryError={fitnessHistoryError}
                   fitnessHistoryLoading={fitnessHistoryLoading}
@@ -1773,6 +1819,7 @@ export default function App() {
                   onEditFitnessDetails={onEditFitnessDetails}
                   onEditFitnessDate={onEditFitnessDate}
                   onEditWeekContext={onEditWeekContext}
+                  onGenerateFitnessSummary={onGenerateFitnessSummary}
                 />
               ) : null}
 
