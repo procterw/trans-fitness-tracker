@@ -33,7 +33,6 @@ export default function SidebarView({
   sidebarProtein,
   sidebarCarbs,
   sidebarFat,
-  sidebarQualitySummary,
   fitnessWeek,
   fmt,
 }) {
@@ -62,10 +61,6 @@ export default function SidebarView({
               <span>
                 {fmt(sidebarCalories)} kcal • P {fmt(sidebarProtein)} g • C {fmt(sidebarCarbs)} g • F {fmt(sidebarFat)} g
               </span>
-            </li>
-            <li className="sidebarListItem">
-              <span className="sidebarSectionLabel">Quality</span>
-              <span>{sidebarQualitySummary}</span>
             </li>
           </ul>
         ) : null}

@@ -36,7 +36,7 @@ import StatusMessage from "./components/StatusMessage.jsx";
 import useDebouncedKeyedCallback from "./hooks/useDebouncedKeyedCallback.js";
 import useSerialQueue from "./hooks/useSerialQueue.js";
 import { addDaysIso, localDateString } from "./utils/date.js";
-import { buildFoodDaySummary, getFoodEntriesFromDay } from "./utils/foodSummary.js";
+import { getFoodEntriesFromDay } from "./utils/foodSummary.js";
 import { normalizeProfileText, normalizeSettingsProfiles, settingsProfilesEqual } from "./utils/settingsProfiles.js";
 import SettingsView from "./views/SettingsView.jsx";
 
@@ -48,6 +48,21 @@ function asObject(value) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function isLikelyFoodClarificationMessage(value) {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!text) return false;
+  if (text.length > 140) return false;
+
+  const correctionCue = /\b(actually|correction|i meant|make that|instead|update|edit|change)\b/.test(text);
+  const continuationCue = /^(it|that|this|also|with|without|no|extra|plus|and|just|only|same|was|is|add|added)\b/.test(text);
+  const detailCue = /\b(mint|flavor|size|small|medium|large|regular|single|double|cheese|fries|drink|sauce|brand|kind|type)\b/.test(text);
+  const freshMealCue =
+    /\b(i had|i ate|i drank|for breakfast|for lunch|for dinner|breakfast|lunch|dinner)\b/.test(text);
+
+  if (freshMealCue && !correctionCue) return false;
+  return correctionCue || (continuationCue && detailCue) || /^it was\b/.test(text);
 }
 
 function getTrainingImportPayload(raw) {
@@ -417,6 +432,7 @@ export default function App() {
   const [composerMessages, setComposerMessages] = useState([]);
   const composerMessageIdRef = useRef(0);
   const composerSubmitInFlightRef = useRef(false);
+  const pendingFoodUpdateEventIdRef = useRef("");
   const [settingsProfilesSaving, setSettingsProfilesSaving] = useState(false);
   const [settingsBlocksSaving, setSettingsBlocksSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -752,17 +768,11 @@ export default function App() {
       const daySummaryText =
         typeof day?.ai_summary === "string" ? day.ai_summary : typeof day?.details === "string" ? day.details : "";
       const foodEntries = getFoodEntriesFromDay(day, { fallbackSummary: daySummaryText });
-      const qualitySummary = buildFoodDaySummary({
-        totals,
-        foodEntries,
-        summaryText: daySummaryText,
-      });
       if (seq !== sidebarDaySeqRef.current) return;
       setSidebarDaySummary({
         date,
         totals,
         food_entries: foodEntries,
-        quality_summary: qualitySummary,
       });
       setSidebarDayStatus("");
     } catch (e) {
@@ -1050,6 +1060,9 @@ export default function App() {
         const foodLogAction = json?.food_result?.log_action ?? json?.log_action ?? null;
         const foodEventId =
           typeof json?.food_result?.event?.id === "string" ? json.food_result.event.id.trim() : "";
+        if (json.action === "food" && UUID_LIKE_RE.test(foodEventId)) {
+          pendingFoodUpdateEventIdRef.current = foodEventId;
+        }
         const foodTitle = typeof json?.food_result?.event?.description === "string" ? json.food_result.event.description.trim() : "";
         const fallbackFoodTitle =
           typeof json?.food_result?.estimate?.meal_title === "string" ? json.food_result.estimate.meal_title.trim() : "";
@@ -1133,6 +1146,7 @@ export default function App() {
     };
 
     try {
+      const messageLooksLikeClarification = isLikelyFoodClarificationMessage(messageText);
       const lastAssistantMessage = [...previous].reverse().find((entry) => entry?.role === "assistant");
       const candidateFollowupEventId =
         !foodAttachments.length &&
@@ -1140,7 +1154,15 @@ export default function App() {
         typeof lastAssistantMessage?.foodEventId === "string"
           ? lastAssistantMessage.foodEventId.trim()
           : "";
-      const followupEventId = UUID_LIKE_RE.test(candidateFollowupEventId) ? candidateFollowupEventId : "";
+      const candidatePendingEventId =
+        !foodAttachments.length && messageLooksLikeClarification
+          ? String(pendingFoodUpdateEventIdRef.current || "").trim()
+          : "";
+      const followupEventIdCandidate = candidateFollowupEventId || candidatePendingEventId;
+      const followupEventId = UUID_LIKE_RE.test(followupEventIdCandidate) ? followupEventIdCandidate : "";
+      if (!followupEventId && (!messageLooksLikeClarification || foodAttachments.length)) {
+        pendingFoodUpdateEventIdRef.current = "";
+      }
       const clientRequestId =
         typeof globalThis.crypto?.randomUUID === "function"
           ? globalThis.crypto.randomUUID()
@@ -1664,34 +1686,6 @@ export default function App() {
   const sidebarCarbs = typeof sidebarTotals.carbs_g === "number" ? sidebarTotals.carbs_g : null;
   const sidebarFat = typeof sidebarTotals.fat_g === "number" ? sidebarTotals.fat_g : null;
 
-  const now = new Date();
-  const isToday = sidebarDaySummary?.date === localDateString(now);
-  const hourNow = now.getHours();
-  const dayPart = hourNow < 11 ? "morning" : hourNow < 17 ? "afternoon" : "evening";
-  const timeLabel = isToday ? dayPart : "day";
-
-  let calorieNote = "No calorie data yet.";
-  if (sidebarCalories !== null) {
-    const target = isToday ? (dayPart === "morning" ? 450 : dayPart === "afternoon" ? 1000 : 1600) : 1600;
-    if (sidebarCalories < target * 0.6) calorieNote = `Light for this ${timeLabel}.`;
-    else if (sidebarCalories > target * 1.6) calorieNote = `Heavy for this ${timeLabel}.`;
-    else calorieNote = `On track for this ${timeLabel}.`;
-  }
-
-  let proteinNote = "Protein data missing.";
-  if (sidebarProtein !== null) {
-    if (sidebarProtein >= 110) proteinNote = "Protein high vs feminization goals.";
-    else if (sidebarProtein >= 80) proteinNote = "Protein moderate-high.";
-    else if (sidebarProtein >= 40) proteinNote = "Protein moderate (aligned).";
-    else proteinNote = "Protein low (aligned).";
-  }
-
-  const fallbackQualitySummary = `${calorieNote} ${proteinNote}`.trim();
-  const sidebarQualitySummary =
-    typeof sidebarDaySummary?.quality_summary === "string" && sidebarDaySummary.quality_summary.trim()
-      ? sidebarDaySummary.quality_summary.trim()
-      : fallbackQualitySummary;
-
   if (signedOut) {
     return (
       <SignedOutView authStatus={authStatus} authActionLoading={authActionLoading} onSignIn={onSignIn} />
@@ -1763,7 +1757,6 @@ export default function App() {
               sidebarProtein={sidebarProtein}
               sidebarCarbs={sidebarCarbs}
               sidebarFat={sidebarFat}
-              sidebarQualitySummary={sidebarQualitySummary}
               fitnessWeek={fitnessWeek}
               fmt={fmt}
             />

@@ -1,6 +1,6 @@
 import React from "react";
 
-import { buildFoodDaySummary, formatFoodEntries, getFoodEntriesFromDay } from "../utils/foodSummary.js";
+import { formatFoodEntries, getFoodEntriesFromDay } from "../utils/foodSummary.js";
 
 function getTodayFoodEntries(day) {
   return getFoodEntriesFromDay(day, {
@@ -28,11 +28,6 @@ export default function DietView({
 
   const dayFoodEntries = getTodayFoodEntries(dashDay);
   const dayFoodsText = formatFoodEntries(dayFoodEntries);
-  const dayQualitySummary = buildFoodDaySummary({
-    totals,
-    foodEntries: dayFoodEntries,
-    summaryText: typeof dashDay?.ai_summary === "string" ? dashDay.ai_summary : "",
-  });
 
   return (
     <div className="mainScroll foodLogView">
@@ -50,7 +45,6 @@ export default function DietView({
           <blockquote className="fitnessSummary dietTodaySummary">
             {dayFoodsText || "No foods logged yet."}
           </blockquote>
-          {dayQualitySummary ? <p className="muted">{dayQualitySummary}</p> : null}
           {dashLoading ? <p className="muted">Loading…</p> : null}
 
           {!dashLoading ? (
@@ -104,11 +98,6 @@ export default function DietView({
                       fallbackSummary: typeof row?.ai_summary === "string" ? row.ai_summary : "",
                     });
                     const rowFoodsText = formatFoodEntries(rowFoodEntries);
-                    const rowQualitySummary = buildFoodDaySummary({
-                      totals: row,
-                      foodEntries: rowFoodEntries,
-                      summaryText: typeof row?.ai_summary === "string" ? row.ai_summary : "",
-                    });
 
                     return (
                       <tr key={row.date}>
@@ -121,7 +110,6 @@ export default function DietView({
                         <td>{row.status ?? "incomplete"}</td>
                         <td className="notesCell" title={rowFoodsText}>
                           <div>{rowFoodsText || "No foods logged yet."}</div>
-                          {rowQualitySummary ? <div className="muted">{rowQualitySummary}</div> : null}
                         </td>
                       </tr>
                     );

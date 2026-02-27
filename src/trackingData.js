@@ -248,30 +248,118 @@ function normalizeFoodEntryItem(item) {
   return portion ? `${name} (${portion})` : name;
 }
 
+function stripLegacyMealPrefix(value) {
+  const text = normalizeText(value);
+  const splitIndex = text.indexOf(":");
+  if (splitIndex <= 0) return text;
+  const prefix = normalizeText(text.slice(0, splitIndex)).toLowerCase();
+  const suffix = normalizeText(text.slice(splitIndex + 1));
+  if (!suffix) return text;
+  const suffixLower = suffix.toLowerCase();
+  if (suffixLower.startsWith(prefix)) return suffix;
+  if (/[,(]/.test(suffix)) return suffix;
+  return text;
+}
+
 function buildFoodEntryText(rawItems, description = "") {
   const items = asArray(rawItems)
     .map((item) => normalizeFoodEntryItem(item))
     .filter(Boolean);
   const mealTitle = normalizeText(description);
 
-  if (items.length === 0) return mealTitle;
-  if (!mealTitle || /^meal$/i.test(mealTitle)) return items.join(", ");
-  return `${mealTitle}: ${items.join(", ")}`;
+  // Prefer structured food-item list over free-text meal title to avoid duplicate phrasing.
+  if (items.length > 0) return items.join(", ");
+  return mealTitle;
 }
 
 function normalizeFoodEntries(value) {
   return asArray(value)
     .map((entry) => {
-      if (typeof entry === "string") return normalizeText(entry);
+      if (typeof entry === "string") return stripLegacyMealPrefix(entry);
       const safeEntry = asObject(entry);
-      return normalizeText(safeEntry.text || safeEntry.entry || safeEntry.description || safeEntry.title);
+      return stripLegacyMealPrefix(safeEntry.text || safeEntry.entry || safeEntry.description || safeEntry.title);
     })
     .filter(Boolean);
 }
 
-function formatFoodEntriesForDaySummary(mealEntries) {
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function buildEnergySummary(calories, fat, carbs, protein, fiber) {
+  if (![calories, fat, carbs, protein, fiber].some((value) => isFiniteNumber(value))) {
+    return "No nutrition totals yet.";
+  }
+
+  if (isFiniteNumber(calories) && calories < 2000) {
+    return "Just below target so far; higher activity days may need one more meal for energy sufficiency.";
+  }
+
+  if (isFiniteNumber(calories) && calories < 2900) {
+    return "Solid surplus with clear calorie sufficiency for activity and steady progress.";
+  }
+
+  if (isFiniteNumber(calories)) {
+    return "Large surplus day with high energy availability.";
+  }
+
+  return "Energy availability is incomplete from the current payload.";
+}
+
+function buildMacroSummary(carbs, fat) {
+  if (isFiniteNumber(carbs) && isFiniteNumber(fat)) {
+    if (carbs >= 220 && carbs >= fat * 1.4) {
+      return "Carb-forward fueling pattern, consistent with endurance-oriented activity support.";
+    }
+    if (fat >= 95 && fat >= carbs * 0.7) {
+      return "Fat-forward, calorie-dense intake pattern.";
+    }
+  }
+  return "Mixed carb/fat intake pattern across the day.";
+}
+
+function buildProteinSummary(protein) {
+  if (!isFiniteNumber(protein)) {
+    return "Protein total is incomplete.";
+  }
+  if (protein <= 95) {
+    return `Protein at ${Math.round(protein)}g stayed moderate and generally aligned with slow atrophy goals.`;
+  }
+  if (protein <= 120) {
+    return `Protein at ${Math.round(protein)}g was slightly elevated but diffuse and fat-paired, still broadly compatible with goals.`;
+  }
+  return `Protein at ${Math.round(protein)}g was elevated, but spread across meals and fat-paired, which softens muscle-retention signaling.`;
+}
+
+function buildFiberSummary(fiber) {
+  return isFiniteNumber(fiber) && fiber < 15 ? "Fiber ran low relative to intake quality." : "";
+}
+
+function buildFoodNarrativeFromEntries(mealEntries) {
   const entries = normalizeFoodEntries(mealEntries);
-  return entries.join("; ");
+  if (!entries.length) return "";
+  return `Food: ${entries.join("; ")}.`;
+}
+
+function buildFoodDayAiSummary(day) {
+  const safe = asObject(day);
+  const calories = toNumberOrNull(safe.calories);
+  const fat = toNumberOrNull(safe.fat_g);
+  const carbs = toNumberOrNull(safe.carbs_g);
+  const protein = toNumberOrNull(safe.protein_g);
+  const fiber = toNumberOrNull(safe.fiber_g);
+
+  const foodNarrative = buildFoodNarrativeFromEntries(safe.food_entries);
+  const assessmentParts = [
+    buildEnergySummary(calories, fat, carbs, protein, fiber),
+    buildMacroSummary(carbs, fat),
+    buildProteinSummary(protein),
+    buildFiberSummary(fiber),
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+
+  return [foodNarrative, assessmentParts.join(" ")].map((value) => normalizeText(value)).filter(Boolean).join(" ");
 }
 
 function normalizeDietDay(row) {
@@ -895,8 +983,7 @@ export async function addFoodEvent({
   if (loggedFoodEntry) {
     merged.food_entries = [...asArray(merged.food_entries), loggedFoodEntry];
   }
-
-  merged.ai_summary = formatFoodEntriesForDaySummary(merged.food_entries);
+  merged.ai_summary = buildFoodDayAiSummary(merged);
 
   canonical.food.days = upsertDietDay(canonical.food.days, merged);
   canonical.rules.metadata = {
@@ -955,7 +1042,7 @@ export async function updateFoodEvent({
   const replaced = replaceDayTotals(existing, nutrients);
   const loggedFoodEntry = buildFoodEntryText(raw_items, description);
   replaced.food_entries = loggedFoodEntry ? [loggedFoodEntry] : [];
-  replaced.ai_summary = formatFoodEntriesForDaySummary(replaced.food_entries);
+  replaced.ai_summary = buildFoodDayAiSummary(replaced);
 
   canonical.food.days = upsertDietDay(canonical.food.days, replaced);
   canonical.rules.metadata = {

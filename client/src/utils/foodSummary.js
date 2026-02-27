@@ -2,9 +2,22 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
+function stripLegacyMealPrefix(value) {
+  const text = normalizeText(value);
+  const splitIndex = text.indexOf(":");
+  if (splitIndex <= 0) return text;
+  const prefix = normalizeText(text.slice(0, splitIndex)).toLowerCase();
+  const suffix = normalizeText(text.slice(splitIndex + 1));
+  if (!suffix) return text;
+  const suffixLower = suffix.toLowerCase();
+  if (suffixLower.startsWith(prefix)) return suffix;
+  if (/[,(]/.test(suffix)) return suffix;
+  return text;
+}
+
 function normalizeFoodEntry(entry) {
   if (typeof entry === "string") {
-    return normalizeText(entry);
+    return stripLegacyMealPrefix(entry);
   }
 
   if (!entry || typeof entry !== "object") {
@@ -12,7 +25,9 @@ function normalizeFoodEntry(entry) {
   }
 
   const safe = entry;
-  const name = normalizeText(safe.name || safe.label || safe.item || safe.food || safe.text || safe.title || safe.entry);
+  const name = stripLegacyMealPrefix(
+    safe.name || safe.label || safe.item || safe.food || safe.text || safe.title || safe.entry,
+  );
   if (!name) return "";
 
   const portion = normalizeText(safe.portion || safe.amount || safe.qty || safe.quantity);
@@ -133,4 +148,3 @@ export function buildFoodDaySummary({ totals = null, foodEntries = null, summary
 
   return notes;
 }
-
