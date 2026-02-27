@@ -155,6 +155,7 @@ export async function writeFoodEventFromIngestDecision({
   file,
   requestDate = null,
   requestEventId = null,
+  requestRecentFoodEventId = null,
   clientRequestId = null,
 }) {
   if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
@@ -171,10 +172,12 @@ export async function writeFoodEventFromIngestDecision({
   const estimatedDescription = normalizeTextValue(foodDecision.estimated_description);
   const descriptionForEstimator = description || estimatedDescription;
   const notes = normalizeTextValue(foodDecision.notes);
+  const isCorrection = foodDecision.is_correction === true;
   // Prefer explicit request event id (client/UI context). Model event ids are best-effort only.
   const requestEventIdParsed = parseIngestEventId(requestEventId);
   const modelEventIdParsed = parseIngestEventId(foodDecision.event_id, { strict: false });
-  const eventId = requestEventIdParsed || modelEventIdParsed;
+  const recentEventIdParsed = parseIngestEventId(requestRecentFoodEventId, { strict: false });
+  const eventId = requestEventIdParsed || modelEventIdParsed || (isCorrection ? recentEventIdParsed : null);
   const date = normalizeDateOrNull(foodDecision.date) || normalizeDateOrNull(requestDate) || null;
 
   if (requiresEstimate && (!descriptionForEstimator || file)) {
@@ -444,20 +447,6 @@ export function isClearFoodCommand(message) {
   if (!hasClearVerb) return false;
   const hasFoodCue = /\b(food|meal|entries|intake|calories|macros|food log|day totals?)\b/.test(lower);
   return hasFoodCue;
-}
-
-export function looksLikeBulkFoodImportText(message) {
-  if (typeof message !== "string") return false;
-  const lower = message.toLowerCase();
-  const uniqueDates = extractIsoDates(message).length;
-  const hasImportCue = /\b(import|upload|migrate|backfill|historical|history|json|csv|data file|data\.json)\b/.test(lower);
-  const hasStructuredCue =
-    /"days"\s*:|^\s*[{[]/m.test(message) ||
-    /\b(calories|protein|carbs|fat)\b[\s:=-]*\d+/i.test(message);
-
-  if (hasImportCue && (uniqueDates >= 2 || hasStructuredCue || message.length >= 600)) return true;
-  if (uniqueDates >= 4 && /\b(calories|protein|carbs|fat)\b/i.test(message)) return true;
-  return false;
 }
 
 export function summarizeActivityUpdates(updates) {

@@ -160,6 +160,7 @@ export async function ingestAssistant({
   date = "",
   messages = [],
   eventId = "",
+  recentFoodEventId = "",
   clientRequestId = "",
 }) {
   const fd = new FormData();
@@ -167,6 +168,7 @@ export async function ingestAssistant({
   if (date) fd.append("date", date);
   fd.append("message", message ?? "");
   if (eventId) fd.append("event_id", eventId);
+  if (recentFoodEventId) fd.append("recent_food_event_id", recentFoodEventId);
   if (clientRequestId) fd.append("client_request_id", clientRequestId);
   if (messages?.length) fd.append("messages", JSON.stringify(messages));
   return fetchJson("/api/assistant/ingest", { method: "POST", body: fd });
@@ -178,6 +180,7 @@ export async function* ingestAssistantStream({
   date = "",
   messages = [],
   eventId = "",
+  recentFoodEventId = "",
   clientRequestId = "",
 }) {
   const fd = new FormData();
@@ -186,6 +189,7 @@ export async function* ingestAssistantStream({
   fd.append("message", message ?? "");
   fd.append("stream", "true");
   if (eventId) fd.append("event_id", eventId);
+  if (recentFoodEventId) fd.append("recent_food_event_id", recentFoodEventId);
   if (clientRequestId) fd.append("client_request_id", clientRequestId);
   if (messages?.length) fd.append("messages", JSON.stringify(messages));
 

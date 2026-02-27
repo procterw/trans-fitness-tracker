@@ -29,7 +29,6 @@ import {
   isClearFoodCommand,
   isExistingActivityEntry,
   logFoodFromInputs,
-  looksLikeBulkFoodImportText,
   summarizeActivityLoadForDate,
   validateIngestActivityDecision,
   writeFoodEventFromIngestDecision,
@@ -2778,6 +2777,10 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
 
     const date = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
     const eventId = typeof req.body?.event_id === "string" && req.body.event_id.trim() ? req.body.event_id.trim() : null;
+    const recentFoodEventId =
+      typeof req.body?.recent_food_event_id === "string" && req.body.recent_food_event_id.trim()
+        ? req.body.recent_food_event_id.trim()
+        : null;
     const clientRequestId =
       typeof req.body?.client_request_id === "string" && req.body.client_request_id.trim()
         ? req.body.client_request_id.trim()
@@ -2827,28 +2830,6 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
       return res.json(responsePayload);
     }
 
-    if (!file && looksLikeBulkFoodImportText(message)) {
-      const responsePayload = {
-        ok: true,
-        action: "clarify",
-        assistant_message:
-          "That looks like multi-day import data. I did not log it as today's meal. Use Account > Import data to upload or paste JSON, then confirm IMPORT.",
-        followup_question: null,
-        food_result: null,
-        activity_updates: null,
-        answer: null,
-        date: null,
-        log_action: null,
-        week: null,
-      };
-      if (stream) {
-        enableSseHeaders(res);
-        sendStreamingAssistantDone(res, responsePayload);
-        return res.end();
-      }
-      return res.json(responsePayload);
-    }
-
     let decision;
     try {
       decision = await decideIngestAction({
@@ -2857,6 +2838,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         imageBuffer: file?.buffer ?? null,
         imageMimeType: file?.mimetype ?? null,
         date,
+        recentFoodEventId,
         messages,
       });
     } catch (error) {
@@ -2958,6 +2940,7 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         file,
         requestDate: date,
         requestEventId: eventId,
+        requestRecentFoodEventId: recentFoodEventId,
         clientRequestId,
       });
       const activityWeek = await getCurrentActivityWeek();

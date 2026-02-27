@@ -50,21 +50,6 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function isLikelyFoodClarificationMessage(value) {
-  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (!text) return false;
-  if (text.length > 140) return false;
-
-  const correctionCue = /\b(actually|correction|i meant|make that|instead|update|edit|change)\b/.test(text);
-  const continuationCue = /^(it|that|this|also|with|without|no|extra|plus|and|just|only|same|was|is|add|added)\b/.test(text);
-  const detailCue = /\b(mint|flavor|size|small|medium|large|regular|single|double|cheese|fries|drink|sauce|brand|kind|type)\b/.test(text);
-  const freshMealCue =
-    /\b(i had|i ate|i drank|for breakfast|for lunch|for dinner|breakfast|lunch|dinner)\b/.test(text);
-
-  if (freshMealCue && !correctionCue) return false;
-  return correctionCue || (continuationCue && detailCue) || /^it was\b/.test(text);
-}
-
 function getTrainingImportPayload(raw) {
   const safe = asObject(raw);
   const rootTraining = asObject(safe.training);
@@ -432,7 +417,7 @@ export default function App() {
   const [composerMessages, setComposerMessages] = useState([]);
   const composerMessageIdRef = useRef(0);
   const composerSubmitInFlightRef = useRef(false);
-  const pendingFoodUpdateEventIdRef = useRef("");
+  const lastFoodEventIdRef = useRef("");
   const [settingsProfilesSaving, setSettingsProfilesSaving] = useState(false);
   const [settingsBlocksSaving, setSettingsBlocksSaving] = useState(false);
   const [settingsError, setSettingsError] = useState("");
@@ -1061,7 +1046,7 @@ export default function App() {
         const foodEventId =
           typeof json?.food_result?.event?.id === "string" ? json.food_result.event.id.trim() : "";
         if (json.action === "food" && UUID_LIKE_RE.test(foodEventId)) {
-          pendingFoodUpdateEventIdRef.current = foodEventId;
+          lastFoodEventIdRef.current = foodEventId;
         }
         const foodTitle = typeof json?.food_result?.event?.description === "string" ? json.food_result.event.description.trim() : "";
         const fallbackFoodTitle =
@@ -1146,7 +1131,6 @@ export default function App() {
     };
 
     try {
-      const messageLooksLikeClarification = isLikelyFoodClarificationMessage(messageText);
       const lastAssistantMessage = [...previous].reverse().find((entry) => entry?.role === "assistant");
       const candidateFollowupEventId =
         !foodAttachments.length &&
@@ -1154,15 +1138,10 @@ export default function App() {
         typeof lastAssistantMessage?.foodEventId === "string"
           ? lastAssistantMessage.foodEventId.trim()
           : "";
-      const candidatePendingEventId =
-        !foodAttachments.length && messageLooksLikeClarification
-          ? String(pendingFoodUpdateEventIdRef.current || "").trim()
-          : "";
-      const followupEventIdCandidate = candidateFollowupEventId || candidatePendingEventId;
-      const followupEventId = UUID_LIKE_RE.test(followupEventIdCandidate) ? followupEventIdCandidate : "";
-      if (!followupEventId && (!messageLooksLikeClarification || foodAttachments.length)) {
-        pendingFoodUpdateEventIdRef.current = "";
-      }
+      const followupEventId = UUID_LIKE_RE.test(candidateFollowupEventId) ? candidateFollowupEventId : "";
+      const recentFoodEventIdCandidate =
+        !foodAttachments.length && typeof lastFoodEventIdRef.current === "string" ? lastFoodEventIdRef.current.trim() : "";
+      const recentFoodEventId = UUID_LIKE_RE.test(recentFoodEventIdCandidate) ? recentFoodEventIdCandidate : "";
       const clientRequestId =
         typeof globalThis.crypto?.randomUUID === "function"
           ? globalThis.crypto.randomUUID()
@@ -1177,6 +1156,7 @@ export default function App() {
         date: foodDate,
         messages: previous,
         eventId: followupEventId,
+        recentFoodEventId,
         clientRequestId,
       });
 
