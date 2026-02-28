@@ -394,6 +394,10 @@ a {
   overflow: hidden;
 }
 
+.mainContentRow.noSidebar {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .mainPrimaryColumn {
   min-height: 0;
   min-width: 0;
@@ -703,6 +707,33 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dietStatusCell {
+  text-align: center;
+}
+
+.dietStatusDot {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.dietStatusDot--incomplete {
+  background: #9ca3af;
+}
+
+.dietStatusDot--red {
+  background: var(--danger);
+}
+
+.dietStatusDot--yellow {
+  background: #d4a00f;
+}
+
+.dietStatusDot--green {
+  background: var(--ok);
 }
 
 .linkButton {

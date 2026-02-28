@@ -1710,6 +1710,7 @@ export default function App() {
   const sidebarProtein = typeof sidebarTotals.protein_g === "number" ? sidebarTotals.protein_g : null;
   const sidebarCarbs = typeof sidebarTotals.carbs_g === "number" ? sidebarTotals.carbs_g : null;
   const sidebarFat = typeof sidebarTotals.fat_g === "number" ? sidebarTotals.fat_g : null;
+  const shouldShowSidebar = view !== "workouts" && view !== "diet";
 
   if (signedOut) {
     return (
@@ -1771,20 +1772,22 @@ export default function App() {
             onChecklistJsonChange={onChecklistJsonChange}
           />
         ) : (
-          <div className="mainContentRow">
-            <SidebarView
-              foodDate={foodDate}
-              suggestedDate={suggestedDate}
-              sidebarDayError={sidebarDayError}
-              sidebarDayStatus={sidebarDayStatus}
-              sidebarDayMealsSummary={sidebarDayMealsSummary}
-              sidebarCalories={sidebarCalories}
-              sidebarProtein={sidebarProtein}
-              sidebarCarbs={sidebarCarbs}
-              sidebarFat={sidebarFat}
-              fitnessWeek={fitnessWeek}
-              fmt={fmt}
-            />
+          <div className={`mainContentRow${shouldShowSidebar ? "" : " noSidebar"}`}>
+            {shouldShowSidebar ? (
+              <SidebarView
+                foodDate={foodDate}
+                suggestedDate={suggestedDate}
+                sidebarDayError={sidebarDayError}
+                sidebarDayStatus={sidebarDayStatus}
+                sidebarDayMealsSummary={sidebarDayMealsSummary}
+                sidebarCalories={sidebarCalories}
+                sidebarProtein={sidebarProtein}
+                sidebarCarbs={sidebarCarbs}
+                sidebarFat={sidebarFat}
+                fitnessWeek={fitnessWeek}
+                fmt={fmt}
+              />
+            ) : null}
             <div className="mainPrimaryColumn">
               {view === "chat" ? (
                 <ChatView

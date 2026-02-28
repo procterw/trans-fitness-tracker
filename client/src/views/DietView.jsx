@@ -8,6 +8,25 @@ function getTodayFoodEntries(day) {
   });
 }
 
+function getStatusDotMeta(status) {
+  const value = typeof status === "string" ? status.trim().toLowerCase() : "";
+  switch (value) {
+    case "green":
+      return { key: "green", label: "Green" };
+    case "yellow":
+      return { key: "yellow", label: "Yellow" };
+    case "red":
+      return { key: "red", label: "Red" };
+    default:
+      return { key: "incomplete", label: "Incomplete" };
+  }
+}
+
+function StatusDot({ status }) {
+  const { key, label } = getStatusDotMeta(status);
+  return <span className={`dietStatusDot dietStatusDot--${key}`} aria-label={label} title={label} />;
+}
+
 export default function DietView({
   dashError,
   dashLoading,
@@ -107,7 +126,9 @@ export default function DietView({
                         <td>{fmt(row.carbs_g)}</td>
                         <td>{fmt(row.protein_g)}</td>
                         <td>{fmt(row.fiber_g)}</td>
-                        <td>{row.status ?? "incomplete"}</td>
+                        <td className="dietStatusCell">
+                          <StatusDot status={row.status} />
+                        </td>
                         <td className="notesCell" title={rowFoodsText}>
                           <div>{rowFoodsText || "No foods logged yet."}</div>
                         </td>
