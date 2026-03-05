@@ -110,9 +110,12 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
   "For activity intent, select one or more checklist items using the provided category + index.",
   "For activity intent, category must exactly match one of the checklist category keys in the context JSON.",
   "If multiple activities are mentioned, return multiple selections.",
-  "Summarize activity details in a sensible way based on activity type and the user input (for example: distance + time + pace for run/walk, rounds/sets + reps/load for strength, duration + terrain for rides, and notes for anything uncategorized).",
-  "Put any additional specifics (duration, distance, location, modifiers) into notes.",
+  "Summarize activity details in a sensible way based on activity type and the user input (for example: distance + pace for run/walk, sets/reps + load for strength, terrain for rides, and notes for anything uncategorized).",
+  "Put specifics (distance, reps/loads, sets, location, modifiers) into notes.",
+  "Do not ask follow-up questions about duration by default. Ask for duration only if the user explicitly requests or gives duration-oriented context.",
+  "If activity details are missing, ask about exercises performed rather than asking for duration.",
   "For vague activity text, still return a selection when a checklist item mapping is possible; otherwise return clarify.",
+  "For phrases like 'another workout', 'another gym session', and 'session done', choose a single best checklist item automatically when obvious (for example, the most likely next incomplete session) before asking follow-up questions.",
   "For messages that imply starting now (e.g., 'right now', 'at the gym', 'in progress'), treat it as a new activity log; do not ask session-number disambiguation when a reasonable checklist selection exists.",
   "If the user appears to be answering a prior clarification, use the chat history to map to the right item.",
   "Return a final assistant-facing response in assistant_message for direct display.",
@@ -268,6 +271,17 @@ function buildModelInput({ system, contextLabel = "Context JSON", context, messa
   for (const m of safeMessages) input.push(m);
   input.push({ role: "user", content: userContent });
   return input;
+}
+
+function maybeLogIngestPayload(input) {
+  if (String(process.env.DEBUG_INGEST_PAYLOAD || "").toLowerCase() !== "true") return;
+  try {
+    // eslint-disable-next-line no-console
+    console.debug("[ingest.debug]", JSON.stringify(input, null, 2));
+  } catch {
+    // eslint-disable-next-line no-console
+    console.debug("[ingest.debug]", "[unserializable payload]");
+  }
 }
 
 function extractResponseTextDelta(chunk) {
@@ -568,6 +582,7 @@ export async function decideIngestAction({
     messages,
     userContent,
   });
+  maybeLogIngestPayload(input);
 
   const parsed = await parseStructuredResponse({
     client,

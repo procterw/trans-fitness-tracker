@@ -269,9 +269,10 @@ export async function getFitnessHistory({ limit = 12 } = {}) {
   return fetchJson(`/api/fitness/history${qs ? `?${qs}` : ""}`);
 }
 
-export async function updateFitnessItem({ workoutIndex, checked, details, date = undefined }) {
+export async function updateFitnessItem({ workoutIndex, checked, details, date = undefined, weekStart = "" }) {
   const body = { workout_index: workoutIndex, checked, details };
   if (date !== undefined) body.date = date;
+  if (typeof weekStart === "string" && weekStart.trim()) body.week_start = weekStart.trim();
   return fetchJson("/api/fitness/current/item", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -279,8 +280,9 @@ export async function updateFitnessItem({ workoutIndex, checked, details, date =
   });
 }
 
-export async function updateFitnessWeekContext(context = "") {
+export async function updateFitnessWeekContext(context = "", { weekStart = "" } = {}) {
   const body = { context: typeof context === "string" ? context : "" };
+  if (typeof weekStart === "string" && weekStart.trim()) body.week_start = weekStart.trim();
   return fetchJson("/api/fitness/current/context", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

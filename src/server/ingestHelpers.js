@@ -17,6 +17,27 @@ function normalizeTextValue(value, { fallback = "" } = {}) {
   return text.length ? text : fallback;
 }
 
+const SESSION_HINT_WORDS = ["another", "again", "next"];
+const SESSION_NUMBER_WORDS = {
+  first: 1,
+  second: 2,
+  third: 3,
+  fourth: 4,
+  fifth: 5,
+  sixth: 6,
+  seventh: 7,
+  eighth: 8,
+  ninth: 9,
+  tenth: 10,
+};
+
+const SESSION_KEYWORD_TO_TOKEN = new Map([
+  ["glute", "glute"],
+  ["glutes", "glute"],
+  ["mobility", "mobility"],
+  ["prehab", "mobility"],
+]);
+
 function normalizeDateOrNull(value) {
   const text = normalizeTextValue(value, { fallback: "" });
   if (!text) return null;
@@ -201,6 +222,110 @@ function normalizeLabel(value) {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeWorkoutLabel(workout) {
+  return typeof workout?.item === "string"
+    ? workout.item.trim()
+    : typeof workout?.name === "string"
+      ? workout.name.trim()
+      : "";
+}
+
+function buildWorkoutCatalog(currentWeek) {
+  const categoryKeys = getFitnessCategoryKeys(currentWeek);
+  const out = [];
+  for (const category of categoryKeys) {
+    const list = Array.isArray(currentWeek?.[category]) ? currentWeek[category] : [];
+    for (let index = 0; index < list.length; index += 1) {
+      const row = list[index];
+      const label = normalizeWorkoutLabel(row);
+      if (!label) continue;
+      out.push({
+        category,
+        index,
+        label,
+        normalizedLabel: normalizeLabel(label),
+        completed: row?.completed === true,
+        order: out.length,
+      });
+    }
+  }
+  return out;
+}
+
+function parseSessionNumber(value) {
+  const text = typeof value === "string" ? value.toLowerCase() : "";
+  const explicitNumber = text.match(/\b(?:session|workout)\s*(?:#\s*)?(\d{1,2})\b/i);
+  if (explicitNumber) return Number(explicitNumber[1]);
+  const wordMatch = text.match(/\b(?:session|workout)\s*(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/i);
+  if (!wordMatch) return null;
+  return SESSION_NUMBER_WORDS[wordMatch[1]];
+}
+
+function extractSessionIndexFromLabel(normalizedLabel) {
+  const match = normalizedLabel.match(/\bsession\s*(\d{1,2})\b/i);
+  if (!match) return null;
+  return Number(match[1]);
+}
+
+function inferSelectionFromMessageWithCatalog(message, catalog) {
+  if (!catalog.length) return [];
+  const text = typeof message === "string" ? message.toLowerCase() : "";
+  if (!text) return [];
+  if (!/\b(gym|workout|session)\b/.test(text)) return [];
+
+  const sessionLikeEntries = catalog.filter((entry) => /\bsession\b/.test(entry.normalizedLabel));
+  const pool = sessionLikeEntries.length ? sessionLikeEntries : catalog;
+
+  const explicitSession = parseSessionNumber(text);
+  if (explicitSession) {
+    const explicitMatches = pool.filter((entry) => extractSessionIndexFromLabel(entry.normalizedLabel) === explicitSession);
+    if (explicitMatches.length === 1) {
+      const match = explicitMatches[0];
+      return [{ category: match.category, index: match.index, label: match.label }];
+    }
+    if (explicitMatches.length > 1) return [];
+  }
+
+  for (const [keyword, normalizedKeyword] of SESSION_KEYWORD_TO_TOKEN.entries()) {
+    if (!text.includes(keyword)) continue;
+    const keywordMatches = pool.filter((entry) => entry.normalizedLabel.includes(normalizedKeyword));
+    if (keywordMatches.length === 1) {
+      const match = keywordMatches[0];
+      return [{ category: match.category, index: match.index, label: match.label }];
+    }
+    if (keywordMatches.length > 1) {
+      const incompleteKeywordMatches = keywordMatches.filter((entry) => !entry.completed);
+      if (incompleteKeywordMatches.length === 1) {
+        const match = incompleteKeywordMatches[0];
+        return [{ category: match.category, index: match.index, label: match.label }];
+      }
+    }
+  }
+
+  const includesAnother = new RegExp(`\\b(?:${SESSION_HINT_WORDS.join("|")})\\b`, "i").test(text);
+  if (!includesAnother) return [];
+
+  const completedPoolEntries = pool.filter((entry) => entry.completed);
+  if (completedPoolEntries.length) {
+    const lastCompletedOrder = Math.max(...completedPoolEntries.map((entry) => entry.order));
+    const nextEntry = pool.find((entry) => !entry.completed && entry.order > lastCompletedOrder);
+    if (nextEntry) return [{ category: nextEntry.category, index: nextEntry.index, label: nextEntry.label }];
+  }
+
+  const incomplete = pool.filter((entry) => !entry.completed);
+  if (incomplete.length === 1) {
+    const match = incomplete[0];
+    return [{ category: match.category, index: match.index, label: match.label }];
+  }
+
+  return [];
+}
+
+export function inferActivitySelectionFromMessage(message, currentWeek) {
+  const catalog = buildWorkoutCatalog(currentWeek);
+  return inferSelectionFromMessageWithCatalog(message, catalog);
 }
 
 function formatActivityDetails(selection) {

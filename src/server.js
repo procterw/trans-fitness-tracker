@@ -32,6 +32,7 @@ import {
   summarizeActivityLoadForDate,
   validateIngestActivityDecision,
   writeFoodEventFromIngestDecision,
+  inferActivitySelectionFromMessage,
   refreshCurrentWeekSummaryForActivity,
   resolveActivitySelections,
   resolveClearFoodDate,
@@ -56,8 +57,8 @@ import {
   readTrackingData,
   summarizeTrainingBlocks,
   updateCurrentActivityWeekSummary,
-  updateCurrentWeekContext,
-  updateCurrentActivityWorkout,
+  updateActivityWeekContext,
+  updateActivityWorkout,
   updateCurrentWeekItems,
   formatSeattleIso,
   writeTrackingData,
@@ -2960,6 +2961,20 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
     }
 
     if (intent === "activity") {
+      const currentWeek = await ensureCurrentWeek();
+      const inferredSelections = Array.isArray(decision?.activity?.selections) ? decision.activity.selections : [];
+      if (!inferredSelections.length) {
+        const inferred = inferActivitySelectionFromMessage(message, currentWeek);
+        if (inferred.length) {
+          decision.activity = {
+            ...(typeof decision.activity === "object" && decision.activity !== null && !Array.isArray(decision.activity)
+              ? decision.activity
+              : {}),
+            selections: inferred,
+          };
+        }
+      }
+
       const activitySelectionValidation = validateIngestActivityDecision(decision?.activity);
       if (!activitySelectionValidation.ok) {
         responseToClarify.assistant_message =
@@ -2978,7 +2993,6 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         return res.json(responseToClarify);
       }
 
-      const currentWeek = await ensureCurrentWeek();
       const { resolved, errors } = resolveActivitySelections(decision.activity.selections, currentWeek);
       if (!resolved.length || errors.length) {
         responseToClarify.assistant_message =
@@ -3003,6 +3017,13 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         date: activityDate,
       }));
       const hasExistingEntries = updates.some((u) => isExistingActivityEntry(currentWeek, u));
+      const hasAutoSelection = !inferredSelections.length && Array.isArray(decision?.activity?.selections) && decision.activity.selections.length === 1;
+      const assistantText = hasAutoSelection ? null : assistantMessage;
+      const followup = hasAutoSelection
+        ? null
+        : typeof decision?.followup_question === "string" && /\bduration\b/i.test(decision.followup_question)
+          ? null
+          : decision?.followup_question;
 
       await updateCurrentWeekItems(updates);
       const canonicalWeek = await getCurrentActivityWeek();
@@ -3011,8 +3032,8 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         ok: true,
         action: "activity",
         activity_log_state: hasExistingEntries ? "updated" : "saved",
-        assistant_message: assistantMessage || summarizeActivityUpdates(resolved),
-        followup_question: decision?.followup_question || null,
+        assistant_message: assistantText || summarizeActivityUpdates(resolved),
+        followup_question: followup || null,
         food_result: null,
         activity_updates: resolved,
         week: canonicalWeek,
@@ -3196,7 +3217,11 @@ app.post("/api/fitness/current/item", async (req, res) => {
     const index = typeof req.body?.workout_index === "number" ? req.body.workout_index : Number(req.body?.workout_index);
     const checked = typeof req.body?.checked === "boolean" ? req.body.checked : null;
     const details = typeof req.body?.details === "string" ? req.body.details : "";
+    const weekStartRaw = typeof req.body?.week_start === "string" && req.body.week_start.trim() ? req.body.week_start.trim() : null;
     const dateRaw = typeof req.body?.date === "string" && req.body.date.trim() ? req.body.date.trim() : null;
+    if (weekStartRaw !== null && !/^\d{4}-\d{2}-\d{2}$/.test(weekStartRaw)) {
+      return res.status(400).json({ ok: false, error: "Invalid field: week_start" });
+    }
     if (dateRaw !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
       return res.status(400).json({ ok: false, error: "Invalid field: date" });
     }
@@ -3204,12 +3229,19 @@ app.post("/api/fitness/current/item", async (req, res) => {
     if (!Number.isInteger(index) || index < 0) return res.status(400).json({ ok: false, error: "Invalid field: workout_index" });
     if (checked === null) return res.status(400).json({ ok: false, error: "Missing field: checked" });
 
-    await updateCurrentActivityWorkout({ index, completed: checked, details, date: dateRaw });
-    const week = await getCurrentActivityWeek();
+    const week = await updateActivityWorkout({
+      weekStart: weekStartRaw,
+      index,
+      completed: checked,
+      details,
+      date: dateRaw,
+    });
     res.json({ ok: true, week });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isInputError =
+      message.startsWith("Invalid week_start:") ||
+      message.startsWith("Week not found:") ||
       message.startsWith("Invalid workout index:") ||
       message.startsWith("Invalid completed value") ||
       message.startsWith("Invalid details value") ||
@@ -3239,11 +3271,21 @@ app.post("/api/fitness/current/summary", async (req, res) => {
 app.post("/api/fitness/current/context", async (req, res) => {
   try {
     const context = typeof req.body?.context === "string" ? req.body.context : "";
-    const week = await updateCurrentWeekContext(context);
+    const weekStartRaw = typeof req.body?.week_start === "string" && req.body.week_start.trim() ? req.body.week_start.trim() : null;
+    if (weekStartRaw !== null && !/^\d{4}-\d{2}-\d{2}$/.test(weekStartRaw)) {
+      return res.status(400).json({ ok: false, error: "Invalid field: week_start" });
+    }
+    const week = await updateActivityWeekContext({
+      weekStart: weekStartRaw,
+      context,
+    });
     res.json({ ok: true, week });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const isInputError = message.startsWith("Invalid context");
+    const isInputError =
+      message.startsWith("Invalid context") ||
+      message.startsWith("Invalid week_start:") ||
+      message.startsWith("Week not found:");
     res.status(isInputError ? 400 : 500).json({ ok: false, error: message });
   }
 });

@@ -13,6 +13,7 @@ import {
   getSettingsState,
   saveSettingsProfiles,
   settingsBootstrap,
+  ingestAssistant,
   ingestAssistantStream,
   confirmSettingsChanges,
   updateFitnessItem,
@@ -1134,6 +1135,16 @@ export default function App() {
       clearFoodAttachments({ revoke: false });
     };
 
+    const isRecoverableFetchError = (error) => {
+      if (!(error instanceof Error)) return false;
+      return (
+        error.name === "TypeError" ||
+        /NetworkError/i.test(error.message) ||
+        /Failed to fetch/i.test(error.message)
+      );
+    };
+    let fallbackPayload = null;
+
     try {
       const lastAssistantMessage = [...previous].reverse().find((entry) => entry?.role === "assistant");
       const candidateFollowupEventId =
@@ -1151,10 +1162,7 @@ export default function App() {
           ? globalThis.crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-      let streamingMessageId = null;
-      let responsePayload = null;
-      let streamedText = "";
-      const streamIterator = ingestAssistantStream({
+      const requestPayload = {
         message: messageText,
         file: foodAttachments[0]?.file ?? null,
         date: foodDate,
@@ -1162,7 +1170,13 @@ export default function App() {
         eventId: followupEventId,
         recentFoodEventId,
         clientRequestId,
-      });
+      };
+      fallbackPayload = requestPayload;
+
+      let streamingMessageId = null;
+      let responsePayload = null;
+      let streamedText = "";
+      const streamIterator = ingestAssistantStream(requestPayload);
 
       for await (const event of streamIterator) {
         if (event?.type === "error") {
@@ -1203,7 +1217,23 @@ export default function App() {
         clarificationEventId: followupEventId,
       });
     } catch (e2) {
-      setComposerError(e2 instanceof Error ? e2.message : String(e2));
+      if (!isRecoverableFetchError(e2)) {
+        setComposerError(e2 instanceof Error ? e2.message : String(e2));
+        return;
+      }
+
+      try {
+        if (!fallbackPayload) {
+          throw new Error("Unable to retry chat request.");
+        }
+
+        const fallbackResponse = await ingestAssistant(fallbackPayload);
+        appendAssistantMessages(fallbackResponse, {
+          clarificationEventId: UUID_LIKE_RE.test(fallbackPayload.eventId) ? fallbackPayload.eventId : "",
+        });
+      } catch (e3) {
+        setComposerError(e3 instanceof Error ? e3.message : String(e3));
+      }
     } finally {
       setComposerLoading(false);
       composerSubmitInFlightRef.current = false;
@@ -1293,15 +1323,46 @@ export default function App() {
 
   const enqueueFitnessSave = useSerialQueue();
 
-  const saveFitnessItem = ({ workoutIndex, completed, details, date = undefined, saveSeq }) => {
+  const upsertFitnessWeekState = useCallback(
+    (week) => {
+      if (!week) return;
+      const weekStart = typeof week?.week_start === "string" ? week.week_start : "";
+      if (!weekStart) return;
+
+      setFitnessWeek((prev) => {
+        const currentWeekStart = typeof prev?.week_start === "string" ? prev.week_start : "";
+        if (currentWeekStart === weekStart) return week;
+        return prev;
+      });
+
+      setFitnessHistory((prev) => {
+        const rows = Array.isArray(prev) ? prev : [];
+        let found = false;
+        const nextRows = rows.map((row) => {
+          if (row?.week_start === weekStart) {
+            found = true;
+            return week;
+          }
+          return row;
+        });
+        if (found) return nextRows;
+        const currentWeekStart = typeof fitnessWeek?.week_start === "string" ? fitnessWeek.week_start : "";
+        if (weekStart !== currentWeekStart) return [...rows, week].sort((a, b) => String(a?.week_start).localeCompare(String(b?.week_start)));
+        return rows;
+      });
+    },
+    [fitnessWeek],
+  );
+
+  const saveFitnessItem = ({ workoutIndex, completed, details, date = undefined, weekStart = "", saveSeq }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
-      const json = await updateFitnessItem({ workoutIndex, checked: completed, details, date });
+      const json = await updateFitnessItem({ workoutIndex, checked: completed, details, date, weekStart });
       if (saveSeq !== fitnessWeekSaveSeqRef.current) return;
 
       const nextWeek = normalizeFitnessWeek(json?.week);
-      if (nextWeek) setFitnessWeek(nextWeek);
+      if (nextWeek) upsertFitnessWeekState(nextWeek);
       setFitnessStatus("Saved.");
     }).catch((e) => {
       if (saveSeq === fitnessWeekSaveSeqRef.current) {
@@ -1313,73 +1374,164 @@ export default function App() {
 
   const debouncedSaveFitnessItem = useDebouncedKeyedCallback(saveFitnessItem, 450);
 
-  const onToggleFitness = (workoutIndex, completed) => {
+  const onToggleFitness = (workoutIndex, completed, weekStart = "") => {
     const saveSeq = ++fitnessWeekSaveSeqRef.current;
-    setFitnessWeek((prev) => {
-      if (!prev) return prev;
-      const next = structuredClone(prev);
-      const list = Array.isArray(next?.workouts) ? next.workouts : [];
-      if (!list[workoutIndex]) return prev;
-      list[workoutIndex].completed = completed;
-      if (!completed) list[workoutIndex].details = "";
-      debouncedSaveFitnessItem(`workout:${workoutIndex}`, {
-        workoutIndex,
-        completed,
-        details: list[workoutIndex].details ?? "",
-        date: list[workoutIndex].date || "",
-        saveSeq,
+    const selectedWeekStart = typeof weekStart === "string" ? weekStart : "";
+    const editCurrent = !selectedWeekStart || selectedWeekStart === fitnessWeek?.week_start;
+
+    if (editCurrent) {
+      setFitnessWeek((prev) => {
+        if (!prev) return prev;
+        const next = structuredClone(prev);
+        const list = Array.isArray(next?.workouts) ? next.workouts : [];
+        if (!list[workoutIndex]) return prev;
+        list[workoutIndex].completed = completed;
+        if (!completed) list[workoutIndex].details = "";
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart || "current"}:${workoutIndex}`, {
+          workoutIndex,
+          completed,
+          details: list[workoutIndex].details ?? "",
+          date: list[workoutIndex].date || "",
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return next;
       });
-      return next;
+      return;
+    }
+
+    setFitnessHistory((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const nextRows = rows.map((week) => {
+        if (week?.week_start !== selectedWeekStart) return week;
+        const nextWeek = structuredClone(week);
+        const list = Array.isArray(nextWeek?.workouts) ? nextWeek.workouts : [];
+        if (!list[workoutIndex]) return week;
+        changed = true;
+        list[workoutIndex].completed = completed;
+        if (!completed) list[workoutIndex].details = "";
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart}:${workoutIndex}`, {
+          workoutIndex,
+          completed,
+          details: list[workoutIndex].details ?? "",
+          date: list[workoutIndex].date || "",
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return nextWeek;
+      });
+      return changed ? nextRows : prev;
     });
   };
 
-  const onEditFitnessDetails = (workoutIndex, details) => {
+  const onEditFitnessDetails = (workoutIndex, details, weekStart = "") => {
     const saveSeq = ++fitnessWeekSaveSeqRef.current;
-    setFitnessWeek((prev) => {
-      if (!prev) return prev;
-      const next = structuredClone(prev);
-      const list = Array.isArray(next?.workouts) ? next.workouts : [];
-      if (!list[workoutIndex]) return prev;
-      list[workoutIndex].details = details;
-      debouncedSaveFitnessItem(`workout:${workoutIndex}`, {
-        workoutIndex,
-        completed: Boolean(list[workoutIndex].completed),
-        details,
-        date: list[workoutIndex].date || "",
-        saveSeq,
+    const selectedWeekStart = typeof weekStart === "string" ? weekStart : "";
+    const editCurrent = !selectedWeekStart || selectedWeekStart === fitnessWeek?.week_start;
+
+    if (editCurrent) {
+      setFitnessWeek((prev) => {
+        if (!prev) return prev;
+        const next = structuredClone(prev);
+        const list = Array.isArray(next?.workouts) ? next.workouts : [];
+        if (!list[workoutIndex]) return prev;
+        list[workoutIndex].details = details;
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart || "current"}:${workoutIndex}`, {
+          workoutIndex,
+          completed: Boolean(list[workoutIndex].completed),
+          details,
+          date: list[workoutIndex].date || "",
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return next;
       });
-      return next;
+      return;
+    }
+
+    setFitnessHistory((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const nextRows = rows.map((week) => {
+        if (week?.week_start !== selectedWeekStart) return week;
+        const nextWeek = structuredClone(week);
+        const list = Array.isArray(nextWeek?.workouts) ? nextWeek.workouts : [];
+        if (!list[workoutIndex]) return week;
+        changed = true;
+        list[workoutIndex].details = details;
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart}:${workoutIndex}`, {
+          workoutIndex,
+          completed: Boolean(list[workoutIndex].completed),
+          details,
+          date: list[workoutIndex].date || "",
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return nextWeek;
+      });
+      return changed ? nextRows : prev;
     });
   };
 
-  const onEditFitnessDate = (workoutIndex, date) => {
+  const onEditFitnessDate = (workoutIndex, date, weekStart = "") => {
     const saveSeq = ++fitnessWeekSaveSeqRef.current;
-    setFitnessWeek((prev) => {
-      if (!prev) return prev;
-      const next = structuredClone(prev);
-      const list = Array.isArray(next?.workouts) ? next.workouts : [];
-      if (!list[workoutIndex]) return prev;
-      list[workoutIndex].date = date;
-      debouncedSaveFitnessItem(`workout:${workoutIndex}`, {
-        workoutIndex,
-        completed: Boolean(list[workoutIndex].completed),
-        details: typeof list[workoutIndex].details === "string" ? list[workoutIndex].details : "",
-        date,
-        saveSeq,
+    const selectedWeekStart = typeof weekStart === "string" ? weekStart : "";
+    const editCurrent = !selectedWeekStart || selectedWeekStart === fitnessWeek?.week_start;
+
+    if (editCurrent) {
+      setFitnessWeek((prev) => {
+        if (!prev) return prev;
+        const next = structuredClone(prev);
+        const list = Array.isArray(next?.workouts) ? next.workouts : [];
+        if (!list[workoutIndex]) return prev;
+        list[workoutIndex].date = date;
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart || "current"}:${workoutIndex}`, {
+          workoutIndex,
+          completed: Boolean(list[workoutIndex].completed),
+          details: typeof list[workoutIndex].details === "string" ? list[workoutIndex].details : "",
+          date,
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return next;
       });
-      return next;
+      return;
+    }
+
+    setFitnessHistory((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const nextRows = rows.map((week) => {
+        if (week?.week_start !== selectedWeekStart) return week;
+        const nextWeek = structuredClone(week);
+        const list = Array.isArray(nextWeek?.workouts) ? nextWeek.workouts : [];
+        if (!list[workoutIndex]) return week;
+        changed = true;
+        list[workoutIndex].date = date;
+        debouncedSaveFitnessItem(`workout:${selectedWeekStart}:${workoutIndex}`, {
+          workoutIndex,
+          completed: Boolean(list[workoutIndex].completed),
+          details: typeof list[workoutIndex].details === "string" ? list[workoutIndex].details : "",
+          date,
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return nextWeek;
+      });
+      return changed ? nextRows : prev;
     });
   };
 
-  const saveFitnessWeekContext = ({ context, saveSeq }) => {
+  const saveFitnessWeekContext = ({ context, weekStart = "", saveSeq }) => {
     setFitnessError("");
     setFitnessStatus("Saving…");
     enqueueFitnessSave(async () => {
-      const json = await updateFitnessWeekContext(context);
+      const json = await updateFitnessWeekContext(context, { weekStart });
       if (saveSeq !== fitnessWeekSaveSeqRef.current) return;
 
       const nextWeek = normalizeFitnessWeek(json?.week);
-      if (nextWeek) setFitnessWeek(nextWeek);
+      if (nextWeek) upsertFitnessWeekState(nextWeek);
       setFitnessStatus("Saved.");
     }).catch((e) => {
       if (saveSeq === fitnessWeekSaveSeqRef.current) {
@@ -1415,15 +1567,43 @@ export default function App() {
     });
   };
 
-  const onEditWeekContext = (context) => {
+  const onEditWeekContext = (context, weekStart = "") => {
     const value = typeof context === "string" ? context : "";
     const saveSeq = ++fitnessWeekSaveSeqRef.current;
-    setFitnessWeek((prev) => {
-      if (!prev) return prev;
-      const next = structuredClone(prev);
-      next.context = value;
-      debouncedSaveFitnessWeekContext("fitness-week-context", { context: value, saveSeq });
-      return next;
+    const selectedWeekStart = typeof weekStart === "string" ? weekStart : "";
+    const editCurrent = !selectedWeekStart || selectedWeekStart === fitnessWeek?.week_start;
+
+    if (editCurrent) {
+      setFitnessWeek((prev) => {
+        if (!prev) return prev;
+        const next = structuredClone(prev);
+        next.context = value;
+        debouncedSaveFitnessWeekContext(`fitness-week-context:${selectedWeekStart || "current"}`, {
+          context: value,
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return next;
+      });
+      return;
+    }
+
+    setFitnessHistory((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const nextRows = rows.map((week) => {
+        if (week?.week_start !== selectedWeekStart) return week;
+        changed = true;
+        const nextWeek = structuredClone(week);
+        nextWeek.context = value;
+        debouncedSaveFitnessWeekContext(`fitness-week-context:${selectedWeekStart}`, {
+          context: value,
+          weekStart: selectedWeekStart,
+          saveSeq,
+        });
+        return nextWeek;
+      });
+      return changed ? nextRows : prev;
     });
   };
 

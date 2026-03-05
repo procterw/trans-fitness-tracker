@@ -1288,6 +1288,15 @@ export async function updateCurrentWeekContext(context) {
   return canonicalWeekToLegacy(next, block);
 }
 
+function resolveWeekForActivityUpdate(canonical, weekStart = null) {
+  if (weekStart === null) {
+    const ensured = ensureCurrentWeekInCanonical(canonical);
+    return { data: ensured.data, week: ensured.currentWeek };
+  }
+  const target = asArray(canonical.activity?.weeks).find((week) => week?.week_start === weekStart) || null;
+  return { data: canonical, week: target };
+}
+
 export async function listFitnessWeeks({ limit = 12 } = {}) {
   const canonical = await readCanonicalTrackingData();
   const history = currentWeekHistory(canonical);
@@ -1308,18 +1317,41 @@ export async function listActivityWeeks({ limit = 12 } = {}) {
   return picked.map((week) => canonicalWeekToView(week, blockById.get(week.block_id))).filter(Boolean);
 }
 
-export async function updateCurrentActivityWorkout({ index, completed, details, date = null }) {
+export async function updateActivityWeekContext({ weekStart = null, context = "" } = {}) {
+  if (!(weekStart === null || isIsoDateString(weekStart))) throw new Error(`Invalid week_start: ${weekStart}`);
+  const text = normalizeOptionalText(context);
+
+  const canonical = await readCanonicalTrackingData();
+  const { data, week } = resolveWeekForActivityUpdate(canonical, weekStart);
+  if (!week) throw new Error(`Week not found: ${weekStart}`);
+
+  const next = normalizeWeek({
+    ...week,
+    context: text,
+  });
+  data.activity.weeks = upsertWeek(data.activity.weeks, next);
+  data.rules.metadata = {
+    ...asObject(data.rules.metadata),
+    last_updated: formatSeattleIso(new Date()),
+  };
+  await writeCanonicalTrackingData(data);
+
+  const block = data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
+  return canonicalWeekToView(next, block);
+}
+
+export async function updateActivityWorkout({ weekStart = null, index, completed, details, date = null } = {}) {
+  if (!(weekStart === null || isIsoDateString(weekStart))) throw new Error(`Invalid week_start: ${weekStart}`);
   if (!Number.isInteger(index) || index < 0) throw new Error(`Invalid workout index: ${index}`);
   if (typeof completed !== "boolean") throw new Error("Invalid completed value");
   if (typeof details !== "string") throw new Error("Invalid details value");
   if (!(date === null || isIsoDateString(date))) throw new Error(`Invalid date: ${date}`);
 
   const canonical = await readCanonicalTrackingData();
-  const ensured = ensureCurrentWeekInCanonical(canonical);
-  const current = ensured.currentWeek;
-  if (!current) throw new Error("Missing current week");
+  const { data, week } = resolveWeekForActivityUpdate(canonical, weekStart);
+  if (!week) throw new Error(`Week not found: ${weekStart}`);
 
-  const workouts = asArray(current.workouts).map((row) => ({
+  const workouts = asArray(week.workouts).map((row) => ({
     name: normalizeText(row?.name),
     details: normalizeOptionalText(row?.details),
     completed: row?.completed === true,
@@ -1336,18 +1368,22 @@ export async function updateCurrentActivityWorkout({ index, completed, details, 
   };
 
   const next = normalizeWeek({
-    ...current,
+    ...week,
     workouts,
   });
-  ensured.data.activity.weeks = upsertWeek(ensured.data.activity.weeks, next);
-  ensured.data.rules.metadata = {
-    ...asObject(ensured.data.rules.metadata),
+  data.activity.weeks = upsertWeek(data.activity.weeks, next);
+  data.rules.metadata = {
+    ...asObject(data.rules.metadata),
     last_updated: formatSeattleIso(new Date()),
   };
-  await writeCanonicalTrackingData(ensured.data);
+  await writeCanonicalTrackingData(data);
 
-  const block = ensured.data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
+  const block = data.activity.blocks.find((row) => row.block_id === next.block_id) || null;
   return canonicalWeekToView(next, block);
+}
+
+export async function updateCurrentActivityWorkout({ index, completed, details, date = null }) {
+  return updateActivityWorkout({ weekStart: null, index, completed, details, date });
 }
 
 export async function updateCurrentActivityWeekSummary(summary) {

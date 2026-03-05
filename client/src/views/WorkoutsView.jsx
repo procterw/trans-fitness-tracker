@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 import AutoGrowTextarea from "../components/AutoGrowTextarea.jsx";
 import { localDateString } from "../utils/date.js";
@@ -238,17 +238,55 @@ export default function WorkoutsView({
   onEditFitnessDate,
   onEditWeekContext,
 }) {
-  const workouts = Array.isArray(fitnessWeek?.workouts) ? fitnessWeek.workouts : [];
+  const weekOptions = useMemo(() => {
+    const currentWeekStart = typeof fitnessWeek?.week_start === "string" ? fitnessWeek.week_start : "";
+    const merged = [fitnessWeek, ...(Array.isArray(fitnessHistory) ? fitnessHistory : [])].filter(Boolean);
+    const sorted = [...merged].sort((a, b) => String(b?.week_start || "").localeCompare(String(a?.week_start || "")));
+    const seen = new Set();
+    const options = [];
+    for (const [index, week] of sorted.entries()) {
+      const weekStart = typeof week?.week_start === "string" ? week.week_start.trim() : "";
+      const value = weekStart || `week_option_${index}`;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      const weekLabel = typeof week?.week_label === "string" && week.week_label.trim() ? week.week_label.trim() : weekStart || value;
+      options.push({
+        value,
+        label: weekLabel,
+        isCurrent: Boolean(currentWeekStart && weekStart === currentWeekStart),
+        week,
+      });
+    }
+    return options;
+  }, [fitnessWeek, fitnessHistory]);
+  const [selectedWeekValue, setSelectedWeekValue] = useState(() => {
+    const currentWeekStart = typeof fitnessWeek?.week_start === "string" ? fitnessWeek.week_start.trim() : "";
+    return currentWeekStart || "";
+  });
+
+  useEffect(() => {
+    if (!weekOptions.length) {
+      if (selectedWeekValue) setSelectedWeekValue("");
+      return;
+    }
+    if (weekOptions.some((row) => row.value === selectedWeekValue)) return;
+    setSelectedWeekValue(weekOptions[0].value);
+  }, [selectedWeekValue, weekOptions]);
+
+  const selectedWeekOption = weekOptions.find((row) => row.value === selectedWeekValue) || weekOptions[0] || null;
+  const selectedWeek = selectedWeekOption?.week || null;
+  const selectedWeekStart = typeof selectedWeek?.week_start === "string" ? selectedWeek.week_start : "";
+  const workouts = Array.isArray(selectedWeek?.workouts) ? selectedWeek.workouts : [];
   const workoutGroups = groupWorkoutsByCategory(workouts);
   const currentBlockName =
-    typeof fitnessWeek?.block_name === "string" && fitnessWeek.block_name.trim() ? fitnessWeek.block_name.trim() : "Current block";
+    typeof selectedWeek?.block_name === "string" && selectedWeek.block_name.trim() ? selectedWeek.block_name.trim() : "Current block";
   const currentBlockDescription =
-    typeof fitnessWeek?.block_details === "string" && fitnessWeek.block_details.trim()
-      ? fitnessWeek.block_details.trim()
-        : typeof fitnessWeek?.training_block_description === "string" && fitnessWeek.training_block_description.trim()
-          ? fitnessWeek.training_block_description.trim()
+    typeof selectedWeek?.block_details === "string" && selectedWeek.block_details.trim()
+      ? selectedWeek.block_details.trim()
+        : typeof selectedWeek?.training_block_description === "string" && selectedWeek.training_block_description.trim()
+          ? selectedWeek.training_block_description.trim()
           : "";
-  const currentWeekContext = typeof fitnessWeek?.context === "string" ? fitnessWeek.context : "";
+  const currentWeekContext = typeof selectedWeek?.context === "string" ? selectedWeek.context : "";
 
   return (
     <div className="mainScroll workoutsView">
@@ -256,13 +294,30 @@ export default function WorkoutsView({
         <div className="workoutsNarrow">
           <h2>
             Workouts this week
-            {fitnessWeek ? (
+            {selectedWeek ? (
               <span className="muted fitnessWeekLabel">
-                {fitnessWeek.week_label ? <code>{fitnessWeek.week_label}</code> : null}
+                {weekOptions.length > 1 ? (
+                  <select
+                    className="fitnessWeekSelect"
+                    aria-label="Select training week"
+                    value={selectedWeekValue}
+                    onChange={(e) => setSelectedWeekValue(e.target.value)}
+                    disabled={fitnessLoading}
+                  >
+                    {weekOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                        {option.isCurrent ? " (Current)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : selectedWeek.week_label ? (
+                  <code>{selectedWeek.week_label}</code>
+                ) : null}
               </span>
             ) : null}
           </h2>
-          {fitnessWeek ? (
+          {selectedWeek ? (
             <div className="workoutsBlockHeaderRow">
               <section className="workoutsBlockMetaSection" aria-label="Current training block">
                 <h3 className="workoutsBlockMetaName">{currentBlockName}</h3>
@@ -279,14 +334,14 @@ export default function WorkoutsView({
                   value={currentWeekContext}
                   disabled={fitnessLoading}
                   placeholder="Add notes about this week of training…"
-                  onChange={(e) => onEditWeekContext?.(e.target.value ?? "")}
+                  onChange={(e) => onEditWeekContext?.(e.target.value ?? "", selectedWeekStart)}
                   aria-label="Training week notes"
                 />
               </section>
             </div>
           ) : null}
 
-        {fitnessWeek ? (
+        {selectedWeek ? (
           <section className="workoutsChecklistSection workoutsDataPanel">
             {workouts.length ? (
               <>
@@ -302,9 +357,11 @@ export default function WorkoutsView({
                         workout={workout}
                         index={index}
                         fitnessLoading={fitnessLoading}
-                        onToggleFitness={onToggleFitness}
-                        onEditFitnessDetails={onEditFitnessDetails}
-                        onEditFitnessDate={onEditFitnessDate}
+                        onToggleFitness={(workoutIndex, checked) => onToggleFitness(workoutIndex, checked, selectedWeekStart)}
+                        onEditFitnessDetails={(workoutIndex, details) =>
+                          onEditFitnessDetails(workoutIndex, details, selectedWeekStart)
+                        }
+                        onEditFitnessDate={(workoutIndex, date) => onEditFitnessDate(workoutIndex, date, selectedWeekStart)}
                         />
                       ))}
                     </div>
@@ -317,7 +374,7 @@ export default function WorkoutsView({
           </section>
         ) : null}
 
-        {fitnessWeek ? (
+        {selectedWeek ? (
           <section className="fitnessHistory workoutsHistorySection">
             <h2>Training block history</h2>
             <div className="fitnessHistoryBody">

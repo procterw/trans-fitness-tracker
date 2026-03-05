@@ -2570,6 +2570,11 @@ input.fitnessChecklistDate {
   font-weight: 500;
 }
 
+.fitnessWeekSelect {
+  margin-left: 4px;
+  font: inherit;
+}
+
 
 .fitnessCard {
   border: none;
