@@ -5,6 +5,27 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+function isIsoDateString(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function addDaysIso(dateIso, deltaDays) {
+  if (!isIsoDateString(dateIso)) return "";
+  const date = new Date(`${dateIso}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  date.setUTCDate(date.getUTCDate() + deltaDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function mondayOfWeekIso(dateIso) {
+  if (!isIsoDateString(dateIso)) return "";
+  const date = new Date(`${dateIso}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  const shift = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - shift);
+  return date.toISOString().slice(0, 10);
+}
+
 function createNutrients({ calories, fat_g, carbs_g, protein_g, fiber_g = 0 }) {
   return {
     calories,
@@ -260,8 +281,22 @@ async function main() {
   assert.equal(typeof applySettingsChanges, "function");
 
   const initialBlocksState = summarizeTrainingBlocks(await readTrackingData());
-  const selectedBlockId = initialBlocksState?.blocks?.[0]?.id || "";
+  const initialBlocks = Array.isArray(initialBlocksState?.blocks) ? initialBlocksState.blocks : [];
+  const selectedBlock = [...initialBlocks].sort((a, b) => String(b?.block_start || "").localeCompare(String(a?.block_start || "")))[0] || null;
+  const selectedBlockId = selectedBlock?.id || "";
   assert.ok(selectedBlockId, "expected at least one training block for settings tests");
+  assert.ok(
+    isIsoDateString(selectedBlock?.block_start),
+    "expected selected training block to include a valid block_start",
+  );
+  const selectedBlockStart = selectedBlock.block_start;
+  const mondayForSelectedWeek = mondayOfWeekIso(selectedBlockStart);
+  const expectedCorrectedStart = addDaysIso(mondayForSelectedWeek, 7);
+  const proposedNonMondayStart = addDaysIso(expectedCorrectedStart, 1);
+  const expectedPredecessorEnd = addDaysIso(expectedCorrectedStart, -1);
+  assert.ok(isIsoDateString(expectedCorrectedStart), "expected corrected create-block date to be valid");
+  assert.ok(isIsoDateString(proposedNonMondayStart), "expected non-Monday create-block date to be valid");
+  assert.ok(isIsoDateString(expectedPredecessorEnd), "expected predecessor auto-close date to be valid");
 
   const addOptionalProposal = {
     training_block: {
@@ -454,9 +489,9 @@ async function main() {
   const createNonMondayProposal = {
     training_block: {
       operation: "create_block",
-      name: "Harness March Block",
+      name: "Harness Followup Block",
       description: "Date correction test",
-      block_start: "2026-03-03",
+      block_start: proposedNonMondayStart,
       apply_timing: "next_week",
       workouts_add: [
         {
@@ -470,7 +505,7 @@ async function main() {
   };
   const createNeedsConfirm = await applySettingsChanges({ proposal: createNonMondayProposal, selectedBlockId });
   assert.equal(createNeedsConfirm.requiresConfirmation, true, "expected non-Monday create to require confirmation");
-  assert.equal(createNeedsConfirm.proposal?.training_block?.block_start, "2026-03-02");
+  assert.equal(createNeedsConfirm.proposal?.training_block?.block_start, expectedCorrectedStart);
 
   const createConfirmed = await applySettingsChanges({
     proposal: createNeedsConfirm.proposal,
@@ -480,11 +515,11 @@ async function main() {
   assert.ok(Array.isArray(createConfirmed.changesApplied) && createConfirmed.changesApplied.length > 0);
   const stateAfterCreate = summarizeTrainingBlocks(await readTrackingData());
   const allBlocksAfterCreate = Array.isArray(stateAfterCreate?.blocks) ? stateAfterCreate.blocks : [];
-  const createdBlock = allBlocksAfterCreate.find((block) => block?.name === "Harness March Block") || null;
-  assert.ok(createdBlock, "expected created March block");
-  assert.equal(createdBlock.block_start, "2026-03-02");
+  const createdBlock = allBlocksAfterCreate.find((block) => block?.name === "Harness Followup Block") || null;
+  assert.ok(createdBlock, "expected created followup block");
+  assert.equal(createdBlock.block_start, expectedCorrectedStart);
   const predecessor = allBlocksAfterCreate.find((block) => block?.id === selectedBlockId) || null;
-  assert.equal(predecessor?.block_end, "2026-03-01");
+  assert.equal(predecessor?.block_end, expectedPredecessorEnd);
   results.push("S03 create block with Monday correction + predecessor auto-close");
 
   console.log("Deterministic harness passed:");
