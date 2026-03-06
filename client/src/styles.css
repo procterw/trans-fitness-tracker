@@ -835,7 +835,7 @@ tr.selectedRow .linkButton {
 }
 
 .dietTodaySummary {
-  margin-bottom: 30px;
+  margin-bottom: 0;
 }
 
 .dietRecentSection .tableScroll {
@@ -2700,16 +2700,70 @@ input.fitnessChecklistDate {
   order: 1;
 }
 
-.dietRecentSection {
+.dietTopRow {
   order: 2;
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dietRecentSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 .dietChartsSection {
-  order: 3;
+  min-width: 0;
 }
 
 .dietHistorySection {
   order: 4;
+}
+
+.dietDayStatsCard {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  padding: 10px 12px;
+}
+
+.dietDayStatsCard h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dietDayStatsList {
+  margin: 8px 0 0;
+}
+
+.dietDayStatRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.dietDayStatRow:last-child {
+  border-bottom: none;
+}
+
+.dietDayStatRow dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.dietDayStatRow dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .dietChartGrid {
@@ -2726,14 +2780,14 @@ input.fitnessChecklistDate {
 
 .dietChartHeader h4 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .dietChartHeader .muted {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .dietChartLegend {
@@ -2747,7 +2801,7 @@ input.fitnessChecklistDate {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
@@ -2784,7 +2838,7 @@ input.fitnessChecklistDate {
 
 .dietChartAxisLabel {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 14px;
   font-family: "Noto Sans", sans-serif;
 }
 
@@ -2896,6 +2950,10 @@ input.fitnessChecklistDate {
     background: transparent;
     margin-top: 24px;
     padding: 0;
+  }
+
+  .dietTopRow {
+    grid-template-columns: 1fr;
   }
 
   .dietRecentSection {

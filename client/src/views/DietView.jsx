@@ -32,9 +32,9 @@ function isCompleteDay(row) {
   return status !== "incomplete";
 }
 
-const CHART_WIDTH = 960;
-const CHART_HEIGHT = 280;
-const CHART_PADDING = { top: 20, right: 56, bottom: 40, left: 56 };
+const CHART_WIDTH = 560;
+const CHART_HEIGHT = 260;
+const CHART_PADDING = { top: 18, right: 42, bottom: 36, left: 42 };
 const NUTRITION_SERIES = [
   { key: "calories", label: "Calories", color: "#2d6cdf", axis: "left" },
   { key: "carbs_g", label: "Carbs (g)", color: "#16a34a", axis: "right" },
@@ -99,14 +99,14 @@ function buildPathFromPoints(points) {
     .join(" ");
 }
 
-function renderSharedXAxisLabels(rows, xForIndex) {
+function renderSharedXAxisLabels(rows, xForIndex, y = CHART_HEIGHT - 12) {
   if (!rows.length) return null;
   const first = 0;
   const last = rows.length - 1;
   const mid = Math.floor((first + last) / 2);
   const indexes = Array.from(new Set([first, mid, last]));
   return indexes.map((index) => (
-    <text key={index} x={xForIndex(index)} y={CHART_HEIGHT - 12} textAnchor="middle" className="dietChartAxisLabel">
+    <text key={index} x={xForIndex(index)} y={y} textAnchor="middle" className="dietChartAxisLabel">
       {formatShortDate(rows[index]?.date)}
     </text>
   ));
@@ -170,71 +170,163 @@ function WeightTrendChart({ rows, fmt }) {
 }
 
 function NutritionTrendChart({ rows, fmt }) {
-  const plotWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right;
-  const plotHeight = CHART_HEIGHT - CHART_PADDING.top - CHART_PADDING.bottom;
+  const chartHeight = 356;
+  const plotGap = 18;
+  const xAxisGap = 12;
+  const xAxisLabelGap = 18;
+  const caloriesSeries = NUTRITION_SERIES.find((series) => series.key === "calories") ?? {
+    key: "calories",
+    label: "Calories",
+    color: "#2d6cdf",
+  };
+  const macroSeries = NUTRITION_SERIES.filter((series) => series.axis === "right");
+  const plotLeft = CHART_PADDING.left + 16;
+  const plotRight = CHART_WIDTH - CHART_PADDING.right;
+  const plotWidth = plotRight - plotLeft;
+  const xAxisY = chartHeight - CHART_PADDING.bottom;
+  const xAxisLabelY = xAxisY + xAxisLabelGap;
+  const plotsBottom = xAxisY - xAxisGap;
+  const combinedPlotHeight = plotsBottom - CHART_PADDING.top - plotGap;
+  const splitPlotHeight = combinedPlotHeight / 2;
+  const caloriesPlotTop = CHART_PADDING.top;
+  const caloriesPlotBottom = caloriesPlotTop + splitPlotHeight;
+  const macrosPlotTop = caloriesPlotBottom + plotGap;
+  const macrosPlotBottom = plotsBottom;
   const xForIndex = (index) =>
     rows.length <= 1
-      ? CHART_PADDING.left + plotWidth / 2
-      : CHART_PADDING.left + (plotWidth * index) / (rows.length - 1);
+      ? plotLeft + plotWidth / 2
+      : plotLeft + (plotWidth * index) / (rows.length - 1);
 
-  const leftValues = rows.map((row) => toFiniteNumber(row?.calories));
-  const rightValues = rows.flatMap((row) =>
-    NUTRITION_SERIES.filter((series) => series.axis === "right").map((series) => toFiniteNumber(row?.[series.key])),
-  );
-  const hasData = [...leftValues, ...rightValues].some((value) => value !== null);
+  const caloriesValues = rows.map((row) => toFiniteNumber(row?.calories));
+  const macrosValues = rows.flatMap((row) => macroSeries.map((series) => toFiniteNumber(row?.[series.key])));
+  const hasData = [...caloriesValues, ...macrosValues].some((value) => value !== null);
   if (!hasData) return <p className="muted">No nutrition entries yet.</p>;
 
-  const leftDomain = computeDomain(leftValues);
-  const rightDomain = computeDomain(rightValues);
-  const yForLeft = (value) =>
-    CHART_PADDING.top + ((leftDomain.max - value) / (leftDomain.max - leftDomain.min || 1)) * plotHeight;
-  const yForRight = (value) =>
-    CHART_PADDING.top + ((rightDomain.max - value) / (rightDomain.max - rightDomain.min || 1)) * plotHeight;
-  const leftTicks = buildTicks(leftDomain);
-  const rightTicks = buildTicks(rightDomain);
+  const caloriesDomain = computeDomain(caloriesValues);
+  const macrosDomainRaw = computeDomain(macrosValues);
+  const macrosDomain = {
+    min: 0,
+    max: Number.isFinite(macrosDomainRaw.max) ? Math.max(1, macrosDomainRaw.max) : 1,
+  };
+  const yForCalories = (value) =>
+    caloriesPlotTop +
+    ((caloriesDomain.max - value) / (caloriesDomain.max - caloriesDomain.min || 1)) *
+      (caloriesPlotBottom - caloriesPlotTop);
+  const yForMacros = (value) =>
+    macrosPlotTop + ((macrosDomain.max - value) / (macrosDomain.max - macrosDomain.min || 1)) * (macrosPlotBottom - macrosPlotTop);
+  const caloriesTicks = buildTicks(caloriesDomain);
+  const macrosTicks = buildTicks(macrosDomain);
+  const caloriesPoints = rows.map((row, index) => {
+    const value = toFiniteNumber(row?.calories);
+    return value === null ? null : { x: xForIndex(index), y: yForCalories(value), value, date: row?.date };
+  });
+  const caloriesPath = buildPathFromPoints(caloriesPoints);
 
   return (
-    <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="dietChartSvg" role="img" aria-label="Calories and macros trend">
-      <rect x={CHART_PADDING.left} y={CHART_PADDING.top} width={plotWidth} height={plotHeight} className="dietChartPlot" />
-      {leftTicks.map((tick) => {
-        const y = yForLeft(tick);
+    <svg viewBox={`0 0 ${CHART_WIDTH} ${chartHeight}`} className="dietChartSvg" role="img" aria-label="Calories and macros trend">
+      <rect
+        x={plotLeft}
+        y={caloriesPlotTop}
+        width={plotWidth}
+        height={caloriesPlotBottom - caloriesPlotTop}
+        className="dietChartPlot"
+      />
+      <rect
+        x={plotLeft}
+        y={macrosPlotTop}
+        width={plotWidth}
+        height={macrosPlotBottom - macrosPlotTop}
+        className="dietChartPlot"
+      />
+
+      {caloriesTicks.map((tick) => {
+        const y = yForCalories(tick);
         return (
-          <g key={`left_${tick}`}>
-            <line x1={CHART_PADDING.left} y1={y} x2={CHART_WIDTH - CHART_PADDING.right} y2={y} className="dietChartGridLine" />
-            <text x={CHART_PADDING.left - 10} y={y + 4} textAnchor="end" className="dietChartAxisLabel">
+          <g key={`calories_${tick}`}>
+            <line x1={plotLeft} y1={y} x2={plotRight} y2={y} className="dietChartGridLine" />
+            <text x={plotLeft - 10} y={y + 4} textAnchor="end" className="dietChartAxisLabel">
               {fmt(Math.round(tick))}
             </text>
           </g>
         );
       })}
-      {rightTicks.map((tick) => {
-        const y = yForRight(tick);
+      {macrosTicks.map((tick) => {
+        const y = yForMacros(tick);
         return (
-          <text key={`right_${tick}`} x={CHART_WIDTH - CHART_PADDING.right + 10} y={y + 4} textAnchor="start" className="dietChartAxisLabel">
-            {fmt(Math.round(tick * 10) / 10)}
-          </text>
+          <g key={`macros_${tick}`}>
+            <line x1={plotLeft} y1={y} x2={plotRight} y2={y} className="dietChartGridLine" />
+            <text x={plotLeft - 10} y={y + 4} textAnchor="end" className="dietChartAxisLabel">
+              {fmt(Math.round(tick * 10) / 10)}
+            </text>
+          </g>
         );
       })}
-      <line x1={CHART_PADDING.left} y1={CHART_PADDING.top} x2={CHART_PADDING.left} y2={CHART_HEIGHT - CHART_PADDING.bottom} className="dietChartAxisLine" />
+
       <line
-        x1={CHART_WIDTH - CHART_PADDING.right}
-        y1={CHART_PADDING.top}
-        x2={CHART_WIDTH - CHART_PADDING.right}
-        y2={CHART_HEIGHT - CHART_PADDING.bottom}
+        x1={plotLeft}
+        y1={caloriesPlotTop}
+        x2={plotLeft}
+        y2={caloriesPlotBottom}
         className="dietChartAxisLine"
       />
       <line
-        x1={CHART_PADDING.left}
-        y1={CHART_HEIGHT - CHART_PADDING.bottom}
-        x2={CHART_WIDTH - CHART_PADDING.right}
-        y2={CHART_HEIGHT - CHART_PADDING.bottom}
+        x1={plotLeft}
+        y1={macrosPlotTop}
+        x2={plotLeft}
+        y2={macrosPlotBottom}
         className="dietChartAxisLine"
       />
-      {NUTRITION_SERIES.map((series) => {
-        const yForValue = series.axis === "left" ? yForLeft : yForRight;
+      <line
+        x1={plotLeft}
+        y1={caloriesPlotBottom}
+        x2={plotRight}
+        y2={caloriesPlotBottom}
+        className="dietChartAxisLine"
+      />
+      <line
+        x1={plotRight}
+        y1={xAxisY}
+        x2={plotRight}
+        y2={xAxisY + 8}
+        className="dietChartAxisLine"
+      />
+      <line
+        x1={plotLeft}
+        y1={xAxisY}
+        x2={plotLeft}
+        y2={xAxisY + 8}
+        className="dietChartAxisLine"
+      />
+      <line
+        x1={plotLeft}
+        y1={xAxisY}
+        x2={plotRight}
+        y2={xAxisY}
+        className="dietChartAxisLine"
+      />
+
+      <g>
+        {caloriesPath ? <path d={caloriesPath} className="dietChartLine" style={{ stroke: caloriesSeries.color }} /> : null}
+        {caloriesPoints.map((point, idx) =>
+          point ? (
+            <circle
+              key={`calories_${rows[idx]?.date || idx}`}
+              cx={point.x}
+              cy={point.y}
+              r="2.5"
+              className="dietChartPoint"
+              style={{ fill: caloriesSeries.color }}
+            >
+              <title>{`${rows[idx]?.date || ""}: ${caloriesSeries.label} ${fmt(point.value)}`}</title>
+            </circle>
+          ) : null,
+        )}
+      </g>
+
+      {macroSeries.map((series) => {
         const points = rows.map((row, index) => {
           const value = toFiniteNumber(row?.[series.key]);
-          return value === null ? null : { x: xForIndex(index), y: yForValue(value), value, date: row?.date };
+          return value === null ? null : { x: xForIndex(index), y: yForMacros(value), value, date: row?.date };
         });
         const path = buildPathFromPoints(points);
         return (
@@ -250,7 +342,8 @@ function NutritionTrendChart({ rows, fmt }) {
           </g>
         );
       })}
-      {renderSharedXAxisLabels(rows, xForIndex)}
+
+      {renderSharedXAxisLabels(rows, xForIndex, xAxisLabelY)}
     </svg>
   );
 }
@@ -276,6 +369,13 @@ export default function DietView({
 
   const dayFoodEntries = getTodayFoodEntries(dashDay);
   const dayFoodsText = formatFoodEntries(dayFoodEntries);
+  const dayStats = [
+    { label: "Calories", value: fmt(totals.calories) },
+    { label: "Fat (g)", value: fmt(totals.fat_g) },
+    { label: "Carbs (g)", value: fmt(totals.carbs_g) },
+    { label: "Protein (g)", value: fmt(totals.protein_g) },
+    { label: "Fiber (g)", value: fmt(totals.fiber_g) },
+  ];
 
   return (
     <div className="mainScroll foodLogView">
@@ -288,70 +388,59 @@ export default function DietView({
           </div>
         ) : null}
 
-        <section className="dietRecentSection">
-          <h3>Today</h3>
-          <blockquote className="fitnessSummary dietTodaySummary">
-            {dayFoodsText || "No foods logged yet."}
-          </blockquote>
-          {dashLoading ? <p className="muted">Loading…</p> : null}
+        <section className="dietTopRow">
+          <section className="dietRecentSection">
+            <h3>Today</h3>
+            <blockquote className="fitnessSummary dietTodaySummary">
+              {dayFoodsText || "No foods logged yet."}
+            </blockquote>
+            {dashLoading ? <p className="muted">Loading…</p> : null}
 
-          {!dashLoading ? (
-            <div className="tableScroll">
-              <table className="dietRecentTable">
-                <thead>
-                  <tr>
-                    <th>Entry</th>
-                    <th>Calories</th>
-                    <th>Fat (g)</th>
-                    <th>Carbs (g)</th>
-                    <th>Protein (g)</th>
-                    <th>Fiber (g)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="dietTotalsRow">
-                    <td>Day total</td>
-                    <td>{fmt(totals.calories)}</td>
-                    <td>{fmt(totals.fat_g)}</td>
-                    <td>{fmt(totals.carbs_g)}</td>
-                    <td>{fmt(totals.protein_g)}</td>
-                    <td>{fmt(totals.fiber_g)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
-
-        <section className="dietChartsSection">
-          <h3>Trends</h3>
-          <div className="dietChartGrid">
-            <article className="dietChartCard">
-              <div className="dietChartHeader">
-                <h4>Weight (lb)</h4>
-                <span className="muted">From daily log entries</span>
-              </div>
-              <div className="dietChartSurface">
-                <WeightTrendChart rows={chartRows} fmt={fmt} />
-              </div>
-            </article>
-            <article className="dietChartCard">
-              <div className="dietChartHeader">
-                <h4>Calories / Macros / Fiber</h4>
-                <div className="dietChartLegend">
-                  {NUTRITION_SERIES.map((series) => (
-                    <span key={series.key} className="dietChartLegendItem">
-                      <span className="dietChartLegendSwatch" style={{ background: series.color }} />
-                      {series.label}
-                    </span>
+            {!dashLoading ? (
+              <section className="dietDayStatsCard" aria-label="Day stats">
+                <h4>Day stats</h4>
+                <dl className="dietDayStatsList">
+                  {dayStats.map((item) => (
+                    <div key={item.label} className="dietDayStatRow">
+                      <dt>{item.label}</dt>
+                      <dd>{item.value}</dd>
+                    </div>
                   ))}
+                </dl>
+              </section>
+            ) : null}
+          </section>
+
+          <section className="dietChartsSection">
+            <h3>Trends</h3>
+            <div className="dietChartGrid">
+              <article className="dietChartCard">
+                <div className="dietChartHeader">
+                  <h4>Weight (lb)</h4>
+                  <span className="muted">From daily log entries</span>
                 </div>
-              </div>
-              <div className="dietChartSurface">
-                <NutritionTrendChart rows={chartRows} fmt={fmt} />
-              </div>
-            </article>
-          </div>
+                <div className="dietChartSurface">
+                  <WeightTrendChart rows={chartRows} fmt={fmt} />
+                </div>
+              </article>
+              <article className="dietChartCard">
+                <div className="dietChartHeader">
+                  <h4>Calories / Macros / Fiber</h4>
+                  <div className="dietChartLegend">
+                    {NUTRITION_SERIES.map((series) => (
+                      <span key={series.key} className="dietChartLegendItem">
+                        <span className="dietChartLegendSwatch" style={{ background: series.color }} />
+                        {series.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="dietChartSurface">
+                  <NutritionTrendChart rows={chartRows} fmt={fmt} />
+                </div>
+              </article>
+            </div>
+          </section>
         </section>
 
         <section className="dietHistorySection">
