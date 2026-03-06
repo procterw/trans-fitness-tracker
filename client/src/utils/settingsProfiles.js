@@ -8,11 +8,13 @@ export function normalizeSettingsProfiles(value) {
   const general = normalizeProfileText(safe.general);
   const fitness = normalizeProfileText(safe.fitness);
   const diet = normalizeProfileText(safe.diet);
+  const recipes = normalizeProfileText(safe.recipes);
   const agent = normalizeProfileText(safe.agent);
   return {
     general,
     fitness,
     diet,
+    recipes,
     agent,
   };
 }
@@ -24,6 +26,7 @@ export function settingsProfilesEqual(a, b) {
     left.general === right.general &&
     left.fitness === right.fitness &&
     left.diet === right.diet &&
+    left.recipes === right.recipes &&
     left.agent === right.agent
   );
 }

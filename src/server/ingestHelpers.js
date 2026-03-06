@@ -464,22 +464,184 @@ export function summarizeFoodResult(payload) {
 }
 
 export function summarizeActivityLoadForDate(currentWeek, date) {
+  const summary = summarizeActivityContextForDate(currentWeek, date);
+  return summary ? summary.sessions : null;
+}
+
+function safeObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function toNumberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseDurationMinutes(text) {
+  if (typeof text !== "string") return null;
+  const lower = text.toLowerCase();
+  let total = 0;
+  let matched = false;
+
+  const hourRegex = /(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/g;
+  for (const match of lower.matchAll(hourRegex)) {
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) continue;
+    total += value * 60;
+    matched = true;
+  }
+
+  const minuteRegex = /(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/g;
+  for (const match of lower.matchAll(minuteRegex)) {
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) continue;
+    total += value;
+    matched = true;
+  }
+
+  if (!matched) {
+    const clockMatch = lower.match(/\b(\d{1,2})\s*:\s*(\d{2})\b/);
+    if (clockMatch) {
+      const hours = Number(clockMatch[1]);
+      const minutes = Number(clockMatch[2]);
+      if (Number.isFinite(hours) && Number.isFinite(minutes)) total = hours * 60 + minutes;
+      matched = total > 0;
+    }
+  }
+
+  if (!matched || total <= 0) return null;
+  return Math.round(total);
+}
+
+function isLikelyEnduranceSession({ categoryKey, label, details }) {
+  const category = normalizeLabel(categoryKey);
+  if (category === "cardio" || category === "endurance") return true;
+  const text = `${normalizeLabel(label)} ${normalizeLabel(details)}`;
+  return /\b(run|walk|jog|cycle|bike|ride|swim|row|rowing|hike|elliptical|stair|cardio|aerobic|endurance)\b/.test(text);
+}
+
+export function summarizeActivityContextForDate(currentWeek, date) {
   if (!currentWeek || typeof currentWeek !== "object") return null;
   if (!isIsoDateString(date)) return null;
 
   let sessions = 0;
+  let totalMinutes = 0;
+  let enduranceSessions = 0;
+  let enduranceMinutes = 0;
   for (const categoryKey of getFitnessCategoryKeys(currentWeek)) {
     const list = Array.isArray(currentWeek?.[categoryKey]) ? currentWeek[categoryKey] : [];
     for (const item of list) {
       if (!item || typeof item !== "object") continue;
       const itemDate = typeof item.date === "string" ? item.date.trim() : "";
-      if (item.completed === true && itemDate === date) sessions += 1;
+      if (item.completed !== true || itemDate !== date) continue;
+      sessions += 1;
+      const label = normalizeWorkoutLabel(item);
+      const details = normalizeTextValue(item?.details);
+      const minutes = parseDurationMinutes(details);
+      if (typeof minutes === "number" && minutes > 0) {
+        totalMinutes += minutes;
+      }
+      if (isLikelyEnduranceSession({ categoryKey, label, details })) {
+        enduranceSessions += 1;
+        if (typeof minutes === "number" && minutes > 0) enduranceMinutes += minutes;
+      }
     }
   }
-  return sessions;
+
+  return {
+    sessions,
+    total_minutes: totalMinutes > 0 ? totalMinutes : null,
+    endurance_sessions: enduranceSessions,
+    endurance_minutes: enduranceMinutes > 0 ? enduranceMinutes : null,
+  };
 }
 
-export function buildFoodAssistantMessage({ payload, sessionsToday = null }) {
+function gatherUserPreferenceText(userContext) {
+  const safe = safeObject(userContext);
+  const profile = safeObject(safe.profile);
+  const rules = safeObject(safe.rules);
+  const dietPhilosophy = safeObject(rules.diet_philosophy || safe.diet_philosophy);
+  const fitnessPhilosophy = safeObject(rules.fitness_philosophy || safe.fitness_philosophy);
+
+  const parts = [];
+  for (const value of [profile.general, profile.fitness, profile.diet]) {
+    if (typeof value === "string" && value.trim()) parts.push(value.trim());
+  }
+  if (Object.keys(dietPhilosophy).length) parts.push(JSON.stringify(dietPhilosophy));
+  if (Object.keys(fitnessPhilosophy).length) parts.push(JSON.stringify(fitnessPhilosophy));
+  return parts.join("\n").toLowerCase();
+}
+
+function inferPreferenceSignals(userContext) {
+  const text = gatherUserPreferenceText(userContext);
+  return {
+    energy_focus:
+      /\b(calm surplus|surplus|energy sufficiency|steady energy|energy availability|consistency)\b/.test(text),
+    endurance_focus: /\b(endurance|cardio|aerobic|running|cycling|long run|long ride)\b/.test(text),
+    moderate_protein_focus:
+      /\b(moderate protein|lower protein|avoid high protein|slow atrophy|atrophy|protein moderation)\b/.test(text),
+  };
+}
+
+function buildDayFitLine({ dayTotals, activityContext, userContext }) {
+  const signals = inferPreferenceSignals(userContext);
+  const calories = toNumberOrNull(dayTotals?.calories);
+  const carbs = toNumberOrNull(dayTotals?.carbs_g);
+  const protein = toNumberOrNull(dayTotals?.protein_g);
+  const fiber = toNumberOrNull(dayTotals?.fiber_g);
+
+  const sessions = Number.isInteger(activityContext?.sessions)
+    ? activityContext.sessions
+    : Number.isInteger(activityContext)
+      ? activityContext
+      : 0;
+  const enduranceSessions = Number.isInteger(activityContext?.endurance_sessions) ? activityContext.endurance_sessions : 0;
+  const enduranceMinutes = toNumberOrNull(activityContext?.endurance_minutes);
+  const enduranceLoad = enduranceSessions > 0 || (typeof enduranceMinutes === "number" && enduranceMinutes >= 45);
+
+  const parts = [];
+  if (signals.energy_focus && typeof calories === "number") {
+    if (calories < 1900) parts.push("Energy intake is still light for your steady-energy/surplus preference.");
+    else if (calories < 2800) parts.push("Energy intake is trending toward your steady-energy target.");
+    else parts.push("Energy intake is strong for your surplus-oriented target.");
+  }
+
+  if (typeof carbs === "number") {
+    if (carbs >= 220 && (enduranceLoad || signals.endurance_focus)) {
+      const enduranceDetail =
+        typeof enduranceMinutes === "number" && enduranceMinutes >= 45
+          ? ` and ~${Math.round(enduranceMinutes)} min endurance work`
+          : enduranceSessions > 0
+            ? " and endurance work"
+            : "";
+      parts.push(`Higher-carb intake looks well matched to today's activity${enduranceDetail}.`);
+    } else if (carbs >= 220) {
+      parts.push("Carb intake is high versus logged activity so far.");
+    } else if (carbs < 150 && enduranceLoad) {
+      parts.push("Carbs are on the lighter side for today's endurance load.");
+    }
+  }
+
+  if (signals.moderate_protein_focus && typeof protein === "number") {
+    if (protein <= 95) parts.push(`Protein is staying moderate at ${Math.round(protein)} g.`);
+    else if (protein > 120) parts.push(`Protein is elevated at ${Math.round(protein)} g versus your moderate-protein preference.`);
+  }
+
+  if (typeof fiber === "number" && fiber < 15) {
+    parts.push("Fiber is still low for the day.");
+  }
+
+  if (!parts.length) {
+    if (sessions > 0) {
+      return `Day fit: nutrition is on track so far relative to ${sessions} logged activity session${sessions === 1 ? "" : "s"}.`;
+    }
+    return "Day fit: nutrition is building; more entries through the day will improve the read on target alignment.";
+  }
+
+  return `Day fit: ${parts.join(" ")}`;
+}
+
+export function buildFoodAssistantMessage({ payload, sessionsToday = null, activityContext = null, userContext = null }) {
+  const date = formatPlainText(payload?.date);
   const totals = payload?.estimate?.totals ?? {};
   const dayTotals = payload?.day_totals ?? {};
 
@@ -498,44 +660,20 @@ export function buildFoodAssistantMessage({ payload, sessionsToday = null }) {
   const mealParts = [calories, carbs, fat, protein, fiber].filter(Boolean);
   const dayParts = [dayCalories, dayCarbs, dayFat, dayProtein, dayFiber].filter(Boolean);
 
-  const nutritionSummary = [
-    mealParts.length ? `- Meal estimate: ${mealParts.join(", ")}` : "- Meal estimate: saved",
-    dayParts.length ? `- Day totals: ${dayParts.join(", ")}` : "- Day totals: awaiting more entries",
-  ].join("\n");
+  const lines = [];
+  const mealLine = mealParts.length ? `Estimated meal: ${mealParts.join(", ")}.` : "Estimated meal saved.";
+  const dayLine = dayParts.length ? `Day total${date ? ` (${date})` : ""}: ${dayParts.join(", ")}.` : "Day totals are still building.";
+  lines.push(mealLine, dayLine);
 
-  const proteinValue = Number(dayTotals.protein_g);
-  const carbValue = Number(dayTotals.carbs_g);
-  const fiberValue = Number(dayTotals.fiber_g);
-  const sessionCount = Number.isInteger(sessionsToday) && sessionsToday >= 0 ? sessionsToday : null;
+  const resolvedActivityContext =
+    activityContext && typeof activityContext === "object"
+      ? activityContext
+      : Number.isInteger(sessionsToday)
+        ? { sessions: sessionsToday }
+        : null;
+  lines.push(buildDayFitLine({ dayTotals, activityContext: resolvedActivityContext, userContext }));
 
-  const activitySummary =
-    sessionCount === null
-      ? "Activity today: not available."
-      : sessionCount === 0
-        ? "Activity today: no sessions logged yet."
-        : sessionCount === 1
-          ? "Activity today: 1 session logged."
-          : `Activity today: ${sessionCount} sessions logged.`;
-
-  let fitSummary = "";
-  if (sessionCount !== null && sessionCount >= 2) {
-    fitSummary =
-      (Number.isFinite(proteinValue) && proteinValue < 100) || (Number.isFinite(carbValue) && carbValue < 180)
-        ? "Assessment: higher-activity day with intake currently light for recovery; prioritize protein and carbohydrate in the next meal."
-        : "Assessment: higher-activity day with intake reasonably aligned for recovery if remaining meals stay balanced.";
-  } else if (sessionCount === 1) {
-    fitSummary =
-      Number.isFinite(proteinValue) && proteinValue < 90
-        ? "Assessment: moderate-activity day with protein still below a strong target; bias the next meal toward protein."
-        : "Assessment: moderate-activity day with intake tracking well so far; keep protein and fiber steady in remaining meals.";
-  } else {
-    fitSummary =
-      Number.isFinite(fiberValue) && fiberValue < 20
-        ? "Assessment: lower-activity day with room to improve fiber density later in the day."
-        : "Assessment: lower-activity day with intake profile generally balanced so far.";
-  }
-
-  return [nutritionSummary, `${activitySummary} ${fitSummary}`].join("\n\n");
+  return lines.join("\n");
 }
 
 function isIsoDateString(value) {

@@ -124,11 +124,29 @@ function sumItemNutrients(items) {
   };
 }
 
+function buildRecipeContextText(tracking) {
+  const safeTracking = tracking && typeof tracking === "object" ? tracking : {};
+  const rules = safeTracking?.rules && typeof safeTracking.rules === "object" ? safeTracking.rules : {};
+  const metadata = rules?.metadata && typeof rules.metadata === "object" ? rules.metadata : {};
+  const profile = safeTracking?.profile && typeof safeTracking.profile === "object" ? safeTracking.profile : {};
+  const foodDefs = metadata?.food_definitions && typeof metadata.food_definitions === "object" ? metadata.food_definitions : {};
+  const dietProfileText = typeof profile?.diet === "string" ? profile.diet.trim() : "";
+  const recipesProfileText = typeof profile?.recipes === "string" ? profile.recipes.trim() : "";
+  const generalProfileText = typeof profile?.general === "string" ? profile.general.trim() : "";
+  const payload = {
+    food_definitions: foodDefs,
+    profile_diet: dietProfileText || null,
+    profile_recipes: recipesProfileText || null,
+    profile_general: generalProfileText || null,
+  };
+  return JSON.stringify(payload, null, 2);
+}
+
 export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, userNotes }) {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-5.2";
   const tracking = await readTrackingData();
-  const foodDefs = tracking?.rules?.metadata?.food_definitions ?? tracking?.metadata?.food_definitions ?? {};
+  const recipeContextText = buildRecipeContextText(tracking);
 
   const dataUrl = `data:${imageMimeType};base64,${imageBuffer.toString("base64")}`;
 
@@ -137,25 +155,16 @@ export async function estimateNutritionFromImage({ imageBuffer, imageMimeType, u
     "Return a best-effort estimate for: calories, fat_g, carbs_g, protein_g, fiber_g, potassium_mg, magnesium_mg, omega3_mg, calcium_mg, iron_mg.",
     "If you truly cannot estimate a micronutrient from the image/context, set it to null (do not guess wildly).",
     "Give itemized estimates + a totals object that equals the sum of items (within rounding).",
+    "When user recipe/default food definitions are provided, match them preferentially before making generic assumptions.",
+    "If a recipe/default clearly applies, align portions and nutrients to that recipe unless the user says they modified it.",
     'Always include: item.notes (empty string if none), warnings (empty array if none), followup_questions (empty array if none).',
     "Be explicit about assumptions and uncertainty in confidence.notes and any warnings.",
   ].join(" ");
 
   const userText = [
     userNotes ? `User notes: ${userNotes}` : "User notes: (none)",
-    "If the user notes refer to any of these defined foods, prefer those definitions:",
-    JSON.stringify(
-      {
-        chocolate: foodDefs.chocolate ?? null,
-        smoothie: foodDefs.smoothie ?? null,
-        oatmeal: foodDefs.oatmeal ?? null,
-        chili: foodDefs.chili ?? null,
-        fish_oil: foodDefs.fish_oil ?? null,
-        soy_milk: foodDefs.soy_milk ?? null,
-      },
-      null,
-      2,
-    ),
+    "User recipe and default food context (prefer this when relevant):",
+    recipeContextText,
   ].join("\n");
 
   const response = await client.responses.parse({
@@ -202,13 +211,15 @@ export async function estimateNutritionFromText({ mealText, userNotes }) {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL || "gpt-5.2";
   const tracking = await readTrackingData();
-  const foodDefs = tracking?.rules?.metadata?.food_definitions ?? tracking?.metadata?.food_definitions ?? {};
+  const recipeContextText = buildRecipeContextText(tracking);
 
   const system = [
     "You estimate nutrition from a meal description.",
     "Return a best-effort estimate for: calories, fat_g, carbs_g, protein_g, fiber_g, potassium_mg, magnesium_mg, omega3_mg, calcium_mg, iron_mg.",
     "If you truly cannot estimate a micronutrient from the description/context, set it to null (do not guess wildly).",
     "Give itemized estimates + a totals object that equals the sum of items (within rounding).",
+    "When user recipe/default food definitions are provided, match them preferentially before making generic assumptions.",
+    "If a recipe/default clearly applies, align portions and nutrients to that recipe unless the user says they modified it.",
     'Always include: item.notes (empty string if none), warnings (empty array if none), followup_questions (empty array if none).',
     "Be explicit about assumptions and uncertainty in confidence.notes and any warnings.",
   ].join(" ");
@@ -216,20 +227,8 @@ export async function estimateNutritionFromText({ mealText, userNotes }) {
   const userText = [
     mealText?.trim() ? `Meal description: ${mealText.trim()}` : "Meal description: (none)",
     userNotes?.trim() ? `User notes: ${userNotes.trim()}` : "User notes: (none)",
-    "If the description/notes refer to any of these defined foods, prefer those definitions:",
-    JSON.stringify(
-      {
-        chocolate: foodDefs.chocolate ?? null,
-        smoothie: foodDefs.smoothie ?? null,
-        oatmeal: foodDefs.oatmeal ?? null,
-        chili: foodDefs.chili ?? null,
-        fish_oil: foodDefs.fish_oil ?? null,
-        soy_milk: foodDefs.soy_milk ?? null,
-        daily_supplements: foodDefs.daily_supplements ?? null,
-      },
-      null,
-      2,
-    ),
+    "User recipe and default food context (prefer this when relevant):",
+    recipeContextText,
   ].join("\n");
 
   const response = await client.responses.parse({

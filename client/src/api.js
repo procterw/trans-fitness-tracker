@@ -220,6 +220,7 @@ export async function saveSettingsProfiles({
   general = "",
   fitness = "",
   diet = "",
+  recipes = "",
   agent = "",
 }) {
   return fetchJson("/api/settings/profiles", {
@@ -229,6 +230,7 @@ export async function saveSettingsProfiles({
       general,
       fitness,
       diet,
+      recipes,
       agent,
     }),
   });

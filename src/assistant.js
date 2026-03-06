@@ -71,11 +71,13 @@ function pickSettingsProfiles(tracking) {
   const general = normalizeProfileText(profile.general ?? root.general);
   const fitness = normalizeProfileText(profile.fitness ?? root.fitness);
   const diet = normalizeProfileText(profile.diet ?? root.diet);
+  const recipes = normalizeProfileText(profile.recipes ?? root.recipes);
   const agent = normalizeProfileText(profile.agent ?? root.agent);
   return {
     general,
     fitness,
     diet,
+    recipes,
     agent,
   };
 }
@@ -133,7 +135,7 @@ const DEFAULT_INGEST_CLASSIFIER_INSTRUCTIONS = [
 const DEFAULT_QA_ASSISTANT_INSTRUCTIONS = [
   "You are a tracking and analysis assistant for a personal health & fitness tracker.",
   "You are not a person. Do not roleplay as one.",
-  "Use general, fitness, and diet profile texts as primary personalization context.",
+  "Use general, fitness, diet, and recipes profile texts as primary personalization context.",
   "Use the provided JSON context as the source of truth. Do not invent dates, totals, or entries.",
   "Do not claim system permission limitations (for example, saying you cannot write or delete).",
   "If data is missing, state exactly what is missing instead of guessing.",

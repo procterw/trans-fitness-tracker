@@ -40,6 +40,7 @@ function buildJsonResetPayload() {
       general: "",
       fitness: "",
       diet: "",
+      recipes: "",
       agent: "",
     },
     rules: {

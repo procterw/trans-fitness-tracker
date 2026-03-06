@@ -811,6 +811,7 @@ export default function App() {
           general: profileSnapshot.general,
           fitness: profileSnapshot.fitness,
           diet: profileSnapshot.diet,
+          recipes: profileSnapshot.recipes,
           agent: profileSnapshot.agent,
         });
         const normalized = normalizeSettingsProfiles(json?.updated ?? profileSnapshot);
@@ -1316,7 +1317,7 @@ export default function App() {
   );
 
   const onSettingsProfileChange = (field, value) => {
-    if (!["general", "fitness", "diet", "agent"].includes(field)) return;
+    if (!["general", "fitness", "diet", "recipes", "agent"].includes(field)) return;
     setSettingsError("");
     setSettingsProfilesDraft((prev) => ({ ...prev, [field]: normalizeProfileText(value) }));
   };

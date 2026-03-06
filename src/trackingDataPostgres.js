@@ -61,6 +61,7 @@ function normalizeProfile(profile) {
     general: normalizeProfileText(safe.general),
     fitness: normalizeProfileText(safe.fitness),
     diet: normalizeProfileText(safe.diet),
+    recipes: normalizeProfileText(safe.recipes),
     agent: normalizeProfileText(safe.agent),
   };
 }

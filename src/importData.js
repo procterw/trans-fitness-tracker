@@ -109,6 +109,7 @@ function normalizeProfile(profile) {
     general: normalizeOptionalText(safe.general),
     fitness: normalizeOptionalText(safe.fitness),
     diet: normalizeOptionalText(safe.diet),
+    recipes: normalizeOptionalText(safe.recipes),
     agent: normalizeOptionalText(safe.agent),
   };
 }
@@ -267,7 +268,7 @@ export function analyzeImportPayload(raw) {
   const profileRoot = Object.keys(profileRootSource).length ? profileRootSource : asObject(source.user_profile);
   const profilePresent = Object.keys(profileRoot).length > 0;
   const profileValue = normalizeProfile(profileRoot);
-  const profileFields = ["general", "fitness", "diet", "agent"].filter((field) => field in profileRoot);
+  const profileFields = ["general", "fitness", "diet", "recipes", "agent"].filter((field) => field in profileRoot);
   const profileImportable = profileFields.length > 0;
 
   const foodRoot = asObject(source.food);
@@ -402,7 +403,13 @@ export function applyImportPlan({ existingData, plan, nowIso }) {
       const safeProfile = normalizeProfile(domains.profile.value);
       const fields = asArray(domains.profile.fields);
       for (const field of fields) {
-        if (field === "general" || field === "fitness" || field === "diet" || field === "agent") {
+        if (
+          field === "general" ||
+          field === "fitness" ||
+          field === "diet" ||
+          field === "recipes" ||
+          field === "agent"
+        ) {
           next.profile[field] = safeProfile[field];
         }
       }

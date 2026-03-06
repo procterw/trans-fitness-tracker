@@ -28,6 +28,7 @@ const TRACKING_RULES_FILE = process.env.TRACKING_RULES_FILE
 const TIME_ZONE = "America/Los_Angeles";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CATEGORY_KEY = "workouts";
+const FOOD_IDEMPOTENCY_MAX_ENTRIES = 250;
 
 const DAY_NUMERIC_KEYS = ["calories", "fat_g", "carbs_g", "protein_g", "fiber_g"];
 const DAY_STATUS_VALUES = new Set(["green", "yellow", "red", "incomplete"]);
@@ -136,6 +137,12 @@ function normalizeOptionalText(value) {
   return typeof value === "string" ? value.replace(/\r\n/g, "\n") : "";
 }
 
+function normalizeIdempotencyKey(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  return text.length ? text : "";
+}
+
 function normalizeDayStatus(value) {
   if (value === null || value === undefined) return "incomplete";
   const text = normalizeText(value).toLowerCase();
@@ -159,6 +166,7 @@ function normalizeProfileData(profile) {
     general: normalizeOptionalText(safe.general),
     fitness: normalizeOptionalText(safe.fitness),
     diet: normalizeOptionalText(safe.diet),
+    recipes: normalizeOptionalText(safe.recipes),
     agent: normalizeOptionalText(safe.agent),
   };
 }
@@ -261,13 +269,16 @@ function stripLegacyMealPrefix(value) {
   return text;
 }
 
-function buildFoodEntryText(rawItems, description = "") {
+function buildFoodEntryText(rawItems, description = "", inputText = "") {
   const items = asArray(rawItems)
     .map((item) => normalizeFoodEntryItem(item))
     .filter(Boolean);
   const mealTitle = normalizeText(description);
+  const userText = normalizeText(inputText);
 
-  // Prefer structured food-item list over free-text meal title to avoid duplicate phrasing.
+  // Prefer concise meal-level text for logs; itemized estimates can be noisy and repetitive.
+  if (mealTitle) return mealTitle;
+  if (userText) return userText;
   if (items.length > 0) return items.join(", ");
   return mealTitle;
 }
@@ -387,6 +398,7 @@ function emptyCanonicalData() {
       general: "",
       fitness: "",
       diet: "",
+      recipes: "",
       agent: "",
     },
     activity: {
@@ -893,6 +905,87 @@ function upsertDietDay(days, nextDay) {
   return out;
 }
 
+function buildFoodRequestFingerprint({
+  mode,
+  id = null,
+  date,
+  source,
+  description,
+  input_text,
+  notes,
+  nutrients,
+  raw_items,
+}) {
+  const payload = {
+    mode: normalizeText(mode),
+    id: normalizeOptionalText(id),
+    date: normalizeOptionalText(date),
+    source: normalizeOptionalText(source),
+    description: normalizeOptionalText(description),
+    input_text: normalizeOptionalText(input_text),
+    notes: normalizeOptionalText(notes),
+    nutrients: asObject(nutrients),
+    raw_items: asArray(raw_items),
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
+}
+
+function getFoodIdempotencyStore(metadata) {
+  const safeMeta = asObject(metadata);
+  const bucket = asObject(safeMeta.food_idempotency);
+  const entries = asObject(bucket.entries);
+  return {
+    ...bucket,
+    entries,
+  };
+}
+
+function pruneFoodIdempotencyEntries(entries) {
+  const pairs = Object.entries(asObject(entries))
+    .filter(([key]) => normalizeIdempotencyKey(key))
+    .sort(([, a], [, b]) => String(b?.created_at || "").localeCompare(String(a?.created_at || "")));
+  const pruned = pairs.slice(0, FOOD_IDEMPOTENCY_MAX_ENTRIES);
+  return Object.fromEntries(pruned);
+}
+
+function readFoodIdempotencyEntry(metadata, key) {
+  const normalizedKey = normalizeIdempotencyKey(key);
+  if (!normalizedKey) return null;
+  const store = getFoodIdempotencyStore(metadata);
+  const entry = asObject(store.entries[normalizedKey]);
+  const fingerprint = normalizeOptionalText(entry.fingerprint);
+  if (!fingerprint) return null;
+  return {
+    key: normalizedKey,
+    fingerprint,
+    created_at: normalizeOptionalText(entry.created_at),
+    event: asObject(entry.event),
+    log_action: normalizeText(entry.log_action),
+    date: normalizeOptionalText(entry.date),
+  };
+}
+
+function writeFoodIdempotencyEntry(metadata, key, entry) {
+  const normalizedKey = normalizeIdempotencyKey(key);
+  if (!normalizedKey) return metadata;
+  const safeMeta = asObject(metadata);
+  const store = getFoodIdempotencyStore(safeMeta);
+  const nextEntries = {
+    ...store.entries,
+    [normalizedKey]: {
+      ...asObject(entry),
+      created_at: formatSeattleIso(new Date()),
+    },
+  };
+  return {
+    ...safeMeta,
+    food_idempotency: {
+      ...store,
+      entries: pruneFoodIdempotencyEntries(nextEntries),
+    },
+  };
+}
+
 function mergeNutrientsIntoDay(day, nutrients) {
   const out = normalizeDietDay(day) || normalizeDietDay({ date: day?.date || getSuggestedLogDate() });
   for (const key of DAY_NUMERIC_KEYS) {
@@ -971,26 +1064,40 @@ export async function addFoodEvent({
   if (!nutrients || typeof nutrients !== "object") throw new Error("Missing nutrients");
 
   const canonical = await readCanonicalTrackingData();
+  const requestFingerprint = buildFoodRequestFingerprint({
+    mode: "create",
+    date,
+    source,
+    description,
+    input_text,
+    notes,
+    nutrients,
+    raw_items,
+  });
+  const cachedEntry = readFoodIdempotencyEntry(canonical.rules.metadata, idempotency_key);
+  if (cachedEntry && cachedEntry.fingerprint === requestFingerprint) {
+    const existingDay = canonical.food.days.find((row) => row.date === date) || null;
+    if (existingDay) {
+      return {
+        event: cachedEntry.event,
+        day: existingDay,
+        log_action: "existing",
+      };
+    }
+  }
   const now = new Date();
   const loggedAt = formatSeattleIso(now);
 
   const existing =
     canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const merged = mergeNutrientsIntoDay(existing, nutrients);
-  const loggedFoodEntry = buildFoodEntryText(raw_items, description);
+  const loggedFoodEntry = buildFoodEntryText(raw_items, description, input_text || "");
   if (loggedFoodEntry) {
     merged.food_entries = [...asArray(merged.food_entries), loggedFoodEntry];
   }
   merged.ai_summary = buildFoodDayAiSummary(merged);
 
   canonical.food.days = upsertDietDay(canonical.food.days, merged);
-  canonical.rules.metadata = {
-    ...asObject(canonical.rules.metadata),
-    last_updated: loggedAt,
-  };
-
-  await writeCanonicalTrackingData(canonical);
-
   const event = {
     id: crypto.randomUUID(),
     date,
@@ -1004,8 +1111,23 @@ export async function addFoodEvent({
     model: model ?? null,
     confidence: confidence ?? null,
     items: asArray(raw_items),
-    idempotency_key: typeof idempotency_key === "string" && idempotency_key.trim() ? idempotency_key.trim() : null,
+    idempotency_key: normalizeIdempotencyKey(idempotency_key) || null,
   };
+  canonical.rules.metadata = writeFoodIdempotencyEntry(
+    {
+      ...asObject(canonical.rules.metadata),
+      last_updated: loggedAt,
+    },
+    idempotency_key,
+    {
+      fingerprint: requestFingerprint,
+      event,
+      log_action: "created",
+      date,
+    },
+  );
+
+  await writeCanonicalTrackingData(canonical);
 
   return {
     event,
@@ -1032,24 +1154,39 @@ export async function updateFoodEvent({
   if (!nutrients || typeof nutrients !== "object") throw new Error("Missing nutrients");
 
   const canonical = await readCanonicalTrackingData();
+  const requestFingerprint = buildFoodRequestFingerprint({
+    mode: "update",
+    id,
+    date,
+    source,
+    description,
+    input_text,
+    notes,
+    nutrients,
+    raw_items,
+  });
+  const cachedEntry = readFoodIdempotencyEntry(canonical.rules.metadata, idempotency_key);
+  if (cachedEntry && cachedEntry.fingerprint === requestFingerprint) {
+    const existingDay = canonical.food.days.find((row) => row.date === date) || null;
+    if (existingDay) {
+      return {
+        event: cachedEntry.event,
+        day: existingDay,
+        log_action: "existing",
+      };
+    }
+  }
   const now = new Date();
   const loggedAt = formatSeattleIso(now);
 
   const existing =
     canonical.food.days.find((row) => row.date === date) || normalizeDietDay({ date, status: "incomplete", ai_summary: "" });
   const replaced = replaceDayTotals(existing, nutrients);
-  const loggedFoodEntry = buildFoodEntryText(raw_items, description);
+  const loggedFoodEntry = buildFoodEntryText(raw_items, description, input_text || "");
   replaced.food_entries = loggedFoodEntry ? [loggedFoodEntry] : [];
   replaced.ai_summary = buildFoodDayAiSummary(replaced);
 
   canonical.food.days = upsertDietDay(canonical.food.days, replaced);
-  canonical.rules.metadata = {
-    ...asObject(canonical.rules.metadata),
-    last_updated: loggedAt,
-  };
-
-  await writeCanonicalTrackingData(canonical);
-
   const event = {
     id,
     date,
@@ -1063,8 +1200,23 @@ export async function updateFoodEvent({
     model: model ?? null,
     confidence: confidence ?? null,
     items: asArray(raw_items),
-    idempotency_key: typeof idempotency_key === "string" && idempotency_key.trim() ? idempotency_key.trim() : null,
+    idempotency_key: normalizeIdempotencyKey(idempotency_key) || null,
   };
+  canonical.rules.metadata = writeFoodIdempotencyEntry(
+    {
+      ...asObject(canonical.rules.metadata),
+      last_updated: loggedAt,
+    },
+    idempotency_key,
+    {
+      fingerprint: requestFingerprint,
+      event,
+      log_action: "updated",
+      date,
+    },
+  );
+
+  await writeCanonicalTrackingData(canonical);
 
   return {
     event,

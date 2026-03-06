@@ -29,7 +29,7 @@ import {
   isClearFoodCommand,
   isExistingActivityEntry,
   logFoodFromInputs,
-  summarizeActivityLoadForDate,
+  summarizeActivityContextForDate,
   validateIngestActivityDecision,
   writeFoodEventFromIngestDecision,
   inferActivitySelectionFromMessage,
@@ -206,6 +206,7 @@ function toImportExportDataShape(data) {
       general: normalizeExportProfileText(profile.general),
       fitness: normalizeExportProfileText(profile.fitness),
       diet: normalizeExportProfileText(profile.diet),
+      recipes: normalizeExportProfileText(profile.recipes),
       agent: normalizeExportProfileText(profile.agent),
     },
     training: {
@@ -1196,7 +1197,7 @@ function mergeChecklistTemplates(baseTemplate, requestedTemplate) {
   return merged;
 }
 
-const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "agent"];
+const SETTINGS_PROFILE_FIELDS = ["general", "fitness", "diet", "recipes", "agent"];
 const SETTINGS_PROFILE_INPUT_FIELDS = [...SETTINGS_PROFILE_FIELDS];
 const SETTINGS_CHECKLIST_FIELD = "checklist_categories";
 const SETTINGS_TRAINING_BLOCK_FIELD = "training_block";
@@ -1220,6 +1221,7 @@ const SETTINGS_PROFILE_LABELS = {
   general: "general profile",
   fitness: "fitness profile",
   diet: "diet profile",
+  recipes: "recipes profile",
   agent: "agent profile",
   [SETTINGS_CHECKLIST_FIELD]: "training checklist template",
   [SETTINGS_TRAINING_BLOCK_FIELD]: "training block",
@@ -1303,11 +1305,13 @@ function getSettingsProfiles(data) {
   const general = normalizeProfileText(profile.general);
   const fitness = normalizeProfileText(profile.fitness);
   const diet = normalizeProfileText(profile.diet);
+  const recipes = normalizeProfileText(profile.recipes);
   const agent = normalizeProfileText(profile.agent);
   return {
     general,
     fitness,
     diet,
+    recipes,
     agent,
   };
 }
@@ -1339,6 +1343,7 @@ function applyStarterSeed(data, { now = new Date(), currentWeek = null } = {}) {
   }
   if (!hasNonEmptyString(profiles.fitness)) profile.fitness = "";
   if (!hasNonEmptyString(profiles.diet)) profile.diet = "";
+  if (!hasNonEmptyString(profiles.recipes)) profile.recipes = "";
   if (!hasNonEmptyString(profiles.agent)) profile.agent = "";
 
   const existingTemplate = extractChecklistTemplate(asObject(getTrackingMetadata(data).checklist_template));
@@ -1665,6 +1670,7 @@ function normalizeSettingsProposal(value, currentWeek = null) {
     general: null,
     fitness: null,
     diet: null,
+    recipes: null,
     agent: null,
     training_block: null,
   };
@@ -2939,11 +2945,12 @@ app.post("/api/assistant/ingest", upload.single("image"), async (req, res) => {
         clientRequestId,
       });
       const activityWeek = await getCurrentActivityWeek();
-      const sessionsToday = summarizeActivityLoadForDate(activityWeek, payload?.date ?? null);
+      const activityContext = summarizeActivityContextForDate(activityWeek, payload?.date ?? null);
+      const trackingData = await readTrackingData();
       const responsePayload = {
         ok: true,
         action: "food",
-        assistant_message: buildFoodAssistantMessage({ payload, sessionsToday }),
+        assistant_message: buildFoodAssistantMessage({ payload, activityContext, userContext: trackingData }),
         followup_question: decision?.followup_question || null,
         food_result: payload,
         activity_updates: null,

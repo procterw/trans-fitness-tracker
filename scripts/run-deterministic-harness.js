@@ -145,8 +145,8 @@ async function main() {
     raw_items: [],
     idempotency_key: "F01-add-food",
   });
-  assert.equal(idempotentRetry.log_action, "created");
-  results.push("D02 repeated add appends to day");
+  assert.equal(idempotentRetry.log_action, "existing");
+  results.push("D02 repeated add is idempotent");
 
   const nearDuplicate = await addFoodEvent({
     date: dateA,

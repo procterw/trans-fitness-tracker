@@ -15,7 +15,7 @@ This is a personal diet + fitness tracker designed around long-term trans femini
 Tracking data is split across four files in the repo root:
 - `tracking-food.json` — `days`
 - `tracking-activity.json` — `blocks` + `weeks`
-- `tracking-profile.json` — profile text blobs (`general`, `fitness`, `diet`, `agent`)
+- `tracking-profile.json` — profile text blobs (`general`, `fitness`, `diet`, `recipes`, `agent`)
 - `tracking-rules.json` — `metadata`, `diet_philosophy`, `fitness_philosophy`, `assistant_rules` (JSON backend / local fallback source)
 These files are optional when `TRACKING_BACKEND=postgres`; empty template files are valid for future local JSON development.
 
@@ -48,7 +48,7 @@ This repo includes a minimal local web app that supports:
   - the app opens on Settings once (not gated), and users can navigate anywhere immediately
   - settings supports direct textarea editing plus UI-based block/checklist editing (no settings chat)
 - Weekly fitness checklist updates (`week` payload over canonical activity weeks)
-- Settings for editing four profile text blobs (`general`, `fitness`, `diet`, `agent`)
+- Settings for editing profile text blobs (`general`, `fitness`, `diet`, `recipes`, `agent`)
 - A basic dashboard for browsing:
   - day details + daily totals for a selected date
   - a full days table across all dates
@@ -82,12 +82,12 @@ This repo includes a minimal local web app that supports:
 - `GET /api/settings/state` → returns current profile text blobs + `settings_version`
   - also returns `training_blocks` summary (`active_block_id`, block list)
 - `POST /api/settings/profiles` → JSON body with any of:
-  - `general`, `fitness`, `diet`, `agent` (all text)
+  - `general`, `fitness`, `diet`, `recipes`, `agent` (all text)
   - Directly applies textarea edits and updates settings history/version
 - `GET /api/context` → returns suggested log date (rollover-aware) + philosophy snippets
 - `GET /api/user/export` → returns all user tracking data for export/download
   - includes `exported_at`, authenticated `user_id`, and import/export payload (`data`) shaped as:
-    - `user_profile` (`general`, `fitness`, `diet`, `agent`)
+    - `user_profile` (`general`, `fitness`, `diet`, `recipes`, `agent`)
     - `training` (`blocks`, `weeks`)
     - `diet` (array of day rows)
 - `POST /api/user/import/analyze` → multipart form with `file` and/or pasted JSON text field (`raw_text`)
@@ -140,7 +140,7 @@ Implementation: `src/visionNutrition.js`
 ## File layout
 - `tracking-food.json` — day rows (`days`)
 - `tracking-activity.json` — training blocks + week snapshots
-- `tracking-profile.json` — canonical settings profile text blobs (`general`, `fitness`, `diet`, `agent`)
+- `tracking-profile.json` — canonical settings profile text blobs (`general`, `fitness`, `diet`, `recipes`, `agent`)
 - `tracking-rules.json` — metadata + diet/fitness philosophy + assistant prompt/routing rules (JSON backend or migration source)
 - `src/server.js` — Express server (API + serves React)
 - `src/trackingData.js` — reading/writing + rollover-aware date + fitness week helpers + rollups

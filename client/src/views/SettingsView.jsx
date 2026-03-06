@@ -87,6 +87,16 @@ export default function SettingsView({
                   placeholder="Diet preferences, recipes, caloric targets, and food logging shortcuts."
                 />
               </label>
+              <label className="settingsProfilesField" htmlFor="recipes_text">
+                <span className="sidebarSectionLabel">Recipes</span>
+                <textarea
+                  id="recipes_text"
+                  className="settingsProfileTextarea"
+                  value={typeof profiles.recipes === "string" ? profiles.recipes : ""}
+                  onChange={(e) => onSettingsProfileChange("recipes", e.target.value)}
+                  placeholder="Recipe and shorthand dictionary (for example: usual meals, aliases, defaults, and portions)."
+                />
+              </label>
               <label className="settingsProfilesField" htmlFor="agent_text">
                 <span className="sidebarSectionLabel">Agent profile</span>
                 <textarea
